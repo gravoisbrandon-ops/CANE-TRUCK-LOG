@@ -159,7 +159,10 @@ td.n,th.n{text-align:right}
         <h1>Cane Truck Log</h1>
         <div class="day" id="dayLine"></div>
       </div>
-      <button class="me" id="meBtn" data-act="goMe" type="button" aria-label="Your name, role and farm"><span id="meLabel">Set up your name</span></button>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="me" id="meBtn" data-act="goMe" type="button" aria-label="Your name, role and farm"><span id="meLabel">Set up your name</span></button>
+        <button class="me" id="langBtn" data-act="lang" type="button" aria-label="Language / Idioma">Español</button>
+      </div>
     </div>
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button class="tab" role="tab" data-act="tab" data-tab="board" id="tab-board" aria-selected="true" type="button">Board</button>
@@ -178,6 +181,13 @@ td.n,th.n{text-align:right}
       <form class="card" id="loginForm" autocomplete="on">
         <h2 id="loginTitle">Sign in</h2>
         <p id="loginIntro">Use the email and password you signed up with.</p>
+        <div id="lLangWrap" hidden>
+          <div class="lbl">Language / Idioma</div>
+          <div class="fchips" role="group" aria-label="Language / Idioma" style="margin-bottom:12px">
+            <button type="button" class="fchip" id="langEn" data-act="setLang" data-lang="en" aria-pressed="true">English</button>
+            <button type="button" class="fchip" id="langEs" data-act="setLang" data-lang="es" aria-pressed="false">Español</button>
+          </div>
+        </div>
         <label class="f" id="lNameWrap" hidden>Your name<input type="text" id="lName" maxlength="40" autocomplete="name" placeholder="First name and last initial"></label>
         <label class="f">Email<input type="email" id="lEmail" autocomplete="email" inputmode="email"></label>
         <label class="f">Password<input type="password" id="lPass" autocomplete="current-password" minlength="6"></label>
@@ -310,7 +320,8 @@ function pad(n){ return String(n).padStart(2,'0'); }
 function ymd(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
 function today(){ return ymd(new Date()); }          /* a new calendar date is a new start date */
 function addDays(key,n){ var p=key.split('-').map(Number); return ymd(new Date(p[0],p[1]-1,p[2]+n)); }
-function dayLabel(key){ var p=key.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'}); }
+var LANG = (function(){ var v=null; try{ v=localStorage.getItem('cane-truck-log:lang'); }catch(e){} if(v==='es'||v==='en') return v; return /^es/i.test(navigator.language||'') ? 'es' : 'en'; })();
+function dayLabel(key){ var p=key.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]).toLocaleDateString(LANG==='es'?'es-US':[], {weekday:'short',month:'short',day:'numeric'}); }
 function timeOf(ms){ return new Date(ms).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); }
 function hhmm(ms){ var d=new Date(ms); return pad(d.getHours())+':'+pad(d.getMinutes()); }
 function timeToMs(day, hm, origMs){
@@ -1244,6 +1255,8 @@ document.addEventListener('click', function(e){
     case 'pickAllDay': C.sel=el.getAttribute('data-day'); last.comb=''; schedule(); break;
     case 'goMe': S.tab='me'; $('#meForm').removeAttribute('data-init'); schedule(); break;
     case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else logLoad(lt); } break;
+    case 'lang': setLang(LANG==='es'?'en':'es'); break;
+    case 'setLang': if(el.getAttribute('data-lang')!==LANG){ try{ sessionStorage.setItem('cane-truck-log:reg','1'); }catch(_){} setLang(el.getAttribute('data-lang')); } break;
     case 'quickAdd': openQuick(''); break;
     case 'refreshBoard':
       var rb=$('#refreshBtn'); rb.disabled=true; rb.textContent='Refreshing...';
@@ -1272,7 +1285,7 @@ document.addEventListener('click', function(e){
     case 'signOut': signOut(); break;
     case 'toggleReg':
       S.regMode=!S.regMode; $('#loginErr').textContent='';
-      $('#lNameWrap').hidden=!S.regMode; $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
+      $('#lLangWrap').hidden=!S.regMode; $('#lNameWrap').hidden=!S.regMode; $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
       $('#loginIntro').textContent=S.regMode?'Make an account with your email. An invite link puts you on your farm, or an administrator does.':'Use the email and password you signed up with.';
       $('#loginBtn').textContent=S.regMode?'Create account':'Sign in';
       $('#regToggle').textContent=S.regMode?'Already have an account? Sign in':'New here? Create an account';
@@ -1285,8 +1298,8 @@ document.addEventListener('click', function(e){
     case 'copyInvite':
       var cf=el.getAttribute('data-farm'), link=location.origin+'/?join='+(INV[cf]||'');
       var done=function(){ toast('Link copied. Paste it in a text.'); };
-      if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,function(){ window.prompt('Copy this link:',link); });
-      else window.prompt('Copy this link:',link);
+      if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,function(){ window.prompt(tr('Copy this link:'),link); });
+      else window.prompt(tr('Copy this link:'),link);
       break;
     case 'newInvite':
       var nf=el.getAttribute('data-farm');
@@ -1384,6 +1397,182 @@ document.addEventListener('submit', function(e){
   }
 });
 
+/* ---------- language (English / Spanish) ---------- */
+var ES = {
+ '+ Add truck':'+ Agregar camión','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ 'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
+ 'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
+ 'All farms':'Todas las fincas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
+ 'Check again':'Revisar otra vez','Close':'Cerrar','Combine operator':'Operador de la cosechadora','Daily report':'Reporte diario',
+ 'Edit trucks and mills':'Editar camiones y molinos','Email':'Correo','Farm':'Finca','Farm name':'Nombre de la finca','New farm name':'Nombre de la finca nueva',
+ 'Farm you are viewing':'Finca que está viendo','Farms':'Fincas','First name and last initial':'Nombre y inicial del apellido',
+ 'Goes only to these mills':'Va solo a estos molinos','Goes only to this mill':'Va solo a este molino',
+ 'Hauler or driver (optional)':'Transportista o chofer (opcional)','Have an invite code or link?':'¿Tiene un código o enlace de invitación?',
+ 'Join my farm':'Unirme a mi finca','Leave all unchecked if this truck can go to any mill.':'Deje todo sin marcar si este camión puede ir a cualquier molino.',
+ 'Leave all unchecked if this truck can go to any mill. A truck with one mill is logged to that mill automatically.':'Deje todo sin marcar si este camión puede ir a cualquier molino. Un camión con un solo molino se registra solo a ese molino.',
+ 'Loading to mill':'Cargando para el molino','Name':'Nombre','New here? Create an account':'¿Es nuevo? Cree una cuenta','Password':'Contraseña',
+ 'Paste it here':'Péguelo aquí','People':'Personal','Refresh':'Actualizar','Refreshing...':'Actualizando...','Remove truck':'Quitar camión',
+ 'Report':'Reporte','Role':'Rol','Save and open the board':'Guardar y abrir el tablero','Sections':'Secciones','Set up your name':'Ponga su nombre',
+ 'Setup':'Configuración','Sign in':'Iniciar sesión','Sign out':'Cerrar sesión','Sign out of this device':'Cerrar sesión en este aparato',
+ 'Taps the truck number when it is loaded':'Toca el número del camión cuando está cargado','Tractor driver':'Chofer de tractor',
+ 'Truck board':'Tablero de camiones','Truck number':'Número de camión','Truck rosters':'Lista de camiones',
+ 'Use the email and password you signed up with.':'Use el correo y la contraseña con que se registró.',
+ 'Waiting for approval':'Esperando aprobación','Watches the loads come in':'Vigila las cargas que van llegando',
+ 'Who is logging?':'¿Quién está registrando?','Your details':'Sus datos','Your farm':'Su finca','Your name':'Su nombre',
+ 'Your name goes on every truck you log.':'Su nombre queda en cada camión que registre.','Your name, role and farm':'Su nombre, rol y finca',
+ 'Your account is made. Ask your crew manager for your farm\'s invite link, or wait for an administrator to put you on a farm. This page checks on its own.':'Su cuenta está hecha. Pídale a su jefe de cuadrilla el enlace de invitación de su finca, o espere a que un administrador lo ponga en una finca. Esta página se revisa sola.',
+ 'Crew make their own account from your invite link. A crew manager can add and remove trucks, edit mills, tracks and fields, and manage the crew on their farm. Crew can log loads and add trucks.':'La cuadrilla crea su propia cuenta con su enlace de invitación. Un jefe de cuadrilla puede agregar y quitar camiones, editar molinos, tracks y campos, y manejar a la cuadrilla de su finca. La cuadrilla puede registrar cargas y agregar camiones.',
+ 'Every farm is separate, with its own trucks, drivers, combine operator, loads and report. Administrators can open any farm and switch between them. Crew log only on their own farm. A farm with two or more mills asks the driver which mill the loads are going to. Each new date starts with a clean list.':'Cada finca está separada, con sus propios camiones, choferes, operador de cosechadora, cargas y reporte. Los administradores pueden abrir cualquier finca y cambiar entre ellas. La cuadrilla solo registra en su propia finca. Una finca con dos o más molinos le pregunta al chofer a qué molino van las cargas. Cada fecha nueva empieza con una lista limpia.',
+ 'Administrator':'Administrador','Crew manager':'Jefe de cuadrilla','Crew':'Cuadrilla','Waiting':'En espera','In route':'En camino','Loaded':'Cargado',
+ 'Today’s loads':'Cargas de hoy','Back to Waiting after':'Regresa a En espera después de','Any mill':'Cualquier molino','All mills':'Todos los molinos',
+ 'Mill':'Molino','Mills':'Molinos','Track':'Track','Tracks':'Tracks','Field':'Campo','Fields':'Campos','Truck':'Camión','Trucks':'Camiones',
+ 'Hauler':'Transportista','Date':'Fecha','Hour':'Hora','Total':'Total','Time loaded':'Hora de carga','Loaded at':'Hora de carga','Logged by':'Registró',
+ 'First loaded':'Primera carga','Last loaded':'Última carga','Trucks used':'Camiones usados','Farms loading':'Fincas cargando','Day to day':'Día por día',
+ 'Day to day, by farm':'Día por día, por finca','Farm · Mill':'Finca · Molino','Days to show':'Días a mostrar','Save as CSV':'Guardar como CSV',
+ 'Earlier':'Antes','Later':'Después','← Earlier':'← Antes','Later →':'Después →','Save changes':'Guardar cambios','Fix this load':'Corregir esta carga',
+ 'Delete this load':'Borrar esta carga','Tap again to delete this load':'Toque otra vez para borrar esta carga','Undo':'Deshacer','Done editing':'Terminar de editar',
+ 'Edit truck':'Editar camión','Save truck':'Guardar camión','Invite link':'Enlace de invitación','Copy':'Copiar','New link':'Enlace nuevo','Sure?':'¿Seguro?',
+ 'Remove':'Quitar','Remove farm':'Quitar finca','Tap again to remove':'Toque otra vez para quitar','Tap again to load again':'Toque otra vez para cargar de nuevo',
+ 'Edit':'Editar','Pick a farm':'Escoja una finca','Pick your farm':'Escoja su finca','Choose my farm':'Escoger mi finca','Open setup':'Abrir configuración',
+ 'Add a truck':'Agregar un camión','Add a farm first':'Primero agregue una finca','Add a farm first.':'Primero agregue una finca.',
+ 'Create account':'Crear cuenta','Create your account':'Cree su cuenta','Already have an account? Sign in':'¿Ya tiene cuenta? Inicie sesión',
+ 'Make an account with your email. An invite link puts you on your farm, or an administrator does.':'Cree una cuenta con su correo. Un enlace de invitación lo pone en su finca, o lo hace un administrador.',
+ 'You were invited. Make your account and you go straight to your farm.':'Lo invitaron. Cree su cuenta y entra directo a su finca.',
+ 'Usual farm (optional)':'Finca de costumbre (opcional)','No usual farm':'Sin finca de costumbre','No farm picked':'No ha escogido finca',
+ 'No farms added yet':'Todavía no hay fincas','Pick a farm first':'Primero escoja una finca',
+ 'You are an administrator. You can open any farm and switch between them. Pick a usual farm if you like to stay on one.':'Usted es administrador. Puede abrir cualquier finca y cambiar entre ellas. Escoja una finca de costumbre si le gusta quedarse en una.',
+ 'Your name goes on every truck you log. Your code opens one farm, and only an administrator can give you another.':'Su nombre queda en cada camión que registre. Su acceso abre una finca, y solo un administrador le puede dar otra.',
+ 'Pick your farm in your details to see its report.':'Escoja su finca en sus datos para ver su reporte.',
+ 'Pick the mill above, then tap the truck':'Escoja el molino arriba, luego toque el camión','Waiting trucks · tap the one just loaded':'Camiones en espera · toque el que acaba de cargar',
+ 'No trucks waiting.':'No hay camiones en espera.','The truck you tap lands here, then returns to Waiting.':'El camión que toque llega aquí, y luego regresa a En espera.',
+ 'Trucks on the way to the mill show here, then return to Waiting.':'Los camiones en camino al molino aparecen aquí, y luego regresan a En espera.',
+ 'No loads logged yet today. Tap a truck number when it is loaded and it shows here with the time.':'Todavía no hay cargas hoy. Toque el número del camión cuando esté cargado y aparece aquí con la hora.',
+ 'Edit mode.':'Modo de edición.','Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.':'Toque un camión para cambiar su número o molino. Toque Terminar de editar al acabar. Por ahora los toques no registran cargas.',
+ 'Add a truck here once and it stays on the roster every day.':'Agregue un camión aquí una vez y se queda en la lista todos los días.',
+ 'Loading trucks':'Cargando camiones','Getting the latest board.':'Trayendo el tablero más reciente.','Waiting for the shared list':'Esperando la lista compartida',
+ 'Once you are signed in, the trucks appear here.':'Al iniciar sesión, los camiones aparecen aquí.','No farms yet':'Todavía no hay fincas',
+ 'Add each farm and its trucks once. After that every crew sees only its own farm.':'Agregue cada finca y sus camiones una vez. Después cada cuadrilla ve solo su propia finca.',
+ 'An administrator has not added any farms. Ask them to add yours, then open this page again.':'Un administrador todavía no ha agregado fincas. Pídale que agregue la suya y abra esta página otra vez.',
+ 'Your farm is not available':'Su finca no está disponible','The farm you were set up on was removed. Ask an administrator to move you to another farm.':'La finca donde lo pusieron fue quitada. Pídale a un administrador que lo pase a otra finca.',
+ 'Choose the farm you work for. You will only see its trucks and loads.':'Escoja la finca donde trabaja. Solo verá sus camiones y cargas.',
+ 'Pick the mill':'Escoja el molino','Pick the mill first.':'Primero escoja el molino.',
+ 'None yet. Add each mill this farm hauls to.':'Ninguno todavía. Agregue cada molino al que esta finca lleva.','None yet. Tracks are optional.':'Ninguno todavía. Los tracks son opcionales.','None yet. Fields are optional.':'Ninguno todavía. Los campos son opcionales.',
+ 'Mill name':'Nombre del molino','Track, like Johnson':'Track, como Johnson','Field name or number':'Nombre o número del campo',
+ 'No trucks yet. Add the first one above.':'Todavía no hay camiones. Agregue el primero arriba.','No hauler named':'Sin transportista',
+ 'Send this link to a crew member. They make their own account and land on the farm right away.':'Mande este enlace a un miembro de la cuadrilla. Crea su propia cuenta y entra directo a la finca.',
+ 'No one has joined yet.':'Nadie se ha unido todavía.','No name':'Sin nombre','Open Setup to give them a farm.':'Abra Configuración para darles una finca.',
+ 'Now pick the farm for them.':'Ahora escoja la finca para esta persona.','Saved':'Guardado','Removed':'Quitado',
+ 'Remove or move this farm’s trucks first.':'Primero quite o mueva los camiones de esta finca.','Farm removed':'Finca quitada','Truck removed':'Camión quitado',
+ 'Load deleted':'Carga borrada','Load removed':'Carga quitada','Load fixed':'Carga corregida','Link copied. Paste it in a text.':'Enlace copiado. Péguelo en un mensaje.',
+ 'New link made. The old one no longer works.':'Enlace nuevo creado. El anterior ya no funciona.','Copy this link:':'Copie este enlace:','Type the code first.':'Primero escriba el código.',
+ 'That code did not work.':'Ese código no funcionó.','That invite link did not work. Ask for a new one.':'Ese enlace de invitación no funcionó. Pida uno nuevo.',
+ 'You are approved. Welcome.':'Está aprobado. Bienvenido.','You are in. Welcome.':'Ya está adentro. Bienvenido.','Signed out. Sign in again.':'Sesión cerrada. Inicie sesión otra vez.',
+ 'You were signed out.':'Se cerró su sesión.','You were signed out. Sign in again.':'Se cerró su sesión. Inicie sesión otra vez.',
+ 'Use Sign out on your details page, then sign in again.':'Use Cerrar sesión en la página de sus datos y luego inicie sesión otra vez.',
+ 'No signal.':'Sin señal.','No signal. Check your connection and try again.':'Sin señal. Revise su conexión e intente otra vez.','No signal. Try again in a moment.':'Sin señal. Intente otra vez en un momento.',
+ 'The board will catch up when you are back online.':'El tablero se pone al día cuando vuelva la señal.','Could not save.':'No se pudo guardar.','Could not save. Check your signal and try again.':'No se pudo guardar. Revise su señal e intente otra vez.',
+ 'Could not save the CSV here.':'No se pudo guardar el CSV aquí.','CSV ready':'CSV listo','Could not create the account.':'No se pudo crear la cuenta.',
+ 'That email and password did not work.':'Ese correo y contraseña no funcionaron.','Check your email to confirm your address, then sign in.':'Revise su correo para confirmar su dirección, y luego inicie sesión.',
+ 'Enter your email and password.':'Escriba su correo y contraseña.','Enter your name.':'Escriba su nombre.','Use at least 6 characters for the password.':'Use al menos 6 caracteres en la contraseña.',
+ 'Enter a truck number.':'Escriba un número de camión.','Add your name first so your logs carry it.':'Primero ponga su nombre para que sus registros lo lleven.',
+ 'That farm is already on the list.':'Esa finca ya está en la lista.','Up to date':'Al día','This site is not connected yet.':'Este sitio todavía no está conectado.',
+ 'Add your Supabase address and key to config.js.':'Agregue su dirección y llave de Supabase en config.js.','Add farms in Setup first.':'Primero agregue fincas en Configuración.',
+ 'No report yet':'Todavía no hay reporte','Sign in to read the logged loads.':'Inicie sesión para ver las cargas registradas.',
+ 'Some days could not be loaded. Tap Refresh to try again.':'No se pudieron cargar algunos días. Toque Actualizar para intentar otra vez.',
+ 'All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.':'Todas las fincas juntas, para administradores. El Reporte de cada finca sigue separado. Esta vista carga al abrirla, así que toque Actualizar para lo más reciente.',
+ 'Nothing logged.':'Nada registrado.','No mill':'Sin molino','No mill set':'Sin molino','No track set':'Sin track','No field set':'Sin campo','Not set':'Sin definir','None':'Ninguno','Unknown':'Desconocido',
+ 'You have view access only, so editing is turned off.':'Solo tiene acceso para ver, así que la edición está apagada.','Edit to move it to a farm':'Edite para pasarlo a una finca','Farm was removed':'La finca fue quitada',
+ 'An administrator has not approved your account yet.':'Un administrador todavía no aprueba su cuenta.','Delete':'Borrar',
+ 'waiting':'esperando','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
+};
+var ES_RULES = [
+ [/^Filter loads by mill$/, 'Filtrar cargas por molino'],
+ [/^Minutes a truck stays In route$/, 'Minutos que un camión queda En camino'],
+ [/^Minutes a truck shows as Loaded$/, 'Minutos que un camión se ve Cargado'],
+ [/^(.+) \(today\)$/, '$1 (hoy)'],
+ [/^(.+) only(, loads to (.+))?\. Each row is one date\. Every tap on a truck number counts as one load\.$/, function(m,f,x,mi){ return f+' solamente'+(mi?', cargas a '+mi:'')+'. Cada fila es una fecha. Cada toque en un número de camión cuenta como una carga.'; }],
+ [/^(\d+) min ago$/, 'hace $1 min'], [/^(\d+) h (\d+) m ago$/, 'hace $1 h $2 m'],
+ [/^Last (\d+) days$/, 'Últimos $1 días'],
+ [/^Truck \S+?, .+$/, function(m){ return m.replace(/^Truck (\S+?),/, 'Camión $1,').replace(/ goes to /,' va a ').replace(/loaded (\d+) times? today/,'cargado $1 vez(veces) hoy').replace(/on the way, loaded at/,'en camino, cargado a las').replace(/just loaded at/,'recién cargado a las').replace(/tap twice to load again/,'toque dos veces para cargar otra vez'); }],
+ [/^Truck (.+) \(not on roster\)$/, 'Camión $1 (no está en la lista)'],
+ [/^Truck (.+) loaded at (.+?) for (.+)$/, 'Camión $1 cargado a las $2 para $3'],
+ [/^Truck (.+) loaded at (.+)$/, 'Camión $1 cargado a las $2'],
+ [/^Truck (.+) was just logged\.$/, 'El camión $1 se acaba de registrar.'],
+ [/^Truck (.+) only goes to (.+)\.$/, 'El camión $1 solo va a $2.'],
+ [/^Truck (.+) saved(?: · (.+) only)?$/, function(m,a,b){ return 'Camión '+a+' guardado'+(b?' · solo '+b:''); }],
+ [/^Edit truck (.+)$/, 'Editar camión $1'],
+ [/^Truck (.+)$/, 'Camión $1'],
+ [/^No trucks on (.+)$/, 'No hay camiones en $1'],
+ [/^(\d+) trucks? on this farm$/, function(m,n){ return n+(n==='1'?' camión':' camiones')+' en esta finca'; }],
+ [/^Any mill · (\d+)$/, 'Cualquier molino · $1'],
+ [/^×(\d+) today$/, '×$1 hoy'],
+ [/^(.+) · tracks and fields$/, '$1 · tracks y campos'],
+ [/^Only (.+)$/, 'Solo $1'],
+ [/^To (.+)$/, 'A $1'], [/^logged by (.+)$/, 'registró $1'],
+ [/^(.+) loaded$/, '$1 cargados'], [/^(.+) by (hour|mill|track|field|truck|farm)$/, function(m,d,w){ return d+' por '+({hour:'hora',mill:'molino',track:'track',field:'campo',truck:'camión',farm:'finca'})[w]; }],
+ [/^(.+) load log$/, 'Registro de cargas de $1'],
+ [/^Saved\. Welcome, (.+)\.$/, 'Guardado. Bienvenido, $1.'],
+ [/^(\d+) trucks? added to (.+?)(?:, (\d+) already on the roster)?$/, function(m,n,f,s){ return n+(n==='1'?' camión agregado':' camiones agregados')+' a '+f+(s?', '+s+' ya estaban en la lista':''); }],
+ [/^(\d+) trucks? added(?: · (.+) only)?(?:, (\d+) already on the roster)?$/, function(m,n,mi,s){ return n+(n==='1'?' camión agregado':' camiones agregados')+(mi?' · solo '+mi:'')+(s?', '+s+' ya estaban en la lista':''); }],
+ [/^(\d+) already on the roster$/, '$1 ya estaban en la lista'],
+ [/^(\d+) person is waiting for approval\.$/, '$1 persona espera aprobación.'],
+ [/^(\d+) people are waiting for approval\.$/, '$1 personas esperan aprobación.'],
+ [/^Color for (.+)$/, 'Color de $1'], [/^Remove (.+)$/, 'Quitar $1'], [/^Role for (.+)$/, 'Rol de $1'], [/^Farm for (.+)$/, 'Finca de $1'],
+ [/^New (mill|track|field) for (.+)$/, function(m,k,f){ return 'Nuevo '+({mill:'molino',track:'track',field:'campo'})[k]+' para '+f; }],
+ [/^(\d+) min$/, '$1 min']
+];
+function trOne(t){
+  if(Object.prototype.hasOwnProperty.call(ES,t)) return ES[t];
+  for(var i=0;i<ES_RULES.length;i++){ var r=ES_RULES[i], m=r[0].exec(t); if(m) return typeof r[1]==='function' ? r[1].apply(null,m) : t.replace(r[0],r[1]); }
+  return null;
+}
+function tr(t){
+  if(LANG!=='es' || !t) return t;
+  var core=t.trim(); if(!core) return t;
+  var lead=t.slice(0,t.indexOf(core)), trail=t.slice(t.indexOf(core)+core.length);
+  var r=trOne(core);
+  if(r===null && core.indexOf(' · ')>0){            /* "To Cora · logged by Sam" style lines */
+    r=core.split(' · ').map(function(p){ var x=trOne(p); return x===null?p:x; }).join(' · ');
+  }
+  return r===null ? t : lead+r+trail;
+}
+var trBusy=false;
+function trNode(root){
+  if(LANG!=='es') return;
+  trBusy=true;
+  try{
+    if(root.nodeType===3){ var v=tr(root.nodeValue); if(v!==root.nodeValue) root.nodeValue=v; }
+    else if(root.nodeType===1){
+      var w=document.createTreeWalker(root, NodeFilter.SHOW_TEXT|NodeFilter.SHOW_ELEMENT), n=root, els=[root];
+      while((n=w.nextNode())){
+        if(n.nodeType===3){ if(n.parentNode && /^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName)) continue; var nv=tr(n.nodeValue); if(nv!==n.nodeValue) n.nodeValue=nv; }
+        else els.push(n);
+      }
+      els.forEach(function(e){ ['aria-label','placeholder','title'].forEach(function(a){ var av=e.getAttribute && e.getAttribute(a); if(av){ var nv2=tr(av); if(nv2!==av) e.setAttribute(a,nv2); } }); });
+    }
+  }finally{ trBusy=false; }
+}
+function startLang(){
+  document.documentElement.lang = LANG;
+  var le=document.getElementById('langEn'), ls=document.getElementById('langEs');
+  if(le&&ls){ le.setAttribute('aria-pressed',LANG==='en'?'true':'false'); ls.setAttribute('aria-pressed',LANG==='es'?'true':'false'); }
+  try{ if(sessionStorage.getItem('cane-truck-log:reg')==='1'){ sessionStorage.removeItem('cane-truck-log:reg'); if(!S.regMode) document.getElementById('regToggle').click(); } }catch(_){}
+  var b=document.getElementById('langBtn'); if(b) b.textContent = LANG==='es' ? 'English' : 'Español';
+  if(LANG!=='es') return;
+  trNode(document.body);
+  new MutationObserver(function(recs){
+    if(trBusy) return;
+    var pend=[]; recs.forEach(function(r){
+      if(r.type==='childList'){ [].forEach.call(r.addedNodes,function(n){ pend.push(n); }); }
+      else if(r.type==='characterData'){ pend.push(r.target); }
+      else if(r.type==='attributes'){ pend.push(r.target); }
+    });
+    pend.forEach(trNode);
+  }).observe(document.body,{ childList:true, subtree:true, characterData:true, attributes:true, attributeFilter:['aria-label','placeholder','title'] });
+}
+function setLang(l){ lsSet('cane-truck-log:lang', l); location.reload(); }
+
 /* ---------- start ---------- */
 async function init(){
   var rv=Number(lsGet('cane-truck-log:route')); if([30,45,60,90,120,180].indexOf(rv)>=0) S.route=rv;
@@ -1391,7 +1580,7 @@ async function init(){
   try{
     var jm=/[?&]join=([A-Za-z0-9]+)/.exec(location.search);
     if(jm){ JOIN=jm[1].toUpperCase(); lsSet('cane-truck-log:join',JOIN); history.replaceState(null,'',location.pathname); S.regMode=true;
-      $('#lNameWrap').hidden=false; $('#loginTitle').textContent='Create your account'; $('#loginIntro').textContent='You were invited. Make your account and you go straight to your farm.'; $('#loginBtn').textContent='Create account'; $('#regToggle').textContent='Already have an account? Sign in'; $('#lPass').setAttribute('autocomplete','new-password'); }
+      $('#lLangWrap').hidden=false; $('#lNameWrap').hidden=false; $('#loginTitle').textContent='Create your account'; $('#loginIntro').textContent='You were invited. Make your account and you go straight to your farm.'; $('#loginBtn').textContent='Create account'; $('#regToggle').textContent='Already have an account? Sign in'; $('#lPass').setAttribute('autocomplete','new-password'); }
   }catch(e){}
   S.dl={ save:function(o){
     var a=document.createElement('a'), url=URL.createObjectURL(new Blob([o.data],{type:'text/csv'}));
@@ -1415,6 +1604,7 @@ async function init(){
   setInterval(function(){ if(S.authed && !S.pending && !document.hidden) refreshWho(); },10000);
 }
 syncTruckForm();
+startLang();
 init();
 })();
 </script>
