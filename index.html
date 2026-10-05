@@ -206,6 +206,7 @@ td.n,th.n{text-align:right}
       </div>
       <div class="row" id="boardTools" style="margin-bottom:16px" hidden>
         <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
+        <button class="btn ghost sm" type="button" data-act="refreshBoard" id="refreshBtn">Refresh</button>
         <button class="btn ghost sm" type="button" id="editToggle" data-act="toggleEdit" aria-pressed="false">Edit trucks and mills</button>
       </div>
       <form class="card" id="quick" hidden autocomplete="off" style="margin-bottom:16px;gap:12px;flex-direction:column;display:flex">
@@ -1244,6 +1245,10 @@ document.addEventListener('click', function(e){
     case 'goMe': S.tab='me'; $('#meForm').removeAttribute('data-init'); schedule(); break;
     case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else logLoad(lt); } break;
     case 'quickAdd': openQuick(''); break;
+    case 'refreshBoard':
+      var rb=$('#refreshBtn'); rb.disabled=true; rb.textContent='Refreshing...';
+      subLoads(); poke(); refreshWho(); if(isLead()) loadPeople(); last.board=''; schedule();
+      setTimeout(function(){ rb.disabled=false; rb.textContent='Refresh'; toast('Up to date'); },1200); break;
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
     case 'quickCancel': S.quick=null; schedule(); break;
     case 'quickDel':
