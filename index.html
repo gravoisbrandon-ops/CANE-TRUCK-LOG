@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#16211A">
+<title>Cane Truck Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Public+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column on a phone. A grid of big truck numbers, tap one to log it loaded,
+   and a running list of today's loads underneath. Each farm is its own board. */
+:root{
+  --bg:#E8ECE6; --surface:#F4F7F2; --raise:#FFFFFF; --ink:#16211A; --ink2:#46564B; --line:#C4CDC3;
+  --ready:#1D5FC4; --full:#167343;
+  --plate-ink:#FFFFFF; --danger:#B3261E; --btn-bg:#16211A; --btn-ink:#F4F7F2;
+  --font-display:'Barlow Condensed','Arial Narrow',Arial,sans-serif;
+  --font-body:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1511; --surface:#161F19; --raise:#1D2821; --ink:#E6EEE7; --ink2:#9CAEA1; --line:#2B392F;
+    --ready:#6BA3FF; --full:#4CCB85;
+    --plate-ink:#0E1511; --danger:#FF8A80; --btn-bg:#E6EEE7; --btn-ink:#0E1511; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1511; --surface:#161F19; --raise:#1D2821; --ink:#E6EEE7; --ink2:#9CAEA1; --line:#2B392F;
+  --ready:#6BA3FF; --full:#4CCB85;
+  --plate-ink:#0E1511; --danger:#FF8A80; --btn-bg:#E6EEE7; --btn-ink:#0E1511; color-scheme:dark;
+}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45;padding-inline:16px;padding-block:0 40px}
+*{box-sizing:border-box}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--ready);outline-offset:2px}
+.wrap{max-width:980px;margin:0 auto}
+[data-st="empty"]{--c:var(--ready)} [data-st="full"]{--c:var(--full)}
+
+/* header + tabs */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 0;margin-inline:-16px;padding-inline:16px}
+.top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font:700 30px/1 var(--font-display);letter-spacing:.03em;text-transform:uppercase;margin:0}
+.day{font-size:14px;color:var(--ink2);margin-top:4px;font-variant-numeric:tabular-nums}
+.day b{color:var(--ink)}
+.me{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--raise);border-radius:999px;padding:8px 14px;min-height:44px;max-width:60vw}
+.me span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tabs{display:flex;gap:4px;margin-top:10px;border-bottom:1px solid var(--line)}
+.tab{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:12px 8px;min-height:48px;font-weight:600;color:var(--ink2);margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.banner{margin-top:12px;padding:12px 14px;border:1px solid var(--line);background:var(--raise);border-radius:8px;color:var(--ink2)}
+.banner b{color:var(--ink)}
+main{padding-top:14px;display:flex;flex-direction:column;gap:16px}
+
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);min-width:0}
+select,input[type=text],input[type=time]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink)}
+input::placeholder{color:var(--ink2);opacity:.7}
+.lbl{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+
+/* truck number grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px}
+.num{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:96px;padding:8px 6px;border-radius:12px;border:2px solid var(--line);background:var(--raise);color:var(--ink);font-variant-numeric:tabular-nums;touch-action:manipulation}
+.num b{font:700 44px/1 var(--font-display);letter-spacing:.02em}
+.num span{font-size:12px;font-weight:600;color:var(--ink2);min-height:16px}
+.num.recent{background:var(--ready);border-color:var(--ready);color:var(--plate-ink)}
+.num.recent span{color:var(--plate-ink);font-weight:700}
+.num.route{background:var(--full);border-color:var(--full);color:var(--plate-ink)}
+.num.route span,.num.route b{color:inherit;font-weight:700}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid var(--line)}
+.mcolor{width:30px;height:28px;padding:0;border:0;background:none;cursor:pointer}
+.num.again{outline:3px solid var(--ink);outline-offset:2px}
+.grp{display:flex;flex-direction:column;gap:8px}
+.holdbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.num:active:not([disabled]){transform:scale(.97)}
+.num[disabled]{opacity:.5;cursor:not-allowed}
+.big .num{min-height:120px} .big .num b{font-size:56px}
+
+/* loads list */
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.sec-head h2{margin:0;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2);display:flex;align-items:baseline;gap:8px}
+.sec-head h2 b{font:700 22px/1 var(--font-display);color:var(--ink);letter-spacing:.02em}
+.fchips{display:flex;gap:6px;flex-wrap:wrap}
+.fchip{border:1px solid var(--line);background:var(--raise);border-radius:999px;padding:6px 14px;min-height:40px;font-weight:600;font-size:14px}
+.fchip[aria-pressed="true"]{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg)}
+.loads{display:flex;flex-direction:column;gap:6px}
+.lrow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;width:100%;text-align:left;background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-height:64px}
+.plate{display:inline-flex;align-items:center;justify-content:center;min-width:56px;padding:6px 8px;border-radius:6px;background:var(--c);color:var(--plate-ink);font:700 28px/1 var(--font-display);letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.l1{font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
+.l2{font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ago{font-size:12px;color:var(--ink2);white-space:nowrap}
+.edited{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-left:6px}
+
+/* cards, empty */
+.card{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card h2,.card h3{margin:0;font:700 22px/1.1 var(--font-display);letter-spacing:.03em;text-transform:uppercase}
+.card p{margin:0;color:var(--ink2)}
+.empty{align-items:flex-start}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:10px 18px;border-radius:8px;border:1px solid var(--btn-bg);background:var(--btn-bg);color:var(--btn-ink);font-weight:700}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn.warn{background:transparent;color:var(--danger);border-color:var(--danger)}
+.btn.primary{background:var(--c);border-color:var(--c);color:var(--plate-ink);min-height:56px;font-size:18px;width:100%}
+.btn.sm{min-height:40px;padding:6px 12px;font-size:14px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+
+/* forms */
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.addrow{display:flex;gap:8px}
+.addrow input{flex:1;min-width:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 12px;font-size:14px;font-weight:500}
+.chip button{border:0;background:none;width:28px;height:28px;border-radius:50%;color:var(--ink2);font-size:18px;line-height:1}
+.roles{display:grid;gap:8px}
+.role{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:8px;padding:12px;background:var(--surface);min-height:52px}
+.role input{width:20px;height:20px;accent-color:var(--ink)}
+.role small{display:block;color:var(--ink2)}
+.farm header{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.ros{display:flex;flex-direction:column;gap:6px}
+.ros-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.ros-row .acts{display:flex;gap:6px}
+.small{font-size:13px;color:var(--ink2)}
+
+/* report */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.stat{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:4px}
+.stat b{font:700 36px/1 var(--font-display);font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--raise)}
+table{border-collapse:collapse;width:100%;min-width:440px;font-variant-numeric:tabular-nums}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);background:var(--surface)}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right}
+.bar{display:inline-block;height:10px;border-radius:3px;background:var(--full);width:var(--w);min-width:2px;vertical-align:middle;margin-right:8px}
+.daypick{border:0;background:none;padding:6px 0;min-height:36px;font-weight:500;text-align:left}
+.daypick[aria-current="true"]{font-weight:700;text-decoration:underline}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+.toolbar label.f{flex:1;min-width:140px}
+
+/* edit sheet */
+.scrim{position:fixed;inset:0;background:rgba(8,14,10,.55);z-index:20}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;max-width:560px;margin:0 auto;background:var(--raise);border:1px solid var(--line);border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));max-height:92%;overflow:auto;display:flex;flex-direction:column;gap:14px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sheet-head h2{margin:0;font:700 26px/1 var(--font-display);letter-spacing:.03em;text-transform:uppercase}
+.close{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:44px;height:44px;font-size:22px;line-height:1}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--btn-bg);color:var(--btn-ink);padding:10px 12px 10px 18px;border-radius:10px;font-weight:600;max-width:92%;display:flex;align-items:center;gap:12px}
+.toast button{border:1px solid currentColor;background:none;border-radius:8px;padding:8px 14px;min-height:40px;font-weight:700;color:inherit}
+@media (min-width:700px){ body{padding-inline:24px} .top{margin-inline:-24px;padding-inline:24px} }
+@media (prefers-reduced-motion: no-preference){ .num,.btn{transition:transform .08s,box-shadow .12s} }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header class="top">
+    <div class="top-row">
+      <div>
+        <h1>Cane Truck Log</h1>
+        <div class="day" id="dayLine"></div>
+      </div>
+      <button class="me" id="meBtn" data-act="goMe" type="button" aria-label="Your name, role and farm"><span id="meLabel">Set up your name</span></button>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" data-act="tab" data-tab="board" id="tab-board" aria-selected="true" type="button">Board</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="report" id="tab-report" aria-selected="false" type="button">Report</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="all" id="tab-all" aria-selected="false" type="button" hidden>All farms</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="setup" id="tab-setup" aria-selected="false" type="button" hidden>Setup</button>
+    </nav>
+  </header>
+  <div class="banner" id="banner" hidden></div>
+  <div id="adminBar" hidden style="margin-top:12px">
+    <label class="f">Farm you are viewing<select id="selFarm"></select></label>
+  </div>
+
+  <main>
+    <section id="view-login" hidden aria-label="Sign in">
+      <form class="card" id="loginForm" autocomplete="on">
+        <h2 id="loginTitle">Sign in</h2>
+        <p id="loginIntro">Use the email and password you signed up with.</p>
+        <label class="f" id="lNameWrap" hidden>Your name<input type="text" id="lName" maxlength="40" autocomplete="name" placeholder="First name and last initial"></label>
+        <label class="f">Email<input type="email" id="lEmail" autocomplete="email" inputmode="email"></label>
+        <label class="f">Password<input type="password" id="lPass" autocomplete="current-password" minlength="6"></label>
+        <p class="small" id="loginErr" role="alert" style="color:var(--danger)"></p>
+        <button class="btn" type="submit" id="loginBtn">Sign in</button>
+        <button class="btn ghost" type="button" data-act="toggleReg" id="regToggle">New here? Create an account</button>
+      </form>
+    </section>
+
+    <section id="view-pending" hidden aria-label="Waiting for approval">
+      <div class="card empty">
+        <h2>Waiting for approval</h2>
+        <p>Your account is made. An administrator needs to put you on a farm before you can log trucks. This page checks on its own.</p>
+        <button class="btn" type="button" data-act="checkStatus">Check again</button>
+        <button class="btn ghost" type="button" data-act="signOut">Sign out</button>
+      </div>
+    </section>
+
+    <section id="view-board" aria-label="Truck board">
+      <div class="row" id="destRow" style="margin-bottom:16px" hidden>
+        <label class="f" id="millSwitch" hidden>Loading to mill<select id="selMill"></select></label>
+        <label class="f" id="trackSwitch" hidden>Active track (optional)<select id="selTrack"></select></label>
+        <label class="f" id="fieldSwitch" hidden>Active field (optional)<select id="selField"></select></label>
+      </div>
+      <div id="boardBody" style="display:flex;flex-direction:column;gap:16px"></div>
+    </section>
+
+    <section id="view-report" hidden aria-label="Daily report">
+      <div id="reportBody" style="display:flex;flex-direction:column;gap:16px"></div>
+    </section>
+
+    <section id="view-all" hidden aria-label="All farms report">
+      <div id="allBody" style="display:flex;flex-direction:column;gap:16px"></div>
+    </section>
+
+    <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
+      <div class="card" id="farmsCard">
+        <h2>Farms</h2>
+        <p class="small">Every farm is separate, with its own trucks, drivers, combine operator, loads and report. Administrators can open any farm and switch between them. Crew log only on their own farm. A farm with two or more mills asks the driver which mill the loads are going to. Each new date starts with a clean list.</p>
+        <form id="farmForm" class="addrow" autocomplete="off">
+          <input type="text" id="farmName" maxlength="40" placeholder="Farm name" aria-label="New farm name">
+          <button class="btn" type="submit">Add farm</button>
+        </form>
+      </div>
+      <div id="farmList" style="display:flex;flex-direction:column;gap:16px"></div>
+
+      <div class="card">
+        <h2 id="truckFormTitle">Add trucks</h2>
+        <form id="truckForm" autocomplete="off" style="display:flex;flex-direction:column;gap:12px">
+          <label class="f">Farm<select id="tFarm"></select></label>
+          <label class="f">Truck number
+            <input type="text" id="tNo" maxlength="80" placeholder="12  (or 11, 12, 14 to add several)" inputmode="text">
+          </label>
+          <div class="f" id="tMillsWrap" hidden>Goes only to these mills
+            <div id="tMills" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+            <span class="small">Leave all unchecked if this truck can go to any mill.</span>
+          </div>
+          <label class="f">Hauler or driver (optional)
+            <input type="text" id="tHauler" maxlength="40" placeholder="Name">
+          </label>
+          <div class="addrow">
+            <button class="btn" type="submit" id="tSave">Add truck</button>
+            <button class="btn ghost" type="button" id="tCancel" data-act="cancelEdit" hidden>Cancel</button>
+          </div>
+        </form>
+      </div>
+      <div class="card"><h2>Truck rosters</h2><div id="roster" class="ros"></div></div>
+      <div class="card" id="peopleCard">
+        <h2>People</h2>
+        <p class="small">Everyone makes their own account on the site. New people show here as waiting. Set them to Crew and pick their farm, or make them an Administrator. The first person to register is the administrator.</p>
+        <div id="peopleList" class="ros"></div>
+      </div>
+    </section>
+
+    <section id="view-me" hidden aria-label="Your details">
+      <form class="card" id="meForm" autocomplete="off">
+        <h2 id="meTitle">Who is logging?</h2>
+        <p id="meIntro">Your name goes on every truck you log.</p>
+        <label class="f">Your name<input type="text" id="pName" maxlength="40" placeholder="First name and last initial"></label>
+        <label class="f" id="pFarmLabel"><span id="pFarmText">Your farm</span><select id="pFarm"></select></label>
+        <div class="roles" id="roleBox" role="radiogroup" aria-label="Role">
+          <label class="role"><input type="radio" name="role" value="driver"><span>Tractor driver<small>Taps the truck number when it is loaded</small></span></label>
+          <label class="role"><input type="radio" name="role" value="combine"><span>Combine operator<small>Watches the loads come in</small></span></label>
+        </div>
+        <button class="btn" type="submit">Save and open the board</button>
+        <button class="btn ghost" type="button" data-act="signOut">Sign out of this device</button>
+      </form>
+    </section>
+  </main>
+</div>
+
+<div id="sheetWrap" hidden>
+  <div class="scrim" data-act="closeSheet"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="config.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ---------- constants ---------- */
+var ROLES = { driver:'Tractor driver', combine:'Combine operator', office:'Administrator' };
+
+/* ---------- helpers ---------- */
+function $(s,r){ return (r||document).querySelector(s); }
+function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function ymd(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+function today(){ return ymd(new Date()); }          /* a new calendar date is a new start date */
+function addDays(key,n){ var p=key.split('-').map(Number); return ymd(new Date(p[0],p[1]-1,p[2]+n)); }
+function dayLabel(key){ var p=key.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'}); }
+function timeOf(ms){ return new Date(ms).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}); }
+function hhmm(ms){ var d=new Date(ms); return pad(d.getHours())+':'+pad(d.getMinutes()); }
+function timeToMs(day, hm, origMs){
+  var p=day.split('-').map(Number), t=hm.split(':').map(Number);
+  return new Date(p[0],p[1]-1,p[2],t[0],t[1],new Date(origMs).getSeconds()).getTime();
+}
+function ago(ms){
+  var m=Math.max(0,Math.floor((Date.now()-ms)/60000));
+  if(m<1) return 'just now';
+  if(m<60) return m+' min ago';
+  var h=Math.floor(m/60);
+  return h+' h '+(m%60)+' m ago';
+}
+function sortNo(a,b){ return String(a.no).localeCompare(String(b.no),undefined,{numeric:true}); }
+function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+
+/* ---------- state ---------- */
+var S = {
+  db:null, dl:null, canWrite:true, noConfig:false, authed:false, pending:false, regMode:false, crewFarm:'',
+  isAdmin:false,
+  farms:[], trucks:[], loads:[], loadsKey:'', loadsDay:'', unsubLoads:null, farmId:'',
+  ready:{farms:false,trucks:false}, err:null,
+  active:{track:'',field:''}, unsubActive:null, hold:15, route:60, profile:null, dest:{mill:''}, listMill:'', tab:'board', edit:null, editing:null, lastTap:{},
+  report:{mode:'daily',range:14,sel:'',mill:'',cache:{},loading:false,fails:0}
+};
+var last = { board:'', farms:'', roster:'', people:'', report:'', banner:'', access:'' };
+var confirmKey = null, confirmTimer = null;
+
+/* Administrators sign in with an admin code and see every farm. Crew sign in with their farm's code. */
+function isOffice(){ return S.isAdmin; }
+function roleLabel(){ return S.isAdmin ? 'Administrator' : ((S.profile && ROLES[S.profile.role]) || ''); }
+function byName(){ return (S.profile && S.profile.name) || 'Unknown'; }
+function farmById(id){ for(var i=0;i<S.farms.length;i++){ if(S.farms[i].id===id) return S.farms[i]; } return null; }
+function farmName(id){ var f=farmById(id); return f?f.name:''; }
+function truckById(id){ for(var i=0;i<S.trucks.length;i++){ if(S.trucks[i].id===id) return S.trucks[i]; } return null; }
+function farmTrucks(){ return S.trucks.filter(function(t){ return t.farm===S.farmId; }); }
+function millsOf(id){ var f=farmById(id); return (f&&f.mills)||[]; }
+function tracksOf(id){ var f=farmById(id); return (f&&f.tracks)||[]; }
+function fieldsOf(id){ var f=farmById(id); return (f&&f.fields)||[]; }
+function loadsPath(farm,day){ return 'farms/'+farm+'/days/'+day+'/loads'; }
+function destMill(){ var m=millsOf(S.farmId); return m.length===1 ? m[0] : (S.dest.mill||''); }
+/* mills this truck may go to (none checked = any mill on its farm) */
+function allowedMills(t){
+  var all=millsOf(t.farm), r=(t.mills||[]).filter(function(m){ return all.indexOf(m)>=0; });
+  return r.length ? r : all;
+}
+var MILL_DEFAULTS=['#1F7A4C','#8CC152','#0B4F2E','#B5D96B','#4FA36B'];
+function millColor(farmId,mill){
+  if(!mill) return '#1F7A4C';
+  var f=farmById(farmId), c=f&&f.millColors&&f.millColors[mill];
+  if(c && /^#[0-9a-f]{6}$/i.test(c)) return c;
+  var i=millsOf(farmId).indexOf(mill); return MILL_DEFAULTS[(i<0?0:i)%MILL_DEFAULTS.length];
+}
+function inkOn(hex){ var n=parseInt(hex.slice(1),16), r=n>>16, g=(n>>8)&255, b=n&255; return (0.299*r+0.587*g+0.114*b)>150 ? '#0E1511' : '#FFFFFF'; }
+function millStyle(farmId,mill){ var c=millColor(farmId,mill); return 'background:'+c+';border-color:'+c+';color:'+inkOn(c); }
+function isRestricted(t){ var all=millsOf(t.farm); return all.length>1 && allowedMills(t).length<all.length; }
+/* '' = farm has no mills, null = needs a mill pick that this truck can take */
+function truckMill(t){
+  var all=millsOf(t.farm); if(!all.length) return '';
+  var am=allowedMills(t);
+  if(am.length===1) return am[0];
+  if(S.dest.mill && am.indexOf(S.dest.mill)>=0) return S.dest.mill;
+  return null;
+}
+
+/* Which farm this person is looking at. Crew are fixed to their own farm.
+   Administrators can switch between farms, one at a time. */
+function resolveFarm(){
+  var id='', p=S.profile;
+  if(!isOffice()){ if(S.crewFarm && farmById(S.crewFarm)) id=S.crewFarm; }
+  else if(p && p.farm && farmById(p.farm)) id=p.farm;
+  else if(S.farms.length) id=S.farms[0].id;
+  var changed = id!==S.farmId;
+  S.farmId=id;
+  return changed;
+}
+
+var toastTimer=null;
+function toast(msg, undoPath){
+  var el=$('#toast'); el.textContent='';
+  var s=document.createElement('span'); s.textContent=msg; el.appendChild(s);
+  if(undoPath){
+    var b=document.createElement('button'); b.type='button'; b.textContent='Undo';
+    b.setAttribute('data-act','undoLoad'); b.setAttribute('data-path',undoPath); el.appendChild(b);
+  }
+  el.hidden=false; clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){ el.hidden=true; }, undoPath?9000:3400);
+}
+function confirmTap(key){
+  if(confirmKey===key){ confirmKey=null; clearTimeout(confirmTimer); return true; }
+  confirmKey=key; clearTimeout(confirmTimer);
+  confirmTimer=setTimeout(function(){ confirmKey=null; schedule(); renderEdit(true); },4000);
+  schedule(); renderEdit(true); return false;
+}
+function fail(e){
+  var code = e && e.code;
+  if(code==='denied') toast('You were signed out. Sign in again.');
+  else if(code==='pending') toast('An administrator has not approved your account yet.');
+  else if(code==='offline') toast('No signal. Check your connection and try again.');
+  else toast('Could not save. Check your signal and try again.');
+}
+
+/* ---------- database access ---------- */
+var CFG = window.CANE_CONFIG || {};
+var SESS = null;                                  /* { access_token, refresh_token, expires_at } */
+function baseUrl(){ return String(CFG.supabaseUrl||'').replace(/\/$/,''); }
+function keyHeaders(token){
+  var h={ 'Content-Type':'application/json', apikey:CFG.supabaseAnonKey };
+  var jwtKey=/^eyJ/.test(CFG.supabaseAnonKey||'');
+  if(token) h.Authorization='Bearer '+token; else if(jwtKey) h.Authorization='Bearer '+CFG.supabaseAnonKey;
+  return h;
+}
+function netErr(){ var er=new Error('offline'); er.code='offline'; return er; }
+function readJson(r){
+  return r.text().then(function(t){
+    var j=null; try{ j=t?JSON.parse(t):null; }catch(e){}
+    if(!r.ok){
+      var msg=(j&&(j.message||j.msg||j.error_description||j.error))||('HTTP '+r.status);
+      var er=new Error(msg);
+      er.code = msg==='pending' ? 'pending' : (msg==='unregistered' ? 'unregistered' : ((msg==='denied'||r.status===401||r.status===403)?'denied':'error'));
+      throw er;
+    }
+    return j;
+  });
+}
+function authCall(path, body){
+  return fetch(baseUrl()+'/auth/v1/'+path, { method:'POST', headers:keyHeaders(), body:JSON.stringify(body) }).then(readJson, function(){ throw netErr(); });
+}
+function setSession(j){
+  if(!j || !j.access_token) return false;
+  SESS={ access_token:j.access_token, refresh_token:j.refresh_token, expires_at: j.expires_at || (Math.floor(Date.now()/1000)+(j.expires_in||3600)) };
+  lsSet('cane-truck-log:session', JSON.stringify(SESS)); return true;
+}
+function refreshSession(){
+  if(!SESS || !SESS.refresh_token) return Promise.reject(Object.assign(new Error('denied'),{code:'denied'}));
+  return authCall('token?grant_type=refresh_token',{ refresh_token:SESS.refresh_token }).then(function(j){ setSession(j); });
+}
+function rpc(fn, args, retried){
+  var pre = (SESS && SESS.expires_at-60 < Date.now()/1000) ? refreshSession() : Promise.resolve();
+  return pre.then(function(){
+    return fetch(baseUrl()+'/rest/v1/rpc/'+fn, { method:'POST', headers:keyHeaders(SESS&&SESS.access_token), body:JSON.stringify(args||{}) })
+      .then(function(r){
+        if(r.status===401 && !retried && SESS) return refreshSession().then(function(){ return rpc(fn,args,true); });
+        return readJson(r);
+      }, function(){ throw netErr(); });
+  });
+}
+/* A small stand-in for a document database. Lists refresh every few seconds, and right after any save. */
+var subs = [];
+function mkSnap(rows){ return { docs:(rows||[]).map(function(r){ return { id:r.id, data:function(){ return r.data; } }; }) }; }
+function pollOne(s){
+  return rpc('db_list',{ p_parent:s.p, p_limit:s.lim }).then(function(rows){
+    if(s.off) return;
+    var sig=JSON.stringify(rows);
+    if(sig!==s.sig){ s.sig=sig; s.ok(mkSnap(rows)); }
+  }).catch(function(e){ if(!s.off && s.bad) s.bad(e); });
+}
+function poke(){ subs.slice().forEach(pollOne); }
+function docRef(path){
+  var id=path.split('/').pop();
+  return {
+    id:id,
+    set:function(d){ return rpc('db_set',{ p_path:path, p_data:d }).then(poke); },
+    update:function(d){ return rpc('db_update',{ p_path:path, p_patch:d }).then(poke); },
+    'delete':function(){ return rpc('db_delete',{ p_path:path }).then(poke); }
+  };
+}
+function collection(p){
+  var lim=1000;
+  var c={
+    limit:function(n){ lim=n; return c; },
+    get:function(){ return rpc('db_list',{ p_parent:p, p_limit:lim }).then(mkSnap); },
+    onSnapshot:function(ok,bad){
+      var sub={ p:p, lim:lim, ok:ok, bad:bad, sig:null, off:false };
+      subs.push(sub); pollOne(sub);
+      return function(){ sub.off=true; subs=subs.filter(function(x){ return x!==sub; }); };
+    },
+    doc:function(id){ return docRef(p+'/'+(id||newId('l'))); }
+  };
+  return c;
+}
+setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(S.isAdmin) loadPeople(); } }, 5000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden && S.authed && !S.pending){ poke(); schedule(); } });
+function col(p){ return collection(p); }
+function dref(p){ return docRef(p); }
+function docs(snap){ return snap.docs.map(function(d){ var o=Object.assign({}, d.data()); o.id=d.id; return o; }); }
+
+var subscribed=false;
+function subscribe(){
+  if(subscribed) return; subscribed=true;
+  function onErr(e){ S.err = e && e.code; schedule(); }
+  col('farms').onSnapshot(function(snap){
+    S.farms = docs(snap).sort(function(a,b){ return (a.order||0)-(b.order||0); });
+    S.ready.farms=true; schedule();
+  }, onErr);
+  col('trucks').onSnapshot(function(snap){
+    S.trucks = docs(snap).sort(sortNo);
+    S.ready.trucks=true; schedule();
+  }, onErr);
+}
+/* loads live under the farm: farms/<farm>/days/<date>/loads, so each farm's loads stay apart */
+function subLoads(){
+  if(!S.db || !S.authed) return;
+  var key = S.farmId ? S.farmId+'|'+today() : '';
+  if(key===S.loadsKey) return;
+  if(S.unsubLoads){ S.unsubLoads(); S.unsubLoads=null; }
+  S.loadsKey=key; S.loads=[]; S.loadsDay=today(); last.board=''; last.report='';
+  if(S.unsubActive){ S.unsubActive(); S.unsubActive=null; }
+  S.active={ track:'', field:'' };
+  if(!key) return;
+  S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
+    var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
+    S.active = a ? { track:a.track||'', field:a.field||'' } : { track:'', field:'' };
+    last.board=''; schedule();
+  }, function(e){ S.err = e && e.code; schedule(); });
+  S.unsubLoads = col(loadsPath(S.farmId,S.loadsDay)).limit(1000).onSnapshot(function(snap){
+    S.loads = docs(snap); schedule();
+  }, function(e){ S.err = e && e.code; schedule(); });
+}
+function loadDest(){
+  S.dest={mill:''};
+  var raw=lsGet('cane-truck-log:dest:'+S.farmId);
+  if(raw){ try{ var d=JSON.parse(raw); S.dest={mill:d.mill||''}; }catch(e){} }
+}
+/* the active track and field are shared: whoever changes them, everyone's loads get stamped with them */
+function saveActive(){
+  if(!S.farmId) return;
+  dref('farms/'+S.farmId+'/active/now').set({ track:S.active.track||'', field:S.active.field||'', by:byName(), at:Date.now() }).catch(fail);
+}
+function saveDest(){ lsSet('cane-truck-log:dest:'+S.farmId, JSON.stringify(S.dest)); }
+function onFarmChange(){
+  S.report.cache={}; S.report.sel=''; S.report.mill=''; S.listMill=''; last.board=''; last.report='';
+  loadDest(); closeEdit();
+  subLoads();
+  if(S.tab==='report') loadReport();
+}
+
+/* ---------- logging a load ---------- */
+function needName(){
+  if(S.profile && S.profile.name) return false;
+  S.tab='me'; schedule(); toast('Add your name first so your logs carry it.');
+  return true;
+}
+async function logLoad(t){
+  if(!S.farmId) return;
+  if(needName()) return;
+  var rl=0; S.loads.forEach(function(l){ if(l.truck===t.id && l.loadedAt>rl) rl=l.loadedAt; });
+  if(rl && Date.now()-rl<(S.hold+S.route)*60000 && !confirmTap('again:'+t.id)) return;
+  var mill=truckMill(t);
+  if(mill===null){
+    toast(S.dest.mill ? 'Truck '+t.no+' only goes to '+allowedMills(t).join(' or ')+'.' : 'Pick the mill first.'); return;
+  }
+  var now=Date.now();
+  if(S.lastTap[t.id] && now-S.lastTap[t.id]<2000){ toast('Truck '+t.no+' was just logged.'); return; }
+  S.lastTap[t.id]=now;
+  var wd=today(), ref=col(loadsPath(t.farm,wd)).doc();
+  try{
+    await ref.set({ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd });
+    toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:''), loadsPath(t.farm,wd)+'/'+ref.id);
+  }catch(e){ S.lastTap[t.id]=0; fail(e); }
+}
+
+/* ---------- edit a load ---------- */
+function openEdit(id){
+  var l=null; for(var i=0;i<S.loads.length;i++){ if(S.loads[i].id===id) l=S.loads[i]; }
+  if(!l) return;
+  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'' };
+  $('#sheetWrap').hidden=false;
+  renderEdit(true);
+  var s=$('#eTruck'); if(s) s.focus();
+}
+function closeEdit(){ S.edit=null; $('#sheetWrap').hidden=true; $('#sheet').innerHTML=''; }
+function renderEdit(force){
+  if(!S.edit) return;
+  var exists=S.loads.some(function(l){ return l.id===S.edit.id; });
+  if(!exists){ closeEdit(); return; }
+  if(!force && $('#sheet').innerHTML) return;      /* do not rebuild while someone is typing */
+  var e=S.edit, trucks=farmTrucks(), mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId);
+  var cur=$('#eTruck') ? { track:$('#eTrack')?$('#eTrack').value:e.track, truck:$('#eTruck').value, time:$('#eTime').value, mill:$('#eMill')?$('#eMill').value:e.mill, field:$('#eField')?$('#eField').value:e.field } : { truck:e.truck, time:e.orig, mill:e.mill, track:e.track, field:e.field };
+  var opts=trucks.map(function(t){ return '<option value="'+esc(t.id)+'"'+(t.id===cur.truck?' selected':'')+'>Truck '+esc(t.no)+'</option>'; }).join('');
+  if(!trucks.some(function(t){ return t.id===e.truck; })) opts='<option value="'+esc(e.truck)+'" selected>Truck '+esc(e.no)+' (not on roster)</option>'+opts;
+  var key='delLoad:'+e.id;
+  $('#sheet').innerHTML=
+    '<div class="sheet-head"><h2 id="sheetTitle">Fix this load</h2><button class="close" type="button" data-act="closeSheet" aria-label="Close">&times;</button></div>'+
+    '<label class="f">Truck<select id="eTruck">'+opts+'</select></label>'+
+    '<label class="f">Time loaded<input type="time" id="eTime" value="'+esc(cur.time)+'"></label>'+
+    (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (tracks.length?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+tracks.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (fields.length?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+fields.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    '<div data-st="full"><button class="btn primary" type="button" data-act="saveEdit"'+(S.canWrite?'':' disabled')+'>Save changes</button></div>'+
+    '<button class="btn warn" type="button" data-act="deleteLoad"'+(S.canWrite?'':' disabled')+'>'+(confirmKey===key?'Tap again to delete this load':'Delete this load')+'</button>'+
+    (S.canWrite?'':'<p class="small">You have view access only, so editing is turned off.</p>');
+}
+async function saveEdit(){
+  var e=S.edit; if(!e || !S.canWrite) return;
+  var t=truckById($('#eTruck').value);
+  var patch={ editedBy:byName(), editedAt:Date.now() };
+  if(t){ patch.truck=t.id; patch.no=t.no; patch.hauler=t.hauler||''; }
+  var tm=$('#eTime').value;
+  if(tm && tm!==e.orig) patch.loadedAt=timeToMs(e.day, tm, e.origMs);
+  if($('#eMill')) patch.mill=$('#eMill').value;
+  if($('#eTrack')) patch.track=$('#eTrack').value;
+  if($('#eField')) patch.field=$('#eField').value;
+  try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).update(patch); toast('Load fixed'); closeEdit(); }
+  catch(err){ fail(err); }
+}
+async function deleteLoad(){
+  var e=S.edit; if(!e || !S.canWrite) return;
+  if(!confirmTap('delLoad:'+e.id)) return;
+  try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).delete(); toast('Load deleted'); closeEdit(); }
+  catch(err){ fail(err); }
+}
+
+/* ---------- profile and sign-in ---------- */
+function loadLocalProfile(){
+  var raw=lsGet('cane-truck-log:profile');
+  if(raw){ try{ S.profile=JSON.parse(raw); }catch(e){} }
+}
+function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile)); }
+function applyWho(w, nm){
+  S.authed=true;
+  S.pending = w.status!=='ok';
+  S.isAdmin = w.role==='admin'; S.crewFarm = w.farm||'';
+  var prev=S.profile||{};
+  S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
+  saveProfile();
+  if(!S.pending){ S.err=null; subscribe(); syncTruckForm(); if(S.isAdmin) loadPeople(); }
+  schedule();
+}
+async function enter(nm){
+  var w=await rpc('whoami',{});
+  if(w.status==='unregistered') w=await rpc('register',{ p_name:nm||'' });
+  applyWho(w,nm);
+}
+async function checkStatus(){
+  try{ var w=await rpc('whoami',{}); var was=S.pending; applyWho(w); if(was && !S.pending){ S.tab='board'; toast('You are approved. Welcome.'); } }
+  catch(e){ if(e && e.code==='denied') signOut(); }
+}
+function signOut(){
+  try{ localStorage.removeItem('cane-truck-log:session'); localStorage.removeItem('cane-truck-log:profile'); }catch(e){}
+  location.reload();
+}
+
+/* ---------- rendering ---------- */
+var raf=0;
+function schedule(){ if(raf) return; raf=requestAnimationFrame(function(){ raf=0; renderAll(); }); }
+
+function setOptions(sel, opts, value){
+  var sig=JSON.stringify(opts);
+  if(sel.getAttribute('data-sig')!==sig){
+    sel.innerHTML = opts.map(function(o){ return '<option value="'+esc(o[0])+'">'+esc(o[1])+'</option>'; }).join('');
+    sel.setAttribute('data-sig',sig);
+  }
+  if(value!==undefined && sel.value!==value) sel.value=value;
+}
+
+function renderAll(){
+  var gate=!S.authed, wait=S.authed && S.pending;
+  $('#view-login').hidden=!gate;
+  $('#view-pending').hidden=!wait;
+  document.querySelector('.tabs').hidden=gate||wait;
+  $('#meBtn').hidden=gate||wait;
+  if(gate||wait){
+    ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden=true; });
+    $('#adminBar').hidden=true; renderBanner(); return;
+  }
+  if(resolveFarm()) onFarmChange();
+  var fn=farmName(S.farmId);
+  $('#dayLine').innerHTML = esc(dayLabel(today())) + (fn ? ' · <b>'+esc(fn)+'</b>' : '');
+  $('#meLabel').textContent = S.profile && S.profile.name ? S.profile.name + ' · ' + roleLabel() : 'Set up your name';
+  var ab=$('#adminBar');
+  ab.hidden = !(S.isAdmin && S.farms.length>1 && S.tab!=='me' && S.tab!=='all' && S.tab!=='setup');
+  if(!ab.hidden) setOptions($('#selFarm'), S.farms.map(function(f){ return [f.id,f.name]; }), S.farmId);
+  $('#tab-setup').hidden = false;
+  $('#tab-setup').textContent = isOffice() ? 'Setup' : 'Trucks';
+  $('#tab-all').hidden = !isOffice();
+  if(S.tab==='all' && !isOffice()) S.tab='board';
+  ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
+  ['board','report','all','setup'].forEach(function(v){ $('#tab-'+v).setAttribute('aria-selected', S.tab===v ? 'true':'false'); });
+  renderBanner();
+  if(S.tab==='board') renderBoard();
+  if(S.tab==='report') renderReport();
+  if(S.tab==='all') renderAll_();
+  if(S.tab==='setup'){ renderSetup(); if(isOffice()) renderAccess(); }
+  if(S.tab==='me') renderMe();
+  renderEdit(false);
+}
+
+function renderBanner(){
+  var el=$('#banner'), html='';
+  var waiting=(P||[]).filter(function(x){ return x.role==='pending'; }).length;
+  if(S.noConfig) html='<b>This site is not connected yet.</b> Add your Supabase address and key to config.js.';
+  else if(S.err==='denied') html='<b>You were signed out.</b> Use Sign out on your details page, then sign in again.';
+  else if(S.err==='offline') html='<b>No signal.</b> The board will catch up when you are back online.';
+  else if(S.authed && S.isAdmin && waiting) html='<b>'+waiting+' '+(waiting===1?'person is':'people are')+' waiting for approval.</b> Open Setup to give them a farm.';
+  if(html!==last.banner){ last.banner=html; el.innerHTML=html; el.hidden=!html; }
+}
+
+function emptyCard(title, text, btn){
+  return '<div class="card empty"><h2>'+esc(title)+'</h2><p>'+esc(text)+'</p>'+(btn||'')+'</div>';
+}
+
+function renderDest(){
+  var mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId);
+  if(S.dest.mill && mills.indexOf(S.dest.mill)<0) S.dest.mill='';
+  var ms=$('#millSwitch'), fs=$('#fieldSwitch'), ts=$('#trackSwitch');
+  ms.hidden = mills.length<2;
+  ts.hidden = tracks.length<1;
+  fs.hidden = fields.length<1;
+  if(!ms.hidden) setOptions($('#selMill'), [['','Pick the mill']].concat(mills.map(function(m){ return [m,m]; })), S.dest.mill);
+  if(!ts.hidden) setOptions($('#selTrack'), [['','None']].concat(tracks.map(function(m){ return [m,m]; })), tracks.indexOf(S.active.track)>=0?S.active.track:'');
+  if(!fs.hidden) setOptions($('#selField'), [['','None']].concat(fields.map(function(m){ return [m,m]; })), fields.indexOf(S.active.field)>=0?S.active.field:'');
+  $('#destRow').hidden = ms.hidden && fs.hidden && ts.hidden;
+}
+
+function renderBoard(){
+  var root=$('#boardBody'), html='';
+  root.parentNode.classList.toggle('big', !!(S.profile && S.profile.role==='combine'));
+  var ready = S.db && S.ready.farms && S.ready.trucks && S.farmId && farmTrucks().length;
+  if(ready) renderDest(); else $('#destRow').hidden=true;
+
+  if(!S.db){ html=emptyCard('Waiting for the shared list','Once you are signed in, the trucks appear here.'); }
+  else if(!S.ready.farms || !S.ready.trucks){ html=emptyCard('Loading trucks','Getting the latest board.'); }
+  else if(!S.farms.length){
+    html=isOffice()
+      ? emptyCard('No farms yet','Add each farm and its trucks once. After that every crew sees only its own farm.','<button class="btn" type="button" data-act="tab" data-tab="setup">Open setup</button>')
+      : emptyCard('No farms yet','An administrator has not added any farms. Ask them to add yours, then open this page again.');
+  }
+  else if(!S.farmId){
+    html = (!isOffice())
+      ? emptyCard('Your farm is not available','The farm you were set up on was removed. Ask an administrator to move you to another farm.')
+      : emptyCard('Pick your farm','Choose the farm you work for. You will only see its trucks and loads.',
+          '<button class="btn" type="button" data-act="goMe">Choose my farm</button>');
+  }
+  else if(!farmTrucks().length){
+    html=emptyCard('No trucks on '+farmName(S.farmId),'Trucks are added once in Setup and stay on the roster every day.',
+      '<button class="btn" type="button" data-act="tab" data-tab="setup">Add trucks</button>');
+  }
+  else {
+    var trucks=farmTrucks(), mills=millsOf(S.farmId);
+    var per={}, nowMs=Date.now(), holdMs=S.hold*60000, routeMs=(S.hold+S.route)*60000;
+    S.loads.forEach(function(l){ if(!l.loadedAt) return; var p=per[l.truck]||(per[l.truck]={n:0,last:0,mill:''}); p.n++; if(l.loadedAt>p.last){ p.last=l.loadedAt; p.mill=l.mill||''; } });
+    var stage=function(t){ var p=per[t.id]; if(!p) return 'wait'; var a=nowMs-p.last; return a<holdMs ? 'load' : (a<routeMs ? 'route' : 'wait'); };
+    var byNew=function(a,b){ return per[b.id].last-per[a.id].last; };
+    var waiting=trucks.filter(function(t){ return stage(t)==='wait'; });
+    var justIn=trucks.filter(function(t){ return stage(t)==='load'; }).sort(byNew);
+    var enRoute=trucks.filter(function(t){ return stage(t)==='route'; }).sort(byNew);
+    var needPick = !S.dest.mill && waiting.some(function(t){ return truckMill(t)===null; });
+    var tile=function(t, recent){
+      var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
+      var off=(!S.canWrite || (!recent && truckMill(t)===null)) ? ' disabled' : '';
+      var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '';
+      var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : esc(tag));
+      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(rt?' style="'+millStyle(t.farm,p.mill)+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
+    };
+    html+='<div class="lbl">'+(needPick?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
+    if(!waiting.length) html+='<p class="small">No trucks waiting.</p>';
+    else if(mills.length>1){
+      var groups=mills.map(function(m){ return {name:m, list:waiting.filter(function(t){ var a=allowedMills(t); return isRestricted(t) && a.length===1 && a[0]===m; })}; });
+      groups.push({name:'Any mill', list:waiting.filter(function(t){ var a=allowedMills(t); return !(isRestricted(t) && a.length===1); })});
+      groups.forEach(function(g){
+        if(!g.list.length) return;
+        html+='<div class="grp"><div class="lbl">'+(g.name!=='Any mill'?'<span class="sw" style="background:'+millColor(S.farmId,g.name)+'"></span>':'')+esc(g.name)+' · '+g.list.length+'</div><div class="grid">'+g.list.map(function(t){ return tile(t,false); }).join('')+'</div></div>';
+      });
+    }
+    else html+='<div class="grid">'+waiting.map(function(t){ return tile(t,false); }).join('')+'</div>';
+    var opt=function(list,cur){ return list.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+' min</option>'; }).join(''); };
+    html+='<div class="sec-head"><h2>Loaded <b>'+justIn.length+'</b></h2><div class="holdbar"><span class="small">Shows as Loaded for</span><select id="selHold" aria-label="Minutes a truck shows as Loaded">'+opt([5,10,15,20,30,45],S.hold)+'</select></div></div>';
+    if(!justIn.length) html+='<p class="small">The truck you tap lands here, then moves to In route.</p>';
+    else html+='<div class="grid">'+justIn.map(function(t){ return tile(t,true); }).join('')+'</div>';
+    html+='<div class="sec-head"><h2>In route <b>'+enRoute.length+'</b></h2><div class="holdbar"><span class="small">Back to Waiting after</span><select id="selRoute" aria-label="Minutes a truck stays In route">'+opt([30,45,60,90,120,180],S.route)+'</select></div></div>';
+    if(!enRoute.length) html+='<p class="small">Trucks on the way to the mill show here, then return to Waiting.</p>';
+    else html+='<div class="grid">'+enRoute.map(function(t){ return tile(t,'route'); }).join('')+'</div>';
+
+    if(S.listMill && mills.indexOf(S.listMill)<0) S.listMill='';
+    var all=S.loads.filter(function(l){ return l.loadedAt; });
+    var list=all.filter(function(l){ return !S.listMill || l.mill===S.listMill; }).sort(function(a,b){ return b.loadedAt-a.loadedAt; });
+    html+='<div class="sec-head"><h2>Today’s loads <b>'+list.length+'</b></h2>'+
+      (mills.length>1?'<div class="fchips" role="group" aria-label="Filter loads by mill"><button type="button" class="fchip" data-act="listMill" data-v="" aria-pressed="'+(S.listMill?'false':'true')+'">All mills</button>'+
+        mills.map(function(m){ return '<button type="button" class="fchip" data-act="listMill" data-v="'+esc(m)+'" aria-pressed="'+(S.listMill===m?'true':'false')+'">'+esc(m)+'</button>'; }).join('')+'</div>':'')+
+      '</div>';
+    if(!list.length){
+      html+='<div class="card empty"><p>No loads logged yet today. Tap a truck number when it is loaded and it shows here with the time.</p></div>';
+    } else {
+      html+='<div class="loads">'+list.slice(0,300).map(function(l){
+        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy);
+        return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+(l.mill?' style="'+millStyle(l.farm||S.farmId,l.mill)+'"':'')+'>'+esc(l.no)+'</span>'+
+          '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
+          '<span class="ago">'+esc(ago(l.loadedAt))+'</span></button>';
+      }).join('')+'</div>';
+    }
+  }
+  if(html!==last.board){ last.board=html; root.innerHTML=html; }
+}
+
+/* ---------- me ---------- */
+function renderMe(){
+  var p=S.profile||{};
+  var locked = !S.isAdmin;                      /* crew stay on the farm their code opens */
+  $('#meTitle').textContent = 'Your details';
+  $('#meIntro').textContent = S.isAdmin
+    ? 'You are an administrator. You can open any farm and switch between them. Pick a usual farm if you like to stay on one.'
+    : 'Your name goes on every truck you log. Your code opens one farm, and only an administrator can give you another.';
+  $('#roleBox').hidden = S.isAdmin;
+  $('#pFarmText').textContent = S.isAdmin ? 'Usual farm (optional)' : 'Your farm';
+  if(!$('#meForm').getAttribute('data-init')){
+    $('#meForm').setAttribute('data-init','1');
+    $('#pName').value=p.name||'';
+    var r=document.querySelectorAll('input[name=role]'); for(var i=0;i<r.length;i++){ r[i].checked = (r[i].value===(p.role==='combine'?'combine':'driver')); }
+    $('#pFarm').removeAttribute('data-set');
+  }
+  var first = S.isAdmin ? 'No usual farm' : (S.farms.length ? 'Pick your farm' : 'No farms added yet');
+  setOptions($('#pFarm'), [['', first]].concat(S.farms.map(function(f){ return [f.id,f.name]; })));
+  $('#pFarm').disabled = locked;
+  var want = locked ? S.crewFarm : (p.farm&&farmById(p.farm)?p.farm:'');
+  if(!$('#pFarm').getAttribute('data-set') || locked){ $('#pFarm').value = want; if(S.farms.length) $('#pFarm').setAttribute('data-set','1'); }
+}
+
+/* ---------- setup ---------- */
+function renderSetup(){
+  var adm=isOffice();
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!adm;
+  var fsig=JSON.stringify([adm,S.farms,S.trucks.map(function(t){ return t.farm; }),confirmKey]);
+  if(fsig!==last.farms){
+    last.farms=fsig;
+    $('#farmList').innerHTML=S.farms.map(function(f){
+      var key='delFarm:'+f.id, n=S.trucks.filter(function(t){ return t.farm===f.id; }).length;
+      function chips(arr,kind,none){
+        return (arr||[]).map(function(x){
+          return '<span class="chip">'+(kind==='Mill'?'<input type="color" class="mcolor" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" value="'+millColor(f.id,x)+'" aria-label="Color for '+esc(x)+'">':'')+esc(x)+'<button type="button" data-act="del'+kind+'" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Remove '+esc(x)+'">&times;</button></span>';
+        }).join('') || '<span class="small">'+none+'</span>';
+      }
+      return '<article class="card farm"><header><h3>'+esc(f.name)+(adm?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
+        (adm?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
+        (adm?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
+        '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>':'')+
+        '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
+        '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
+        '<div class="lbl">Fields</div><div class="chips">'+chips(f.fields,'Field','None yet. Fields are optional.')+'</div>'+
+        '<form class="addrow" data-form="addField" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Field name or number" aria-label="New field for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
+      '</article>';
+    }).join('');
+  }
+  setOptions($('#tFarm'), S.farms.length ? S.farms.map(function(f){ return [f.id,f.name]; }) : [['','Add a farm first']]);
+  var rsig=JSON.stringify([S.trucks.map(function(t){ return [t.id,t.no,t.farm,t.hauler,t.mills]; }),S.farms.map(function(f){ return [f.id,f.name,f.mills]; }),confirmKey]);
+  if(rsig!==last.roster){
+    last.roster=rsig;
+    var out='';
+    if(!S.trucks.length) out='<p class="small">No trucks yet. Add the first one above.</p>';
+    var row=function(t, note){
+      var key='delTruck:'+t.id;
+      return '<div class="ros-row" data-st="empty"><span class="plate">'+esc(t.no)+'</span><span class="info"><span class="l2">'+esc(note||[t.hauler||'No hauler named', isRestricted(t)?'Only '+allowedMills(t).join(' / '):''].filter(Boolean).join(' · '))+'</span></span>'+
+        '<span class="acts"><button class="btn ghost sm" type="button" data-act="editTruck" data-id="'+esc(t.id)+'">Edit</button>'+(adm?'<button class="btn warn sm" type="button" data-act="delTruck" data-id="'+esc(t.id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>':'')+'</span></div>';
+    };
+    S.farms.forEach(function(f){
+      var mine=S.trucks.filter(function(t){ return t.farm===f.id; });
+      if(!mine.length) return;
+      out+='<div class="lbl" style="margin-top:8px">'+esc(f.name)+' · '+mine.length+'</div>'+mine.map(function(t){ return row(t); }).join('');
+    });
+    var orphans=S.trucks.filter(function(t){ return !farmById(t.farm); });
+    if(orphans.length) out+='<div class="lbl" style="margin-top:8px">Farm was removed</div>'+orphans.map(function(t){ return row(t,'Edit to move it to a farm'); }).join('');
+    $('#roster').innerHTML=out;
+  }
+}
+function renderTruckMills(checked){
+  var farm=$('#tFarm').value, all=farm?millsOf(farm):[], wrap=$('#tMillsWrap');
+  if(!checked) checked=[].slice.call(document.querySelectorAll('#tMills input:checked')).map(function(c){ return c.value; });
+  wrap.hidden = all.length<2;
+  $('#tMills').innerHTML = all.length<2 ? '' : all.map(function(m){
+    return '<label class="chip" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" value="'+esc(m)+'"'+(checked.indexOf(m)>=0?' checked':'')+'> '+esc(m)+'</label>';
+  }).join('');
+}
+function syncTruckForm(){
+  if(S.editing && !truckById(S.editing)) S.editing=null;
+  renderTruckMills();
+  $('#truckFormTitle').textContent = S.editing ? 'Edit truck' : 'Add trucks';
+  $('#tSave').textContent = S.editing ? 'Save truck' : 'Add truck';
+  $('#tCancel').hidden = !S.editing;
+}
+
+/* ---------- report (one farm at a time) ---------- */
+function reportDays(){
+  var t=S.loadsDay||today(), out=[];
+  for(var i=0;i<S.report.range;i++) out.push(addDays(t,-i));
+  return out;
+}
+function loadsFor(d){ return d===S.loadsDay ? S.loads : (S.report.cache[d]||[]); }
+function repLoads(d){ return loadsFor(d).filter(function(x){ return !S.report.mill || x.mill===S.report.mill; }); }
+function dayStats(list){
+  var L=list.filter(function(x){ return x.loadedAt; });
+  var ids={}; L.forEach(function(x){ ids[x.truck]=1; });
+  var times=L.map(function(x){ return x.loadedAt; });
+  return { loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
+}
+async function loadReport(){
+  if(!S.db || !S.farmId) return;
+  var farm=S.farmId, now=S.loadsDay;
+  var todo=reportDays().filter(function(d){ return d!==now; });
+  S.report.loading=true; S.report.fails=0; last.report=''; schedule();
+  var i=0;
+  async function worker(){
+    while(i<todo.length){
+      var d=todo[i++];
+      try{ var snap=await col(loadsPath(farm,d)).limit(1000).get(); if(farm===S.farmId) S.report.cache[d]=docs(snap); }
+      catch(e){ S.report.fails++; if(farm===S.farmId && !S.report.cache[d]) S.report.cache[d]=[]; }
+    }
+  }
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  S.report.loading=false; last.report=''; schedule();
+}
+function tally(rows, keyFn){
+  var o={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; });
+  return Object.keys(o).map(function(k){ return {k:k,n:o[k]}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
+}
+function tbl(head, rows){
+  return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i>0?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
+    (rows.length?rows.map(function(r){ return '<tr>'+r.map(function(c,i){ return '<td'+(i>0?' class="n"':'')+'>'+c+'</td>'; }).join('')+'</tr>'; }).join(''):'<tr><td colspan="'+head.length+'" class="small">Nothing logged.</td></tr>')+'</tbody></table></div>';
+}
+function renderReport(){
+  if(!S.db){ if(last.report!=='nodb'){ last.report='nodb'; $('#reportBody').innerHTML=emptyCard('No report yet','Sign in to read the logged loads.'); } return; }
+  if(!S.farmId){ if(last.report!=='nofarm'){ last.report='nofarm'; $('#reportBody').innerHTML=emptyCard('No farm picked','Pick your farm in your details to see its report.','<button class="btn" type="button" data-act="goMe">Choose my farm</button>'); } return; }
+  if(!S.report.sel) S.report.sel=S.loadsDay||today();
+  var days=reportDays();
+  if(days.indexOf(S.report.sel)<0) S.report.sel=days[0];
+  var mills=millsOf(S.farmId);
+  if(S.report.mill && mills.indexOf(S.report.mill)<0) S.report.mill='';
+  var sig=JSON.stringify([S.farmId, mills, S.report.mill, S.loads.map(function(l){ return [l.id,l.loadedAt,l.mill,l.no]; }), Object.keys(S.report.cache).map(function(k){ return k+':'+S.report.cache[k].length; }), S.report.sel, S.report.range, S.report.loading, S.report.fails, !!S.dl, S.loadsDay, S.report.mode]);
+  if(sig===last.report) return;
+  last.report=sig;
+  var stats={}, maxLoaded=0;
+  days.forEach(function(d){ stats[d]=dayStats(repLoads(d)); if(stats[d].loaded>maxLoaded) maxLoaded=stats[d].loaded; });
+  var sel=S.report.sel, ss=stats[sel], fn=farmName(S.farmId);
+  var daily=S.report.mode!=='range', si=days.indexOf(sel);
+  var html='<div class="fchips" role="group" aria-label="Report type">'+
+    '<button type="button" class="fchip" data-act="repMode" data-mode="daily"'+(daily?' aria-pressed="true"':' aria-pressed="false"')+'>Daily report</button>'+
+    '<button type="button" class="fchip" data-act="repMode" data-mode="range"'+(!daily?' aria-pressed="true"':' aria-pressed="false"')+'>Day to day</button></div>';
+  if(daily) html+='<div class="toolbar">'+
+    '<button class="btn ghost" type="button" data-act="repDay" data-dir="1"'+(si>=days.length-1?' disabled':'')+'>&larr; Earlier</button>'+
+    '<b style="align-self:center">'+esc(dayLabel(sel))+(sel===today()?' (today)':'')+'</b>'+
+    '<button class="btn ghost" type="button" data-act="repDay" data-dir="-1"'+(si<=0?' disabled':'')+'>Later &rarr;</button></div>';
+  html+='<div class="toolbar">'+
+    '<label class="f">Days to show<select id="rRange">'+[7,14,30].map(function(n){ return '<option value="'+n+'"'+(n===S.report.range?' selected':'')+'>Last '+n+' days</option>'; }).join('')+'</select></label>'+
+    (mills.length>1 ? '<label class="f">Mill<select id="rMill"><option value="">All mills</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===S.report.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>' : '')+
+    '<button class="btn ghost" type="button" data-act="refreshReport">'+(S.report.loading?'Loading…':'Refresh')+'</button>'+
+    (S.dl?'<button class="btn" type="button" data-act="csv">Save as CSV</button>':'')+
+  '</div>';
+  html+='<p class="small">'+esc(fn)+' only'+(S.report.mill?', loads to '+esc(S.report.mill):'')+'. Each row is one date. Every tap on a truck number counts as one load.</p>';
+  html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+ss.loaded+'</b></div>'+
+    '<div class="stat"><span class="lbl">Trucks used</span><b>'+ss.trucks+'</b></div>'+
+    '<div class="stat"><span class="lbl">First loaded</span><b>'+(ss.first?esc(timeOf(ss.first)):'–')+'</b></div>'+
+    '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div></div>';
+  if(daily){
+    var byHour=tally(ss.rows,function(x){ var h=new Date(x.loadedAt).getHours(); return (h<10?'0':'')+h; }).sort(function(a,b){ return a.k<b.k?-1:1; });
+    html+='<div class="lbl">'+esc(dayLabel(sel))+' by hour</div>'+tbl(['Hour','Loaded'],byHour.map(function(r){ var h=Number(r.k); return [(h%12||12)+(h<12?' AM':' PM'),r.n]; }));
+  } else {
+  html+='<div class="lbl">Day to day</div>';
+  html+=tbl(['Date','Loaded','Trucks','First loaded','Last loaded'], days.map(function(d){
+    var s=stats[d];
+    return ['<button type="button" class="daypick" data-act="pickDay" data-day="'+d+'"'+(d===sel?' aria-current="true"':'')+'>'+esc(dayLabel(d))+(d===S.loadsDay?' (today)':'')+'</button>',
+      '<span class="bar" style="--w:'+(maxLoaded?Math.round(s.loaded/maxLoaded*60):0)+'px"></span>'+s.loaded,
+      s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'];
+  }));
+  }
+  if(S.report.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
+  var byField=tally(ss.rows,function(x){ return x.field||'No field set'; });
+  var byTrack=tally(ss.rows,function(x){ return x.track||'No track set'; });
+  var byTruck=tally(ss.rows,function(x){ return 'Truck '+x.no; });
+  if(mills.length){
+    var byMill=tally(ss.rows,function(x){ return x.mill||'No mill set'; });
+    html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Mill','Loaded'],byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n]; }));
+  }
+  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by track</div>'+tbl(['Track','Loaded'],byTrack.map(function(r){ return [esc(r.k),r.n]; }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by field</div>'+tbl(['Field','Loaded'],byField.map(function(r){ return [esc(r.k),r.n]; }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'],byTruck.map(function(r){ return [esc(r.k),r.n]; }));
+  var log=ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'],log.map(function(x){
+    return ['<b>'+esc(x.no)+'</b>', (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')];
+  }));
+  var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill') ? document.activeElement.id : '';
+  $('#reportBody').innerHTML=html;
+  if(keep) $('#'+keep).focus();
+}
+function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+async function exportCsv(){
+  if(!S.dl || !S.farmId) return;
+  var days=(S.report.mode!=='range' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
+  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by'].join(',')];
+  days.forEach(function(d){
+    repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
+      lines.push([d,fn,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy].map(csvCell).join(','));
+    });
+  });
+  var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
+  try{ await S.dl.save({ filename:slug+'_loads_'+days[0]+'_to_'+days[days.length-1]+'.csv', data:lines.join('\n') }); toast('CSV ready'); }
+  catch(e){ if(!e || e.code!=='declined') toast('Could not save the CSV here.'); }
+}
+
+/* ---------- people (administrators) ---------- */
+var P=[];
+async function loadPeople(){
+  if(!S.isAdmin) return;
+  try{ P=await rpc('people_list',{}); last.access=''; schedule(); }
+  catch(e){ if(e && e.code==='denied') S.err='denied'; schedule(); }
+}
+function renderAccess(){
+  var sig=JSON.stringify([P,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
+  if(sig===last.access) return; last.access=sig;
+  var h='';
+  if(!P.length) h='<p class="small">No one has registered yet.</p>';
+  P.forEach(function(p){
+    var key='rmPerson:'+p.user_id;
+    h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
+      '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
+      '<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(p.name||p.email)+'"><option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option><option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option></select>'+
+      '<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(p.name||p.email)+'"'+(p.role==='crew'?'':' disabled')+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>'+
+      '</div></div>'+
+      '<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button></div>';
+  });
+  $('#peopleList').innerHTML=h;
+}
+
+/* ---------- combined report (administrators only; each farm still has its own Report) ---------- */
+var C={ range:7, cache:{}, loading:false, fails:0, sel:'' };
+function combDays(){ var t=today(), o=[]; for(var i=0;i<C.range;i++) o.push(addDays(t,-i)); return o; }
+function combRows(fid,d){ return (C.cache[fid+'|'+d]||[]).filter(function(x){ return x.loadedAt; }); }
+async function loadComb(){
+  if(!S.db || !S.isAdmin) return;
+  var jobs=[], days=combDays();
+  S.farms.forEach(function(f){ days.forEach(function(d){ jobs.push([f.id,d]); }); });
+  C.loading=true; C.fails=0; last.comb=''; schedule();
+  var i=0;
+  async function w(){
+    while(i<jobs.length){
+      var j=jobs[i++];
+      try{ var snap=await col(loadsPath(j[0],j[1])).limit(1000).get(); C.cache[j[0]+'|'+j[1]]=docs(snap); }
+      catch(e){ C.fails++; if(!C.cache[j[0]+'|'+j[1]]) C.cache[j[0]+'|'+j[1]]=[]; }
+    }
+  }
+  await Promise.all([w(),w(),w(),w()]);
+  C.loading=false; last.comb=''; schedule();
+}
+function renderAll_(){
+  var body=$('#allBody');
+  if(!S.db){ if(last.comb!=='nodb'){ last.comb='nodb'; body.innerHTML=emptyCard('No report yet','Sign in to read the logged loads.'); } return; }
+  var farms=S.farms, days=combDays();
+  if(!farms.length){ if(last.comb!=='nofarm'){ last.comb='nofarm'; body.innerHTML=emptyCard('No farms yet','Add farms in Setup first.'); } return; }
+  if(!C.sel || days.indexOf(C.sel)<0) C.sel=days[0];
+  var sig=JSON.stringify([farms.map(function(f){ return [f.id,f.name]; }), Object.keys(C.cache).map(function(k){ return k+':'+C.cache[k].length; }), C.sel, C.range, C.loading, C.fails, !!S.dl]);
+  if(sig===last.comb) return;
+  last.comb=sig;
+  var sel=C.sel, tot={}, max=0;
+  days.forEach(function(d){ var n=0; farms.forEach(function(f){ n+=combRows(f.id,d).length; }); tot[d]=n; if(n>max) max=n; });
+  var per=farms.map(function(f){ var s=dayStats(combRows(f.id,sel)); s.f=f; return s; });
+  var all=[]; per.forEach(function(s){ all=all.concat(s.rows); });
+  var times=all.map(function(x){ return x.loadedAt; });
+  var html='<div class="toolbar">'+
+    '<label class="f">Days to show<select id="cRange">'+[7,14,30].map(function(n){ return '<option value="'+n+'"'+(n===C.range?' selected':'')+'>Last '+n+' days</option>'; }).join('')+'</select></label>'+
+    '<button class="btn ghost" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
+    (S.dl?'<button class="btn" type="button" data-act="csvAll">Save as CSV</button>':'')+
+  '</div>';
+  html+='<p class="small">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
+  html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+all.length+'</b></div>'+
+    '<div class="stat"><span class="lbl">Farms loading</span><b>'+per.filter(function(s){ return s.loaded; }).length+'</b></div>'+
+    '<div class="stat"><span class="lbl">First loaded</span><b>'+(times.length?esc(timeOf(Math.min.apply(null,times))):'–')+'</b></div>'+
+    '<div class="stat"><span class="lbl">Last loaded</span><b>'+(times.length?esc(timeOf(Math.max.apply(null,times))):'–')+'</b></div></div>';
+  html+='<div class="lbl">Day to day, by farm</div>';
+  html+=tbl(['Date'].concat(farms.map(function(f){ return f.name; }),['Total']), days.map(function(d){
+    return ['<button type="button" class="daypick" data-act="pickAllDay" data-day="'+d+'"'+(d===sel?' aria-current="true"':'')+'>'+esc(dayLabel(d))+(d===today()?' (today)':'')+'</button>']
+      .concat(farms.map(function(f){ return combRows(f.id,d).length; }),
+        ['<span class="bar" style="--w:'+(max?Math.round(tot[d]/max*60):0)+'px"></span><b>'+tot[d]+'</b>']);
+  }));
+  if(C.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'], per.map(function(s){
+    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'];
+  }));
+  var mk={};
+  per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
+  var mrows=Object.keys(mk).sort().map(function(k){ return [esc(k),mk[k]]; });
+  if(mrows.length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Farm · Mill','Loaded'],mrows);
+  body.innerHTML=html;
+}
+async function exportCombCsv(){
+  if(!S.dl) return;
+  var days=combDays().slice().reverse();
+  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by'].join(',')];
+  days.forEach(function(d){
+    S.farms.forEach(function(f){
+      combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
+        lines.push([d,f.name,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy].map(csvCell).join(','));
+      });
+    });
+  });
+  try{ await S.dl.save({ filename:'all-farms_loads_'+days[0]+'_to_'+days[days.length-1]+'.csv', data:lines.join('\n') }); toast('CSV ready'); }
+  catch(e){ if(!e || e.code!=='declined') toast('Could not save the CSV here.'); }
+}
+
+/* ---------- setup actions ---------- */
+function newId(prefix){ return prefix+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+async function addFarm(name){
+  name=name.trim(); if(!name) return;
+  if(S.farms.some(function(f){ return f.name.toLowerCase()===name.toLowerCase(); })){ toast('That farm is already on the list.'); return; }
+  try{ await col('farms').doc(newId('f')).set({ name:name, fields:[], mills:[], order:Date.now() }); toast(name+' added'); }
+  catch(e){ fail(e); }
+}
+async function editList(farmId, key, fn){
+  var f=farmById(farmId); if(!f) return;
+  var patch={}; patch[key]=fn((f[key]||[]).slice());
+  var before=f[key]; f[key]=patch[key];            /* show it at once so quick back-to-back adds do not overwrite each other */
+  try{ await dref('farms/'+farmId).update(patch); }catch(e){ f[key]=before; fail(e); }
+}
+async function saveTruck(){
+  var raw=$('#tNo').value.trim(), farm=$('#tFarm').value, hauler=$('#tHauler').value.trim();
+  if(!raw){ toast('Enter a truck number.'); return; }
+  if(!farm){ toast('Add a farm first.'); return; }
+  var tm=[].slice.call(document.querySelectorAll('#tMills input:checked')).map(function(c){ return c.value; });
+  if(tm.length>=millsOf(farm).length) tm=[];          /* all mills checked = no restriction */
+  try{
+    if(S.editing){
+      var t=truckById(S.editing); if(!t) return;
+      await dref('trucks/'+t.id).update({ no:raw, farm:farm, hauler:hauler, mills:tm });
+      toast('Truck '+raw+' saved'); resetTruckForm(); return;
+    }
+    var nums=raw.split(/[,\s]+/).filter(Boolean), made=0, skipped=0, now=Date.now();
+    for(var i=0;i<nums.length;i++){
+      var n=nums[i];
+      if(S.trucks.some(function(t){ return t.farm===farm && String(t.no)===n; })){ skipped++; continue; }
+      await col('trucks').doc(newId('t')).set({ no:n, farm:farm, hauler:nums.length===1?hauler:'', mills:tm, createdAt:now+i });
+      made++;
+    }
+    toast((made?made+' truck'+(made>1?'s':'')+' added to '+farmName(farm):'')+(skipped?(made?', ':'')+skipped+' already on the roster':''));
+    $('#tNo').value=''; $('#tHauler').value=''; $('#tNo').focus();
+  }catch(e){ fail(e); }
+}
+function resetTruckForm(){ S.editing=null; $('#tNo').value=''; $('#tHauler').value=''; renderTruckMills([]); syncTruckForm(); }
+
+/* ---------- events ---------- */
+document.addEventListener('click', function(e){
+  var el=e.target.closest('[data-act]'); if(!el) return;
+  var a=el.getAttribute('data-act');
+  switch(a){
+    case 'tab':
+      S.tab=el.getAttribute('data-tab'); last.board=''; last.report=''; schedule();
+      if(S.tab==='report') loadReport();
+      if(S.tab==='all'){ last.comb=''; loadComb(); }
+      window.scrollTo(0,0); break;
+    case 'refreshAll': loadComb(); break;
+    case 'csvAll': exportCombCsv(); break;
+    case 'pickAllDay': C.sel=el.getAttribute('data-day'); last.comb=''; schedule(); break;
+    case 'goMe': S.tab='me'; $('#meForm').removeAttribute('data-init'); schedule(); break;
+    case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt) logLoad(lt); break;
+    case 'undoLoad':
+      var up=el.getAttribute('data-path'); $('#toast').hidden=true;
+      dref(up).delete().then(function(){ toast('Load removed'); }).catch(fail); break;
+    case 'editLoad': openEdit(el.getAttribute('data-id')); break;
+    case 'closeSheet': closeEdit(); break;
+    case 'saveEdit': saveEdit(); break;
+    case 'deleteLoad': deleteLoad(); break;
+    case 'listMill': S.listMill=el.getAttribute('data-v'); last.board=''; schedule(); break;
+    case 'repMode': S.report.mode=el.getAttribute('data-mode'); last.report=''; schedule(); break;
+    case 'repDay': var dd=reportDays(), ix=dd.indexOf(S.report.sel)+Number(el.getAttribute('data-dir')); if(ix>=0&&ix<dd.length){ S.report.sel=dd[ix]; last.report=''; schedule(); } break;
+    case 'refreshReport': loadReport(); break;
+    case 'csv': exportCsv(); break;
+    case 'pickDay': S.report.sel=el.getAttribute('data-day'); last.report=''; schedule(); break;
+    case 'signOut': signOut(); break;
+    case 'toggleReg':
+      S.regMode=!S.regMode; $('#loginErr').textContent='';
+      $('#lNameWrap').hidden=!S.regMode; $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
+      $('#loginIntro').textContent=S.regMode?'Make an account with your email. An administrator then puts you on your farm.':'Use the email and password you signed up with.';
+      $('#loginBtn').textContent=S.regMode?'Create account':'Sign in';
+      $('#regToggle').textContent=S.regMode?'Already have an account? Sign in':'New here? Create an account';
+      $('#lPass').setAttribute('autocomplete',S.regMode?'new-password':'current-password'); break;
+    case 'checkStatus': checkStatus(); break;
+    case 'rmPerson':
+      var rp=el.getAttribute('data-user');
+      if(confirmTap('rmPerson:'+rp)) rpc('person_remove',{ p_user:rp }).then(function(){ toast('Removed'); loadPeople(); }).catch(fail);
+      break;
+    case 'delFarm':
+      var fid=el.getAttribute('data-farm');
+      if(S.trucks.some(function(t){ return t.farm===fid; })){ toast('Remove or move this farm’s trucks first.'); break; }
+      if(confirmTap('delFarm:'+fid)) dref('farms/'+fid).delete().then(function(){ toast('Farm removed'); }).catch(fail);
+      break;
+    case 'delTrack': editList(el.getAttribute('data-farm'),'tracks',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
+    case 'delField': editList(el.getAttribute('data-farm'),'fields',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
+    case 'delMill': editList(el.getAttribute('data-farm'),'mills',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
+    case 'editTruck':
+      var t=truckById(el.getAttribute('data-id')); if(!t) break;
+      S.editing=t.id; $('#tNo').value=t.no; $('#tHauler').value=t.hauler||'';
+      renderSetup(); $('#tFarm').value=t.farm||''; renderTruckMills(t.mills||[]); syncTruckForm();
+      $('#truckForm').scrollIntoView({block:'center'}); $('#tNo').focus(); break;
+    case 'cancelEdit': resetTruckForm(); break;
+    case 'delTruck':
+      var tid=el.getAttribute('data-id');
+      if(isOffice() && confirmTap('delTruck:'+tid)) dref('trucks/'+tid).delete().then(function(){ toast('Truck removed'); }).catch(fail);
+      break;
+  }
+});
+document.addEventListener('change', function(e){
+  var id=e.target.id;
+  if(id==='selMill'){ S.dest.mill=e.target.value; saveDest(); last.board=''; schedule(); }
+  else if(e.target.classList && e.target.classList.contains('mcolor')){
+    var mf=farmById(e.target.getAttribute('data-farm')); if(!mf) return;
+    var mc=Object.assign({}, mf.millColors||{}); mc[e.target.getAttribute('data-v')]=e.target.value;
+    dref('farms/'+mf.id).update({ millColors:mc }).catch(fail);
+  }
+  else if(id==='selHold'){ S.hold=Number(e.target.value)||15; lsSet('cane-truck-log:hold',String(S.hold)); last.board=''; schedule(); }
+  else if(id==='selRoute'){ S.route=Number(e.target.value)||60; lsSet('cane-truck-log:route',String(S.route)); last.board=''; schedule(); }
+  else if(id==='selTrack'){ S.active.track=e.target.value; saveActive(); last.board=''; schedule(); }
+  else if(id==='selField'){ S.active.field=e.target.value; saveActive(); last.board=''; schedule(); }
+  else if(id==='selFarm' && isOffice()){
+    S.profile=Object.assign({name:'',role:'office',farm:''}, S.profile||{}); S.profile.farm=e.target.value; saveProfile(); schedule();
+  }
+  else if(e.target.classList && e.target.classList.contains('pperson')){
+    var row=e.target.closest('.ros-row'), sels=row.querySelectorAll('select.pperson');
+    var role=sels[0].value, pf=sels[1].value, uid=e.target.getAttribute('data-user');
+    if(role==='crew' && !pf){ sels[1].disabled=false; toast('Now pick the farm for them.'); return; }
+    rpc('person_set',{ p_user:uid, p_role:role, p_farm:role==='crew'?pf:'' }).then(function(){ toast('Saved'); loadPeople(); }).catch(function(er){ toast((er&&er.message&&er.code==='error')?er.message:'Could not save.'); loadPeople(); });
+  }
+  else if(id==='tFarm'){ renderSetup(); renderTruckMills([]); }
+  else if(id==='pFarm'){ /* nothing else depends on it */ }
+  else if(id==='rRange'){ S.report.range=Number(e.target.value); last.report=''; loadReport(); }
+  else if(id==='cRange'){ C.range=Number(e.target.value); last.comb=''; loadComb(); }
+  else if(id==='rMill'){ S.report.mill=e.target.value; last.report=''; schedule(); }
+});
+document.addEventListener('keydown', function(e){ if(e.key==='Escape' && S.edit) closeEdit(); });
+document.addEventListener('submit', function(e){
+  e.preventDefault();
+  var f=e.target;
+  if(f.id==='farmForm'){ var v=$('#farmName').value; $('#farmName').value=''; addFarm(v); }
+  else if(f.id==='truckForm'){ saveTruck(); }
+  else if(f.id==='loginForm'){
+    var em=$('#lEmail').value.trim(), pw=$('#lPass').value, nm=$('#lName').value.trim();
+    if(!em || !pw){ $('#loginErr').textContent='Enter your email and password.'; return; }
+    if(S.regMode && !nm){ $('#loginErr').textContent='Enter your name.'; return; }
+    if(S.regMode && pw.length<6){ $('#loginErr').textContent='Use at least 6 characters for the password.'; return; }
+    $('#loginErr').textContent=''; $('#loginBtn').disabled=true;
+    var go = S.regMode
+      ? authCall('signup',{ email:em, password:pw, data:{ name:nm } }).then(function(j){
+          if(!setSession(j)){ var er=new Error('confirm'); er.code='confirm'; throw er; }
+        })
+      : authCall('token?grant_type=password',{ email:em, password:pw }).then(setSession);
+    go.then(function(){ return enter(nm); }).catch(function(er){
+      var m = er && er.code==='confirm' ? 'Check your email to confirm your address, then sign in.'
+            : er && er.code==='offline' ? 'No signal. Try again in a moment.'
+            : S.regMode ? ((er&&er.message)||'Could not create the account.')
+            : 'That email and password did not work.';
+      $('#loginErr').textContent=m;
+    }).then(function(){ $('#loginBtn').disabled=false; });
+  }
+  else if(f.id==='meForm'){
+    var name=$('#pName').value.trim();
+    if(!name){ toast('Enter your name.'); $('#pName').focus(); return; }
+    if(S.isAdmin) S.profile={ name:name, role:'office', farm:$('#pFarm').value||'' };
+    else S.profile={ name:name, role:(document.querySelector('input[name=role]:checked')||{}).value||'driver', farm:S.crewFarm };
+    saveProfile();
+    $('#meForm').removeAttribute('data-init'); S.tab='board'; last.board=''; schedule(); toast('Saved. Welcome, '+name+'.');
+  }
+  else if(f.getAttribute('data-form')==='addField' || f.getAttribute('data-form')==='addMill' || f.getAttribute('data-form')==='addTrack'){
+    var inp=f.querySelector('input'), val=inp.value.trim(); inp.value=''; if(!val) return;
+    var fk=f.getAttribute('data-form'), key=fk==='addMill' ? 'mills' : (fk==='addTrack' ? 'tracks' : 'fields');
+    editList(f.getAttribute('data-farm'), key, function(arr){ if(arr.indexOf(val)<0) arr.push(val); return arr; });
+  }
+});
+
+/* ---------- start ---------- */
+async function init(){
+  var hv=Number(lsGet('cane-truck-log:hold')); if([5,10,15,20,30,45].indexOf(hv)>=0) S.hold=hv;
+  var rv=Number(lsGet('cane-truck-log:route')); if([30,45,60,90,120,180].indexOf(rv)>=0) S.route=rv;
+  loadLocalProfile();
+  S.dl={ save:function(o){
+    var a=document.createElement('a'), url=URL.createObjectURL(new Blob([o.data],{type:'text/csv'}));
+    a.href=url; a.download=o.filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },500);
+    return Promise.resolve({ status:'saved' });
+  } };
+  if(!CFG.supabaseUrl || !CFG.supabaseAnonKey || /YOUR-/.test(CFG.supabaseUrl+CFG.supabaseAnonKey)){ S.noConfig=true; schedule(); return; }
+  S.db=true;
+  var raw=lsGet('cane-truck-log:session');
+  if(raw){
+    try{ SESS=JSON.parse(raw); }catch(e){ SESS=null; }
+    if(SESS){
+      try{ await enter((S.profile&&S.profile.name)||''); }
+      catch(e){ if(e && e.code==='denied'){ SESS=null; try{ localStorage.removeItem('cane-truck-log:session'); }catch(_){} } }
+    }
+  }
+  schedule();
+  setInterval(function(){ subLoads(); if(!document.hidden) schedule(); if(S.authed && S.isAdmin && !S.pending) loadPeople(); },30000);
+  setInterval(function(){ if(S.authed && S.pending && !document.hidden) checkStatus(); },8000);
+}
+syncTruckForm();
+init();
+})();
+</script>
+</body>
+</html>
