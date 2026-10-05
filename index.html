@@ -219,6 +219,7 @@ td.n,th.n{text-align:right}
       </div>
       <div class="row" id="boardTools" style="margin-bottom:16px" hidden>
         <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
+        <button class="btn ghost sm" type="button" data-act="missedOpen">Add missed load</button>
         <button class="btn ghost sm" type="button" data-act="refreshBoard" id="refreshBtn">Refresh</button>
         <button class="btn ghost sm" type="button" id="editToggle" data-act="toggleEdit" aria-pressed="false">Edit trucks and mills</button>
       </div>
@@ -233,6 +234,17 @@ td.n,th.n{text-align:right}
           <button class="btn" type="submit" id="qSave">Add truck</button>
           <button class="btn ghost" type="button" data-act="quickCancel">Close</button>
           <button class="btn warn" type="button" id="qDel" data-act="quickDel" hidden>Remove truck</button>
+        </div>
+      </form>
+      <form class="card" id="missed" hidden autocomplete="off" style="margin-bottom:16px;gap:12px;flex-direction:column;display:flex">
+        <h2>Add a missed load</h2>
+        <p class="small" style="margin:0">Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.</p>
+        <label class="f">Truck<select id="mTruck"></select></label>
+        <label class="f">Time it was loaded<input type="time" id="mTime"></label>
+        <label class="f" id="mMillWrap" hidden>Mill<select id="mMill"></select></label>
+        <div class="addrow">
+          <button class="btn" type="submit">Add load</button>
+          <button class="btn ghost" type="button" data-act="missedCancel">Close</button>
         </div>
       </form>
       <div id="boardBody" style="display:flex;flex-direction:column;gap:16px"></div>
@@ -1294,6 +1306,8 @@ function renderQuick(){
   $('#boardTools').hidden=!ok;
   if(!ok || (S.quick && S.quick.farm!==S.farmId)){ S.quick=null; }
   $('#quick').hidden=!S.quick;
+  if(!ok || (S.missed && S.missed!==S.farmId)) S.missed=null;
+  $('#missed').hidden=!S.missed;
   var et=$('#editToggle'); et.textContent=S.boardEdit?'Done editing':'Edit trucks and mills'; et.setAttribute('aria-pressed',S.boardEdit?'true':'false');
   if(S.quick && S.quick.id){ var t=truckById(S.quick.id); if(!t){ S.quick=null; $('#quick').hidden=true; } }
   if(S.quick) $('#qDel').textContent = confirmKey==='qDel:'+S.quick.id ? 'Tap again to remove' : 'Remove truck';
@@ -1338,7 +1352,40 @@ async function saveQuick(){
   }catch(e){ fail(e); }
 }
 
+/* ---------- add a load that was skipped ---------- */
+function openMissed(){
+  var ts=farmTrucks().slice().sort(sortNo), mills=millsOf(S.farmId);
+  if(!ts.length){ toast('Add a truck first.'); return; }
+  S.missed=S.farmId;
+  $('#mTruck').innerHTML=ts.map(function(t){ return '<option value="'+esc(t.id)+'">Truck '+esc(t.no)+'</option>'; }).join('');
+  $('#mTime').value=hhmm(Date.now());
+  $('#mMillWrap').hidden=mills.length<2;
+  $('#mMill').innerHTML=mills.map(function(m){ return '<option>'+esc(m)+'</option>'; }).join('');
+  syncMissedMill();
+  renderQuick(); $('#missed').scrollIntoView({block:'center'});
+}
+function syncMissedMill(){
+  var t=truckById($('#mTruck').value); if(!t||millsOf(S.farmId).length<2) return;
+  var m=truckMill(t); if(m) $('#mMill').value=m;
+}
+async function saveMissed(){
+  if(!S.missed) return;
+  if(needName()) return;
+  var t=truckById($('#mTruck').value), farm=S.farmId, mills=millsOf(farm);
+  if(!t){ toast('Pick a truck.'); return; }
+  var hm=$('#mTime').value; if(!hm){ toast('Pick the time.'); return; }
+  var ms=timeToMs(today(),hm,Date.now());
+  if(ms>Date.now()+60000){ toast('That time is in the future.'); return; }
+  var mill=mills.length===1?mills[0]:(mills.length?$('#mMill').value:'');
+  if(mills.length && !mill){ toast('Pick a mill.'); return; }
+  try{
+    await col(loadsPath(farm,today())).doc().set({ truck:t.id, no:t.no, farm:farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', mill:mill, loadedAt:ms, loadedBy:byName(), day:today(), addedLate:true });
+    toast('Truck '+t.no+' added at '+hm); S.missed=null; last.board=''; schedule();
+  }catch(e){ fail(e); }
+}
+
 /* ---------- events ---------- */
+document.addEventListener('change', function(e){ if(e.target.id==='mTruck') syncMissedMill(); });
 document.addEventListener('click', function(e){
   var el=e.target.closest('[data-act]'); if(!el) return;
   var a=el.getAttribute('data-act');
@@ -1373,6 +1420,8 @@ document.addEventListener('click', function(e){
       subLoads(); poke(); refreshWho(); loadPending(); if(isLead()) loadPeople(); last.board=''; schedule();
       setTimeout(function(){ rb.disabled=false; rb.textContent='Refresh'; toast('Up to date'); },1200); break;
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
+    case 'missedOpen': openMissed(); break;
+    case 'missedCancel': S.missed=null; schedule(); break;
     case 'quickCancel': S.quick=null; schedule(); break;
     case 'quickDel':
       if(S.quick && S.quick.id && isLead() && confirmTap('qDel:'+S.quick.id)){
@@ -1473,6 +1522,7 @@ document.addEventListener('submit', function(e){
   if(f.id==='farmForm'){ var v=$('#farmName').value; $('#farmName').value=''; addFarm(v); }
   else if(f.id==='truckForm'){ saveTruck(); }
   else if(f.id==='quick'){ saveQuick(); }
+  else if(f.id==='missed'){ saveMissed(); }
   else if(f.id==='loginForm'){
     var em=$('#lEmail').value.trim(), pw=$('#lPass').value, nm=$('#lName').value.trim();
     if(!em || !pw){ $('#loginErr').textContent='Enter your email and password.'; return; }
@@ -1509,7 +1559,7 @@ document.addEventListener('submit', function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- '+ Add truck':'+ Agregar camión','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ '+ Add truck':'+ Agregar camión','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
