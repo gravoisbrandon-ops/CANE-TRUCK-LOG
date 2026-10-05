@@ -70,6 +70,7 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .num.route span,.num.route b{color:inherit;font-weight:700}
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1px solid var(--line)}
 .mcolor{width:30px;height:28px;padding:0;border:0;background:none;cursor:pointer}
+.editing .num{border-style:dashed;border-color:var(--ink)}
 .num.again{outline:3px solid var(--ink);outline-offset:2px}
 .grp{display:flex;flex-direction:column;gap:8px}
 .holdbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -203,6 +204,23 @@ td.n,th.n{text-align:right}
         <label class="f" id="trackSwitch" hidden>Active track (optional)<select id="selTrack"></select></label>
         <label class="f" id="fieldSwitch" hidden>Active field (optional)<select id="selField"></select></label>
       </div>
+      <div class="row" id="boardTools" style="margin-bottom:16px" hidden>
+        <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
+        <button class="btn ghost sm" type="button" id="editToggle" data-act="toggleEdit" aria-pressed="false">Edit trucks and mills</button>
+      </div>
+      <form class="card" id="quick" hidden autocomplete="off" style="margin-bottom:16px;gap:12px;flex-direction:column;display:flex">
+        <h2 id="qTitle">Add truck</h2>
+        <label class="f">Truck number<input type="text" id="qNo" maxlength="80" inputmode="text"></label>
+        <div class="f" id="qMillsWrap" hidden><span id="qMillsLbl">Goes only to this mill</span>
+          <div id="qMills" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div>
+          <span class="small">Leave all unchecked if this truck can go to any mill. A truck with one mill is logged to that mill automatically.</span>
+        </div>
+        <div class="addrow">
+          <button class="btn" type="submit" id="qSave">Add truck</button>
+          <button class="btn ghost" type="button" data-act="quickCancel">Close</button>
+          <button class="btn warn" type="button" id="qDel" data-act="quickDel" hidden>Remove truck</button>
+        </div>
+      </form>
       <div id="boardBody" style="display:flex;flex-direction:column;gap:16px"></div>
     </section>
 
@@ -725,6 +743,8 @@ function renderDest(){
 function renderBoard(){
   var root=$('#boardBody'), html='';
   root.parentNode.classList.toggle('big', !!(S.profile && S.profile.role==='combine'));
+  root.parentNode.classList.toggle('editing', !!S.boardEdit);
+  renderQuick();
   var ready = S.db && S.ready.farms && S.ready.trucks && S.farmId && farmTrucks().length;
   if(ready) renderDest(); else $('#destRow').hidden=true;
 
@@ -742,8 +762,8 @@ function renderBoard(){
           '<button class="btn" type="button" data-act="goMe">Choose my farm</button>');
   }
   else if(!farmTrucks().length){
-    html=emptyCard('No trucks on '+farmName(S.farmId),'Trucks are added once in Setup and stay on the roster every day.',
-      '<button class="btn" type="button" data-act="tab" data-tab="setup">Add trucks</button>');
+    html=emptyCard('No trucks on '+farmName(S.farmId),'Add a truck here once and it stays on the roster every day.',
+      '<button class="btn" type="button" data-act="quickAdd">Add a truck</button>');
   }
   else {
     var trucks=farmTrucks(), mills=millsOf(S.farmId);
@@ -756,12 +776,13 @@ function renderBoard(){
     var needPick = !S.dest.mill && waiting.some(function(t){ return truckMill(t)===null; });
     var tile=function(t, recent){
       var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
-      var off=(!S.canWrite || (!recent && truckMill(t)===null)) ? ' disabled' : '';
+      var off=(!S.canWrite || (!S.boardEdit && !recent && truckMill(t)===null)) ? ' disabled' : '';
       var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '';
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : esc(tag));
       return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(rt?' style="'+millStyle(t.farm,p.mill)+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
-    html+='<div class="lbl">'+(needPick?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
+    if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
+    html+='<div class="lbl">'+(needPick&&!S.boardEdit?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
     if(!waiting.length) html+='<p class="small">No trucks waiting.</p>';
     else if(mills.length>1){
       var groups=mills.map(function(m){ return {name:m, list:waiting.filter(function(t){ var a=allowedMills(t); return isRestricted(t) && a.length===1 && a[0]===m; })}; });
@@ -1157,6 +1178,56 @@ async function saveTruck(){
 }
 function resetTruckForm(){ S.editing=null; $('#tNo').value=''; $('#tHauler').value=''; renderTruckMills([]); syncTruckForm(); }
 
+/* ---------- add and edit trucks right on the board ---------- */
+function renderQuick(){
+  var ok=!!(S.db && S.ready.farms && S.ready.trucks && S.farmId);
+  $('#boardTools').hidden=!ok;
+  if(!ok || (S.quick && S.quick.farm!==S.farmId)){ S.quick=null; }
+  $('#quick').hidden=!S.quick;
+  var et=$('#editToggle'); et.textContent=S.boardEdit?'Done editing':'Edit trucks and mills'; et.setAttribute('aria-pressed',S.boardEdit?'true':'false');
+  if(S.quick && S.quick.id){ var t=truckById(S.quick.id); if(!t){ S.quick=null; $('#quick').hidden=true; } }
+  if(S.quick) $('#qDel').textContent = confirmKey==='qDel:'+S.quick.id ? 'Tap again to remove' : 'Remove truck';
+}
+function openQuick(id){
+  var t=id?truckById(id):null, mills=millsOf(S.farmId), keep=[];
+  if(t && isRestricted(t)) keep=allowedMills(t);
+  else if(!t && S.quick && !S.quick.id) keep=[].slice.call(document.querySelectorAll('#qMills input:checked')).map(function(c){ return c.value; });
+  S.quick={ id:id||'', farm:S.farmId };
+  $('#qTitle').textContent = t ? 'Edit truck '+t.no : 'Add truck';
+  $('#qSave').textContent = t ? 'Save truck' : 'Add truck';
+  $('#qNo').value = t ? t.no : '';
+  $('#qNo').placeholder = t ? '' : '12  (or 11, 12, 14 to add several)';
+  $('#qDel').hidden = !(t && isLead());
+  $('#qMillsWrap').hidden = mills.length<2;
+  $('#qMills').innerHTML = mills.length<2 ? '' : mills.map(function(m){
+    return '<label class="chip" style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;min-height:44px;padding:6px 14px"><input type="checkbox" value="'+esc(m)+'"'+(keep.indexOf(m)>=0?' checked':'')+'><span class="sw" style="background:'+millColor(S.farmId,m)+'"></span>'+esc(m)+'</label>';
+  }).join('');
+  renderQuick(); $('#quick').scrollIntoView({block:'center'}); $('#qNo').focus();
+}
+async function saveQuick(){
+  if(!S.quick) return;
+  var raw=$('#qNo').value.trim(), farm=S.farmId, mills=millsOf(farm);
+  if(!raw){ toast('Enter a truck number.'); return; }
+  var tm=[].slice.call(document.querySelectorAll('#qMills input:checked')).map(function(c){ return c.value; });
+  if(tm.length>=mills.length) tm=[];
+  try{
+    if(S.quick.id){
+      var t=truckById(S.quick.id); if(!t) return;
+      await dref('trucks/'+t.id).update({ no:raw, mills:tm });
+      toast('Truck '+raw+' saved'+(tm.length?' · '+tm.join(' / ')+' only':'')); S.quick=null; last.board=''; schedule(); return;
+    }
+    var nums=raw.split(/[,\s]+/).filter(Boolean), made=0, skipped=0, now=Date.now();
+    for(var i=0;i<nums.length;i++){
+      var n=nums[i];
+      if(S.trucks.some(function(t){ return t.farm===farm && String(t.no)===n; })){ skipped++; continue; }
+      await col('trucks').doc(newId('t')).set({ no:n, farm:farm, hauler:'', mills:tm, createdAt:now+i });
+      made++;
+    }
+    toast((made?made+' truck'+(made>1?'s':'')+' added'+(tm.length?' · '+tm.join(' / ')+' only':''):'')+(skipped?(made?', ':'')+skipped+' already on the roster':''));
+    $('#qNo').value=''; $('#qNo').focus(); last.board=''; schedule();
+  }catch(e){ fail(e); }
+}
+
 /* ---------- events ---------- */
 document.addEventListener('click', function(e){
   var el=e.target.closest('[data-act]'); if(!el) return;
@@ -1171,7 +1242,15 @@ document.addEventListener('click', function(e){
     case 'csvAll': exportCombCsv(); break;
     case 'pickAllDay': C.sel=el.getAttribute('data-day'); last.comb=''; schedule(); break;
     case 'goMe': S.tab='me'; $('#meForm').removeAttribute('data-init'); schedule(); break;
-    case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt) logLoad(lt); break;
+    case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else logLoad(lt); } break;
+    case 'quickAdd': openQuick(''); break;
+    case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
+    case 'quickCancel': S.quick=null; schedule(); break;
+    case 'quickDel':
+      if(S.quick && S.quick.id && isLead() && confirmTap('qDel:'+S.quick.id)){
+        var qid=S.quick.id; S.quick=null; dref('trucks/'+qid).delete().then(function(){ toast('Truck removed'); last.board=''; schedule(); }).catch(fail);
+      }
+      break;
     case 'undoLoad':
       var up=el.getAttribute('data-path'); $('#toast').hidden=true;
       dref(up).delete().then(function(){ toast('Load removed'); }).catch(fail); break;
@@ -1264,6 +1343,7 @@ document.addEventListener('submit', function(e){
   var f=e.target;
   if(f.id==='farmForm'){ var v=$('#farmName').value; $('#farmName').value=''; addFarm(v); }
   else if(f.id==='truckForm'){ saveTruck(); }
+  else if(f.id==='quick'){ saveQuick(); }
   else if(f.id==='loginForm'){
     var em=$('#lEmail').value.trim(), pw=$('#lPass').value, nm=$('#lName').value.trim();
     if(!em || !pw){ $('#loginErr').textContent='Enter your email and password.'; return; }
