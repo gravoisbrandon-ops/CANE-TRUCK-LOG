@@ -1,7 +1,7 @@
 # Cane Truck Log
 
 A shared harvest truck board. Tap the truck number when it is loaded, watch trucks move
-Waiting → Loaded → In route, and get a daily report, a day-to-day report and an
+Waiting → In route, and get a daily report, a day-to-day report and an
 all-farms report. Each farm is separate. Plain static site (no build step) on
 Vercel, with Supabase for the database and sign-in.
 
@@ -20,16 +20,18 @@ Vercel, with Supabase for the database and sign-in.
 
 ## How people get in
 
-Everyone creates their own account on the site (email, password, name). New people see
-"Waiting for approval" until an administrator opens **Setup > People**, sets them to **Crew**
-and picks their farm. Crew only ever see their own farm's trucks and loads. Crew can add new trucks (and fix a truck's number or mills) from the **Trucks** tab, but only on their own farm and they can't remove trucks.
-An administrator can make others administrators, who see every farm and the **All farms** report.
+**Roles.** Everyone makes their own account (email + password) on the site.
+- **Administrator** (the first person to register): sees every farm and the All farms report, adds farms, and names crew managers.
+- **Crew manager** (one or two per farm, set by the administrator in **Setup > People**): manages their own farm only. Can add, edit and remove trucks, edit mills (with colors), tracks and fields, copy or renew the farm's invite link, and make crew into managers or remove them.
+- **Crew**: log loads, add and edit trucks, and edit tracks and fields on their own farm only.
+
+**Inviting crew.** In Setup > People, copy the farm's **Invite link** and text it to the crew member. They open it, create their account, and land on the farm right away. **New link** makes a fresh one and the old one stops working. Anyone who signed up without a link sees a "Waiting" page where they can paste a code, or an administrator can place them.
 
 ## Notes
 
-- **Active track and field** (both optional) are chosen at the top of the Board and shared by the whole farm. Every load logged is stamped with them. Crew and administrators can both add or remove track and field names (crew from the Trucks tab). Only administrators manage mills.
+- **Active track and field** (both optional) are chosen at the top of the Board and shared by the whole farm. Every load logged is stamped with them. Crew and administrators can both add or remove track and field names (crew from the Trucks tab). Administrators and crew managers manage mills.
 - A new calendar date starts a clean board. Trucks stay on the roster.
-- The board refreshes every 5 seconds and right after any tap. Time boxes for Loaded and In route are set per device.
+- The board refreshes every 5 seconds and right after any tap. The time a truck stays In route before returning to Waiting is set per device.
 - Farm separation is enforced in the database: a crew account cannot read or write another farm's data.
 - The earlier Claude-hosted version keeps its own data. Nothing is copied over, so set up farms and trucks again here.
 - To lock a person out, remove them under Setup > People.

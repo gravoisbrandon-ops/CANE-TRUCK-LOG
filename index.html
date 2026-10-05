@@ -32,6 +32,7 @@
 }
 body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45;padding-inline:16px;padding-block:0 40px}
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 button,input,select{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:3px solid var(--ready);outline-offset:2px}
@@ -188,8 +189,10 @@ td.n,th.n{text-align:right}
     <section id="view-pending" hidden aria-label="Waiting for approval">
       <div class="card empty">
         <h2>Waiting for approval</h2>
-        <p>Your account is made. An administrator needs to put you on a farm before you can log trucks. This page checks on its own.</p>
-        <button class="btn" type="button" data-act="checkStatus">Check again</button>
+        <p>Your account is made. Ask your crew manager for your farm's invite link, or wait for an administrator to put you on a farm. This page checks on its own.</p>
+        <label class="f">Have an invite code or link?<input type="text" id="joinCode" maxlength="200" placeholder="Paste it here" autocomplete="off"></label>
+        <button class="btn" type="button" data-act="joinCode">Join my farm</button>
+        <button class="btn ghost" type="button" data-act="checkStatus">Check again</button>
         <button class="btn ghost" type="button" data-act="signOut">Sign out</button>
       </div>
     </section>
@@ -245,7 +248,7 @@ td.n,th.n{text-align:right}
       <div class="card"><h2>Truck rosters</h2><div id="roster" class="ros"></div></div>
       <div class="card" id="peopleCard">
         <h2>People</h2>
-        <p class="small">Everyone makes their own account on the site. New people show here as waiting. Set them to Crew and pick their farm, or make them an Administrator. The first person to register is the administrator.</p>
+        <p class="small">Crew make their own account from your invite link. A crew manager can add and remove trucks, edit mills, tracks and fields, and manage the crew on their farm. Crew can log loads and add trucks.</p>
         <div id="peopleList" class="ros"></div>
       </div>
     </section>
@@ -309,10 +312,10 @@ function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 /* ---------- state ---------- */
 var S = {
   db:null, dl:null, canWrite:true, noConfig:false, authed:false, pending:false, regMode:false, crewFarm:'',
-  isAdmin:false,
+  isAdmin:false, isMgr:false,
   farms:[], trucks:[], loads:[], loadsKey:'', loadsDay:'', unsubLoads:null, farmId:'',
   ready:{farms:false,trucks:false}, err:null,
-  active:{track:'',field:''}, unsubActive:null, hold:15, route:60, profile:null, dest:{mill:''}, listMill:'', tab:'board', edit:null, editing:null, lastTap:{},
+  active:{track:'',field:''}, unsubActive:null, route:60, profile:null, dest:{mill:''}, listMill:'', tab:'board', edit:null, editing:null, lastTap:{},
   report:{mode:'daily',range:14,sel:'',mill:'',cache:{},loading:false,fails:0}
 };
 var last = { board:'', farms:'', roster:'', people:'', report:'', banner:'', access:'' };
@@ -320,7 +323,8 @@ var confirmKey = null, confirmTimer = null;
 
 /* Administrators sign in with an admin code and see every farm. Crew sign in with their farm's code. */
 function isOffice(){ return S.isAdmin; }
-function roleLabel(){ return S.isAdmin ? 'Administrator' : ((S.profile && ROLES[S.profile.role]) || ''); }
+function isLead(){ return S.isAdmin || S.isMgr; }
+function roleLabel(){ return S.isAdmin ? 'Administrator' : (S.isMgr ? 'Crew manager' : ((S.profile && ROLES[S.profile.role]) || '')); }
 function byName(){ return (S.profile && S.profile.name) || 'Unknown'; }
 function farmById(id){ for(var i=0;i<S.farms.length;i++){ if(S.farms[i].id===id) return S.farms[i]; } return null; }
 function farmName(id){ var f=farmById(id); return f?f.name:''; }
@@ -471,7 +475,7 @@ function collection(p){
   };
   return c;
 }
-setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(S.isAdmin) loadPeople(); } }, 5000);
+setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(isLead()) loadPeople(); } }, 5000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden && S.authed && !S.pending){ poke(); schedule(); } });
 function col(p){ return collection(p); }
 function dref(p){ return docRef(p); }
@@ -537,7 +541,7 @@ async function logLoad(t){
   if(!S.farmId) return;
   if(needName()) return;
   var rl=0; S.loads.forEach(function(l){ if(l.truck===t.id && l.loadedAt>rl) rl=l.loadedAt; });
-  if(rl && Date.now()-rl<(S.hold+S.route)*60000 && !confirmTap('again:'+t.id)) return;
+  if(rl && Date.now()-rl<S.route*60000 && !confirmTap('again:'+t.id)) return;
   var mill=truckMill(t);
   if(mill===null){
     toast(S.dest.mill ? 'Truck '+t.no+' only goes to '+allowedMills(t).join(' or ')+'.' : 'Pick the mill first.'); return;
@@ -612,17 +616,30 @@ function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile
 function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok';
-  S.isAdmin = w.role==='admin'; S.crewFarm = w.farm||'';
+  S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
-  if(!S.pending){ S.err=null; subscribe(); syncTruckForm(); if(S.isAdmin) loadPeople(); }
+  if(!S.pending){ S.err=null; subscribe(); syncTruckForm(); if(isLead()) loadPeople(); }
   schedule();
 }
 async function enter(nm){
   var w=await rpc('whoami',{});
-  if(w.status==='unregistered') w=await rpc('register',{ p_name:nm||'' });
+  if(w.status==='unregistered'){
+    var jc=JOIN||lsGet('cane-truck-log:join')||'';
+    w=await rpc('register',{ p_name:nm||'', p_join:jc||null });
+    if(jc){ JOIN=''; try{ localStorage.removeItem('cane-truck-log:join'); }catch(e){} if(w.invite_ok===false) setTimeout(function(){ toast('That invite link did not work. Ask for a new one.'); },600); }
+  }
   applyWho(w,nm);
+}
+async function refreshWho(){
+  try{
+    var w=await rpc('whoami',{});
+    if(w.status==='unregistered'){ signOut(); return; }
+    if(w.status==='ok' && S.authed && !S.pending && w.role===(S.isAdmin?'admin':S.isMgr?'manager':'crew') && (w.farm||'')===S.crewFarm) return;
+    if(w.status==='ok' && S.isAdmin && w.role==='admin') return;
+    applyWho(w); last.board=''; last.farms=''; last.roster=''; last.access='';
+  }catch(e){ if(e && e.code==='denied') signOut(); }
 }
 async function checkStatus(){
   try{ var w=await rpc('whoami',{}); var was=S.pending; applyWho(w); if(was && !S.pending){ S.tab='board'; toast('You are approved. Welcome.'); } }
@@ -673,7 +690,7 @@ function renderAll(){
   if(S.tab==='board') renderBoard();
   if(S.tab==='report') renderReport();
   if(S.tab==='all') renderAll_();
-  if(S.tab==='setup'){ renderSetup(); if(isOffice()) renderAccess(); }
+  if(S.tab==='setup'){ renderSetup(); if(isLead()) renderAccess(); }
   if(S.tab==='me') renderMe();
   renderEdit(false);
 }
@@ -730,12 +747,11 @@ function renderBoard(){
   }
   else {
     var trucks=farmTrucks(), mills=millsOf(S.farmId);
-    var per={}, nowMs=Date.now(), holdMs=S.hold*60000, routeMs=(S.hold+S.route)*60000;
+    var per={}, nowMs=Date.now(), routeMs=S.route*60000;
     S.loads.forEach(function(l){ if(!l.loadedAt) return; var p=per[l.truck]||(per[l.truck]={n:0,last:0,mill:''}); p.n++; if(l.loadedAt>p.last){ p.last=l.loadedAt; p.mill=l.mill||''; } });
-    var stage=function(t){ var p=per[t.id]; if(!p) return 'wait'; var a=nowMs-p.last; return a<holdMs ? 'load' : (a<routeMs ? 'route' : 'wait'); };
+    var stage=function(t){ var p=per[t.id]; if(!p) return 'wait'; var a=nowMs-p.last; return a<routeMs ? 'route' : 'wait'; };
     var byNew=function(a,b){ return per[b.id].last-per[a.id].last; };
     var waiting=trucks.filter(function(t){ return stage(t)==='wait'; });
-    var justIn=trucks.filter(function(t){ return stage(t)==='load'; }).sort(byNew);
     var enRoute=trucks.filter(function(t){ return stage(t)==='route'; }).sort(byNew);
     var needPick = !S.dest.mill && waiting.some(function(t){ return truckMill(t)===null; });
     var tile=function(t, recent){
@@ -757,11 +773,8 @@ function renderBoard(){
     }
     else html+='<div class="grid">'+waiting.map(function(t){ return tile(t,false); }).join('')+'</div>';
     var opt=function(list,cur){ return list.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+' min</option>'; }).join(''); };
-    html+='<div class="sec-head"><h2>Loaded <b>'+justIn.length+'</b></h2><div class="holdbar"><span class="small">Shows as Loaded for</span><select id="selHold" aria-label="Minutes a truck shows as Loaded">'+opt([5,10,15,20,30,45],S.hold)+'</select></div></div>';
-    if(!justIn.length) html+='<p class="small">The truck you tap lands here, then moves to In route.</p>';
-    else html+='<div class="grid">'+justIn.map(function(t){ return tile(t,true); }).join('')+'</div>';
     html+='<div class="sec-head"><h2>In route <b>'+enRoute.length+'</b></h2><div class="holdbar"><span class="small">Back to Waiting after</span><select id="selRoute" aria-label="Minutes a truck stays In route">'+opt([30,45,60,90,120,180],S.route)+'</select></div></div>';
-    if(!enRoute.length) html+='<p class="small">Trucks on the way to the mill show here, then return to Waiting.</p>';
+    if(!enRoute.length) html+='<p class="small">The truck you tap lands here, then returns to Waiting.</p>';
     else html+='<div class="grid">'+enRoute.map(function(t){ return tile(t,'route'); }).join('')+'</div>';
 
     if(S.listMill && mills.indexOf(S.listMill)<0) S.listMill='';
@@ -810,9 +823,9 @@ function renderMe(){
 
 /* ---------- setup ---------- */
 function renderSetup(){
-  var adm=isOffice();
-  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!adm;
-  var fsig=JSON.stringify([adm,S.farms,S.trucks.map(function(t){ return t.farm; }),confirmKey]);
+  var adm=isOffice(), lead=isLead();
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead;
+  var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm; }),confirmKey]);
   if(fsig!==last.farms){
     last.farms=fsig;
     $('#farmList').innerHTML=S.farms.map(function(f){
@@ -822,9 +835,9 @@ function renderSetup(){
           return '<span class="chip">'+(kind==='Mill'?'<input type="color" class="mcolor" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" value="'+millColor(f.id,x)+'" aria-label="Color for '+esc(x)+'">':'')+esc(x)+'<button type="button" data-act="del'+kind+'" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Remove '+esc(x)+'">&times;</button></span>';
         }).join('') || '<span class="small">'+none+'</span>';
       }
-      return '<article class="card farm"><header><h3>'+esc(f.name)+(adm?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
-        (adm?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
-        (adm?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
+      return '<article class="card farm"><header><h3>'+esc(f.name)+(lead?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
+        (lead?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
+        (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
         '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>':'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
@@ -842,7 +855,7 @@ function renderSetup(){
     var row=function(t, note){
       var key='delTruck:'+t.id;
       return '<div class="ros-row" data-st="empty"><span class="plate">'+esc(t.no)+'</span><span class="info"><span class="l2">'+esc(note||[t.hauler||'No hauler named', isRestricted(t)?'Only '+allowedMills(t).join(' / '):''].filter(Boolean).join(' · '))+'</span></span>'+
-        '<span class="acts"><button class="btn ghost sm" type="button" data-act="editTruck" data-id="'+esc(t.id)+'">Edit</button>'+(adm?'<button class="btn warn sm" type="button" data-act="delTruck" data-id="'+esc(t.id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>':'')+'</span></div>';
+        '<span class="acts"><button class="btn ghost sm" type="button" data-act="editTruck" data-id="'+esc(t.id)+'">Edit</button>'+(lead?'<button class="btn warn sm" type="button" data-act="delTruck" data-id="'+esc(t.id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>':'')+'</span></div>';
     };
     S.farms.forEach(function(f){
       var mine=S.trucks.filter(function(t){ return t.farm===f.id; });
@@ -988,25 +1001,44 @@ async function exportCsv(){
 }
 
 /* ---------- people (administrators) ---------- */
-var P=[];
+var P=[], INV={}, JOIN='';
 async function loadPeople(){
-  if(!S.isAdmin) return;
-  try{ P=await rpc('people_list',{}); last.access=''; schedule(); }
+  if(!isLead()) return;
+  try{
+    P=await rpc('people_list',{});
+    var fl=S.isAdmin ? S.farms.map(function(f){ return f.id; }) : (S.crewFarm?[S.crewFarm]:[]);
+    for(var i=0;i<fl.length;i++){ if(!INV[fl[i]]){ try{ INV[fl[i]]=await rpc('invite_get',{ p_farm:fl[i] }); }catch(e){} } }
+    last.access=''; schedule();
+  }
   catch(e){ if(e && e.code==='denied') S.err='denied'; schedule(); }
 }
+function inviteBox(){
+  var fl=S.isAdmin ? S.farms : S.farms.filter(function(f){ return f.id===S.crewFarm; });
+  if(!fl.length) return '';
+  var h='<div class="lbl">Invite link</div><p class="small">Send this link to a crew member. They make their own account and land on the farm right away.</p>';
+  fl.forEach(function(f){
+    var c=INV[f.id]; if(!c) return;
+    h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="info"><span class="l1" style="font-size:16px">'+esc(f.name)+'</span><span class="l2" style="word-break:break-all">'+esc(location.origin+'/?join='+c)+'</span></div>'+
+      '<span class="acts"><button class="btn sm" type="button" data-act="copyInvite" data-farm="'+esc(f.id)+'">Copy</button><button class="btn ghost sm" type="button" data-act="newInvite" data-farm="'+esc(f.id)+'">'+(confirmKey==='newInvite:'+f.id?'Sure?':'New link')+'</button></span></div>';
+  });
+  return h;
+}
 function renderAccess(){
-  var sig=JSON.stringify([P,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
+  var sig=JSON.stringify([P,INV,S.isAdmin,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
   if(sig===last.access) return; last.access=sig;
-  var h='';
-  if(!P.length) h='<p class="small">No one has registered yet.</p>';
+  var adm=S.isAdmin, h=inviteBox()+'<div class="lbl">People</div>';
+  if(!P.length) h+='<p class="small">No one has joined yet.</p>';
   P.forEach(function(p){
-    var key='rmPerson:'+p.user_id;
+    var key='rmPerson:'+p.user_id, me=(p.name||p.email);
+    var roleSel='<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(me)+'">'+
+      (adm?'<option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option>':'')+
+      '<option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="manager"'+(p.role==='manager'?' selected':'')+'>Crew manager</option>'+
+      (adm?'<option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option>':'')+'</select>';
+    var farmSel=adm?'<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(me)+'"'+((p.role==='crew'||p.role==='manager')?'':' disabled')+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>':'';
+    var locked=!adm && (p.role==='admin');
     h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
-      '<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+
-      '<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(p.name||p.email)+'"><option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option><option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option></select>'+
-      '<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(p.name||p.email)+'"'+(p.role==='crew'?'':' disabled')+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>'+
-      '</div></div>'+
-      '<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button></div>';
+      (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+'</div>')+'</div>'+
+      (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
   });
   $('#peopleList').innerHTML=h;
 }
@@ -1157,11 +1189,25 @@ document.addEventListener('click', function(e){
     case 'toggleReg':
       S.regMode=!S.regMode; $('#loginErr').textContent='';
       $('#lNameWrap').hidden=!S.regMode; $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
-      $('#loginIntro').textContent=S.regMode?'Make an account with your email. An administrator then puts you on your farm.':'Use the email and password you signed up with.';
+      $('#loginIntro').textContent=S.regMode?'Make an account with your email. An invite link puts you on your farm, or an administrator does.':'Use the email and password you signed up with.';
       $('#loginBtn').textContent=S.regMode?'Create account':'Sign in';
       $('#regToggle').textContent=S.regMode?'Already have an account? Sign in':'New here? Create an account';
       $('#lPass').setAttribute('autocomplete',S.regMode?'new-password':'current-password'); break;
     case 'checkStatus': checkStatus(); break;
+    case 'joinCode':
+      var jc=($('#joinCode').value||'').trim(); if(!jc){ toast('Type the code first.'); break; }
+      rpc('join_farm',{ p_code:jc.replace(/^.*join=/i,'') }).then(function(w){ applyWho(w); if(!S.pending){ S.tab='board'; toast('You are in. Welcome.'); } else toast('That code did not work.'); }).catch(function(er){ toast((er&&er.code==='denied')?'Signed out. Sign in again.':'That code did not work.'); });
+      break;
+    case 'copyInvite':
+      var cf=el.getAttribute('data-farm'), link=location.origin+'/?join='+(INV[cf]||'');
+      var done=function(){ toast('Link copied. Paste it in a text.'); };
+      if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(done,function(){ window.prompt('Copy this link:',link); });
+      else window.prompt('Copy this link:',link);
+      break;
+    case 'newInvite':
+      var nf=el.getAttribute('data-farm');
+      if(confirmTap('newInvite:'+nf)) rpc('invite_new',{ p_farm:nf }).then(function(c){ INV[nf]=c; last.access=''; toast('New link made. The old one no longer works.'); schedule(); }).catch(fail);
+      break;
     case 'rmPerson':
       var rp=el.getAttribute('data-user');
       if(confirmTap('rmPerson:'+rp)) rpc('person_remove',{ p_user:rp }).then(function(){ toast('Removed'); loadPeople(); }).catch(fail);
@@ -1182,7 +1228,7 @@ document.addEventListener('click', function(e){
     case 'cancelEdit': resetTruckForm(); break;
     case 'delTruck':
       var tid=el.getAttribute('data-id');
-      if(isOffice() && confirmTap('delTruck:'+tid)) dref('trucks/'+tid).delete().then(function(){ toast('Truck removed'); }).catch(fail);
+      if(isLead() && confirmTap('delTruck:'+tid)) dref('trucks/'+tid).delete().then(function(){ toast('Truck removed'); }).catch(fail);
       break;
   }
 });
@@ -1194,7 +1240,6 @@ document.addEventListener('change', function(e){
     var mc=Object.assign({}, mf.millColors||{}); mc[e.target.getAttribute('data-v')]=e.target.value;
     dref('farms/'+mf.id).update({ millColors:mc }).catch(fail);
   }
-  else if(id==='selHold'){ S.hold=Number(e.target.value)||15; lsSet('cane-truck-log:hold',String(S.hold)); last.board=''; schedule(); }
   else if(id==='selRoute'){ S.route=Number(e.target.value)||60; lsSet('cane-truck-log:route',String(S.route)); last.board=''; schedule(); }
   else if(id==='selTrack'){ S.active.track=e.target.value; saveActive(); last.board=''; schedule(); }
   else if(id==='selField'){ S.active.field=e.target.value; saveActive(); last.board=''; schedule(); }
@@ -1203,9 +1248,9 @@ document.addEventListener('change', function(e){
   }
   else if(e.target.classList && e.target.classList.contains('pperson')){
     var row=e.target.closest('.ros-row'), sels=row.querySelectorAll('select.pperson');
-    var role=sels[0].value, pf=sels[1].value, uid=e.target.getAttribute('data-user');
-    if(role==='crew' && !pf){ sels[1].disabled=false; toast('Now pick the farm for them.'); return; }
-    rpc('person_set',{ p_user:uid, p_role:role, p_farm:role==='crew'?pf:'' }).then(function(){ toast('Saved'); loadPeople(); }).catch(function(er){ toast((er&&er.message&&er.code==='error')?er.message:'Could not save.'); loadPeople(); });
+    var role=sels[0].value, pf=sels[1]?sels[1].value:'', uid=e.target.getAttribute('data-user');
+    if(sels[1] && (role==='crew'||role==='manager') && !pf){ sels[1].disabled=false; toast('Now pick the farm for them.'); return; }
+    rpc('person_set',{ p_user:uid, p_role:role, p_farm:(role==='crew'||role==='manager')?pf:'' }).then(function(){ toast('Saved'); loadPeople(); }).catch(function(er){ toast((er&&er.message&&er.code==='error')?er.message:'Could not save.'); loadPeople(); });
   }
   else if(id==='tFarm'){ renderSetup(); renderTruckMills([]); }
   else if(id==='pFarm'){ /* nothing else depends on it */ }
@@ -1255,9 +1300,13 @@ document.addEventListener('submit', function(e){
 
 /* ---------- start ---------- */
 async function init(){
-  var hv=Number(lsGet('cane-truck-log:hold')); if([5,10,15,20,30,45].indexOf(hv)>=0) S.hold=hv;
   var rv=Number(lsGet('cane-truck-log:route')); if([30,45,60,90,120,180].indexOf(rv)>=0) S.route=rv;
   loadLocalProfile();
+  try{
+    var jm=/[?&]join=([A-Za-z0-9]+)/.exec(location.search);
+    if(jm){ JOIN=jm[1].toUpperCase(); lsSet('cane-truck-log:join',JOIN); history.replaceState(null,'',location.pathname); S.regMode=true;
+      $('#lNameWrap').hidden=false; $('#loginTitle').textContent='Create your account'; $('#loginIntro').textContent='You were invited. Make your account and you go straight to your farm.'; $('#loginBtn').textContent='Create account'; $('#regToggle').textContent='Already have an account? Sign in'; $('#lPass').setAttribute('autocomplete','new-password'); }
+  }catch(e){}
   S.dl={ save:function(o){
     var a=document.createElement('a'), url=URL.createObjectURL(new Blob([o.data],{type:'text/csv'}));
     a.href=url; a.download=o.filename; document.body.appendChild(a); a.click();
@@ -1275,8 +1324,9 @@ async function init(){
     }
   }
   schedule();
-  setInterval(function(){ subLoads(); if(!document.hidden) schedule(); if(S.authed && S.isAdmin && !S.pending) loadPeople(); },30000);
+  setInterval(function(){ subLoads(); if(!document.hidden) schedule(); if(S.authed && isLead() && !S.pending) loadPeople(); },30000);
   setInterval(function(){ if(S.authed && S.pending && !document.hidden) checkStatus(); },8000);
+  setInterval(function(){ if(S.authed && !S.pending && !document.hidden) refreshWho(); },10000);
 }
 syncTruckForm();
 init();
