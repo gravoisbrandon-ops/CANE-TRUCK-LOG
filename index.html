@@ -124,6 +124,9 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .small{font-size:13px;color:var(--ink2)}
 
 /* report */
+.qbar{height:10px;border-radius:5px;background:var(--line);overflow:hidden;margin:6px 0}
+.qbar>span{display:block;height:100%;background:var(--full)}
+.keybox{font-family:ui-monospace,Menlo,Consolas,monospace;word-break:break-all;background:var(--surface);border:2px solid var(--ink);border-radius:8px;padding:10px;font-size:14px}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .stat{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:4px}
 .stat b{font:700 36px/1 var(--font-display);font-variant-numeric:tabular-nums}
@@ -280,6 +283,11 @@ td.n,th.n{text-align:right}
         <p class="small">Crew make their own account from your invite link. A crew manager can add and remove trucks, edit mills, tracks and fields, and manage the crew on their farm. Crew can log loads and add trucks.</p>
         <div id="peopleList" class="ros"></div>
       </div>
+      <div class="card" id="scaleCard">
+        <h2>Scale connection</h2>
+        <p class="small">Give each farm's key to whoever runs your scale app. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
+        <div id="scaleList" class="ros"></div>
+      </div>
     </section>
 
     <section id="view-me" hidden aria-label="Your details">
@@ -345,10 +353,11 @@ var S = {
   isAdmin:false, isMgr:false,
   farms:[], trucks:[], loads:[], loadsKey:'', loadsDay:'', unsubLoads:null, farmId:'',
   ready:{farms:false,trucks:false}, err:null,
+  quota:null, unsubQuota:null, pendingW:[], newKey:{}, keyInfo:{},
   active:{track:'',field:''}, unsubActive:null, route:60, profile:null, dest:{mill:''}, listMill:'', tab:'board', edit:null, editing:null, lastTap:{},
   report:{mode:'daily',range:14,sel:'',mill:'',cache:{},loading:false,fails:0}
 };
-var last = { board:'', farms:'', roster:'', people:'', report:'', banner:'', access:'' };
+var last = { scale:'', board:'', farms:'', roster:'', people:'', report:'', banner:'', access:'' };
 var confirmKey = null, confirmTimer = null;
 
 /* Administrators sign in with an admin code and see every farm. Crew sign in with their farm's code. */
@@ -505,7 +514,14 @@ function collection(p){
   };
   return c;
 }
-setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(isLead()) loadPeople(); } }, 5000);
+async function loadPending(){
+  if(!S.farmId || !S.authed || S.pending) return;
+  try{
+    var list=await rpc('scale_pending_list',{ p_farm:S.farmId });
+    if(JSON.stringify(list)!==JSON.stringify(S.pendingW)){ S.pendingW=list; last.board=''; schedule(); }
+  }catch(e){}
+}
+setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(isLead()) loadPeople(); if(S.tab==='board') loadPending(); } }, 5000);
 document.addEventListener('visibilitychange', function(){ if(!document.hidden && S.authed && !S.pending){ poke(); schedule(); } });
 function col(p){ return collection(p); }
 function dref(p){ return docRef(p); }
@@ -532,12 +548,17 @@ function subLoads(){
   if(S.unsubLoads){ S.unsubLoads(); S.unsubLoads=null; }
   S.loadsKey=key; S.loads=[]; S.loadsDay=today(); last.board=''; last.report='';
   if(S.unsubActive){ S.unsubActive(); S.unsubActive=null; }
-  S.active={ track:'', field:'' };
+  if(S.unsubQuota){ S.unsubQuota(); S.unsubQuota=null; }
+  S.active={ track:'', field:'' }; S.quota=null; S.pendingW=[];
   if(!key) return;
   S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
     var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
     S.active = a ? { track:a.track||'', field:a.field||'' } : { track:'', field:'' };
     last.board=''; schedule();
+  }, function(e){ S.err = e && e.code; schedule(); });
+  S.unsubQuota = col('farms/'+S.farmId+'/quota').onSnapshot(function(snap){
+    var qd=docs(snap).filter(function(d){ return d.id==='now'; })[0];
+    S.quota = qd || null; last.board=''; schedule();
   }, function(e){ S.err = e && e.code; schedule(); });
   S.unsubLoads = col(loadsPath(S.farmId,S.loadsDay)).limit(1000).onSnapshot(function(snap){
     S.loads = docs(snap); schedule();
@@ -590,7 +611,7 @@ async function logLoad(t){
 function openEdit(id){
   var l=null; for(var i=0;i<S.loads.length;i++){ if(S.loads[i].id===id) l=S.loads[i]; }
   if(!l) return;
-  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'' };
+  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs) };
   $('#sheetWrap').hidden=false;
   renderEdit(true);
   var s=$('#eTruck'); if(s) s.focus();
@@ -613,6 +634,7 @@ function renderEdit(force){
     (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (tracks.length?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+tracks.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (fields.length?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+fields.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (isLead()?'<label class="f">Tons (net)<input type="number" id="eTons" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTons')?$('#eTons').value:e.tons)+'"></label><label class="f">TRS (lb sugar per ton)<input type="number" id="eTrs" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTrs')?$('#eTrs').value:e.trs)+'"></label>':'')+
     '<div data-st="full"><button class="btn primary" type="button" data-act="saveEdit"'+(S.canWrite?'':' disabled')+'>Save changes</button></div>'+
     '<button class="btn warn" type="button" data-act="deleteLoad"'+(S.canWrite?'':' disabled')+'>'+(confirmKey===key?'Tap again to delete this load':'Delete this load')+'</button>'+
     (S.canWrite?'':'<p class="small">You have view access only, so editing is turned off.</p>');
@@ -627,6 +649,7 @@ async function saveEdit(){
   if($('#eMill')) patch.mill=$('#eMill').value;
   if($('#eTrack')) patch.track=$('#eTrack').value;
   if($('#eField')) patch.field=$('#eField').value;
+  if($('#eTons')){ var tv=$('#eTons').value.trim(), rv=$('#eTrs').value.trim(); patch.tons=tv===''?null:Number(tv); patch.trs=rv===''?null:Number(rv); }
   try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).update(patch); toast('Load fixed'); closeEdit(); }
   catch(err){ fail(err); }
 }
@@ -720,7 +743,7 @@ function renderAll(){
   if(S.tab==='board') renderBoard();
   if(S.tab==='report') renderReport();
   if(S.tab==='all') renderAll_();
-  if(S.tab==='setup'){ renderSetup(); if(isLead()) renderAccess(); }
+  if(S.tab==='setup'){ renderSetup(); if(isLead()){ renderAccess(); renderScale(); } }
   if(S.tab==='me') renderMe();
   renderEdit(false);
 }
@@ -752,6 +775,34 @@ function renderDest(){
   $('#destRow').hidden = ms.hidden && fs.hidden && ts.hidden;
 }
 
+function quotaHtml(all){
+  var h='', wn=weighedOf(all), sumT=sumTons(all), trs=avgTrs(all), q=S.quota;
+  if(wn){ h+='<div class="card"><div><b>Weighed '+wn+' of '+all.length+' loads</b> · '+f1(sumT)+' t'+(trs?' · avg TRS '+Math.round(trs):'')+'</div></div>'; }
+  if(q && q.day===today() && q.items){
+    var keys=Object.keys(q.items).sort(function(a,b){ return a==='_farm'?-1:(b==='_farm'?1:a.localeCompare(b)); });
+    var rows=keys.map(function(k){
+      var it=q.items[k], rr=all.filter(function(l){ return k==='_farm' || String(l.mill||'').toLowerCase()===k.toLowerCase(); });
+      var inT=sumTons(rr), inL=rr.length, pct=it.tons?inT/it.tons:(it.loads?inL/it.loads:0);
+      var name=k==='_farm' ? 'Quota' : '<span class="sw" style="background:'+millColor(S.farmId,k)+'"></span>'+esc(k)+' quota';
+      var parts=[];
+      if(it.tons) parts.push('<span>'+f1(inT)+' t of '+f1(it.tons)+' t</span>');
+      if(it.loads) parts.push('<span>'+inL+' of '+it.loads+' loads</span>');
+      var togo=[];
+      if(it.tons) togo.push(inT>=it.tons ? 'Quota reached' : f1(it.tons-inT)+' t to go');
+      if(it.loads && !(it.tons && inT>=it.tons)) togo.push(inL>=it.loads ? 'Quota reached' : (it.loads-inL)+' loads to go');
+      return '<div><div class="lbl">'+name+'</div><div style="display:flex;gap:14px;flex-wrap:wrap;font-weight:700">'+parts.join('')+'</div><div class="qbar"><span style="width:'+Math.min(100,Math.round(pct*100))+'%"></span></div><div class="small">'+togo.map(function(x){ return '<span>'+x+'</span>'; }).join(' · ')+'</div></div>';
+    });
+    if(rows.length) h+='<div class="card" style="display:flex;flex-direction:column;gap:12px">'+rows.join('')+'</div>';
+  }
+  return h;
+}
+function pendingHtml(){
+  if(!S.pendingW || !S.pendingW.length) return '';
+  return '<div class="card"><b>Weights waiting for a truck tap</b><p class="small">These came from the scale before the truck was tapped. Each lands on its load as soon as that truck is tapped.</p>'+
+    S.pendingW.map(function(p){
+      return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="info"><span class="l1" style="font-size:16px">Truck '+esc(p.truck)+' · '+f1(p.tons)+' t'+(p.trs?' · TRS '+Math.round(p.trs):'')+'</span><span class="l2">'+esc(timeOf(p.at))+'</span></div><button class="btn ghost sm" type="button" data-act="dropWeight" data-id="'+esc(p.id)+'">Dismiss</button></div>';
+    }).join('')+'</div>';
+}
 function renderBoard(){
   var root=$('#boardBody'), html='';
   root.parentNode.classList.toggle('big', !!(S.profile && S.profile.role==='combine'));
@@ -793,6 +844,7 @@ function renderBoard(){
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : esc(tag));
       return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(rt?' style="'+millStyle(t.farm,p.mill)+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
+    html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
     html+='<div class="lbl">'+(needPick&&!S.boardEdit?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
     if(!waiting.length) html+='<p class="small">No trucks waiting.</p>';
@@ -813,6 +865,7 @@ function renderBoard(){
     if(S.listMill && mills.indexOf(S.listMill)<0) S.listMill='';
     var all=S.loads.filter(function(l){ return l.loadedAt; });
     var list=all.filter(function(l){ return !S.listMill || l.mill===S.listMill; }).sort(function(a,b){ return b.loadedAt-a.loadedAt; });
+    html+=quotaHtml(all);
     html+='<div class="sec-head"><h2>Today’s loads <b>'+list.length+'</b></h2>'+
       (mills.length>1?'<div class="fchips" role="group" aria-label="Filter loads by mill"><button type="button" class="fchip" data-act="listMill" data-v="" aria-pressed="'+(S.listMill?'false':'true')+'">All mills</button>'+
         mills.map(function(m){ return '<button type="button" class="fchip" data-act="listMill" data-v="'+esc(m)+'" aria-pressed="'+(S.listMill===m?'true':'false')+'">'+esc(m)+'</button>'; }).join('')+'</div>':'')+
@@ -821,7 +874,7 @@ function renderBoard(){
       html+='<div class="card empty"><p>No loads logged yet today. Tap a truck number when it is loaded and it shows here with the time.</p></div>';
     } else {
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
-        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy);
+        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
         return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+(l.mill?' style="'+millStyle(l.farm||S.farmId,l.mill)+'"':'')+'>'+esc(l.no)+'</span>'+
           '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
           '<span class="ago">'+esc(ago(l.loadedAt))+'</span></button>';
@@ -857,7 +910,7 @@ function renderMe(){
 /* ---------- setup ---------- */
 function renderSetup(){
   var adm=isOffice(), lead=isLead();
-  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead;
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead;
   var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm; }),confirmKey]);
   if(fsig!==last.farms){
     last.farms=fsig;
@@ -924,11 +977,16 @@ function reportDays(){
 }
 function loadsFor(d){ return d===S.loadsDay ? S.loads : (S.report.cache[d]||[]); }
 function repLoads(d){ return loadsFor(d).filter(function(x){ return !S.report.mill || x.mill===S.report.mill; }); }
+function tonsOf(x){ if(x.tons==null || x.tons==='') return null; var n=Number(x.tons); return isFinite(n) ? n : null; }
+function sumTons(rows){ var t=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null) t+=n; }); return t; }
+function weighedOf(rows){ return rows.filter(function(x){ return tonsOf(x)!=null; }).length; }
+function avgTrs(rows){ var a=0,w=0; rows.forEach(function(x){ var n=tonsOf(x), r=Number(x.trs); if(n!=null && x.trs!=null && isFinite(r) && r>0){ a+=n*r; w+=n; } }); return w ? a/w : null; }
+function f1(n){ return (Math.round(n*10)/10).toFixed(1); }
 function dayStats(list){
   var L=list.filter(function(x){ return x.loadedAt; });
   var ids={}; L.forEach(function(x){ ids[x.truck]=1; });
   var times=L.map(function(x){ return x.loadedAt; });
-  return { loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
+  return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
 }
 async function loadReport(){
   if(!S.db || !S.farmId) return;
@@ -947,8 +1005,8 @@ async function loadReport(){
   S.report.loading=false; last.report=''; schedule();
 }
 function tally(rows, keyFn){
-  var o={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; });
-  return Object.keys(o).map(function(k){ return {k:k,n:o[k]}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
+  var o={}, t={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; var n=tonsOf(x); if(n!=null) t[k]=(t[k]||0)+n; });
+  return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
 }
 function tbl(head, rows){
   return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i>0?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
@@ -986,17 +1044,21 @@ function renderReport(){
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+ss.loaded+'</b></div>'+
     '<div class="stat"><span class="lbl">Trucks used</span><b>'+ss.trucks+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(ss.first?esc(timeOf(ss.first)):'–')+'</b></div>'+
-    '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div></div>';
+    '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div>'+
+    (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div>':'')+
+    (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+'</div>';
+  var W=ss.weighed>0;
   if(daily){
     var byHour=tally(ss.rows,function(x){ var h=new Date(x.loadedAt).getHours(); return (h<10?'0':'')+h; }).sort(function(a,b){ return a.k<b.k?-1:1; });
     html+='<div class="lbl">'+esc(dayLabel(sel))+' by hour</div>'+tbl(['Hour','Loaded'],byHour.map(function(r){ var h=Number(r.k); return [(h%12||12)+(h<12?' AM':' PM'),r.n]; }));
   } else {
   html+='<div class="lbl">Day to day</div>';
-  html+=tbl(['Date','Loaded','Trucks','First loaded','Last loaded'], days.map(function(d){
+  var anyW=days.some(function(d){ return stats[d].weighed>0; });
+  html+=tbl(['Date','Loaded','Trucks','First loaded','Last loaded'].concat(anyW?['Tons']:[]), days.map(function(d){
     var s=stats[d];
     return ['<button type="button" class="daypick" data-act="pickDay" data-day="'+d+'"'+(d===sel?' aria-current="true"':'')+'>'+esc(dayLabel(d))+(d===S.loadsDay?' (today)':'')+'</button>',
       '<span class="bar" style="--w:'+(maxLoaded?Math.round(s.loaded/maxLoaded*60):0)+'px"></span>'+s.loaded,
-      s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'];
+      s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(anyW?[s.weighed?f1(s.tons):'–']:[]);
   }));
   }
   if(S.report.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
@@ -1005,14 +1067,14 @@ function renderReport(){
   var byTruck=tally(ss.rows,function(x){ return 'Truck '+x.no; });
   if(mills.length){
     var byMill=tally(ss.rows,function(x){ return x.mill||'No mill set'; });
-    html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Mill','Loaded'],byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n]; }));
+    html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Mill','Loaded'].concat(W?['Tons']:[]),byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
   }
-  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by track</div>'+tbl(['Track','Loaded'],byTrack.map(function(r){ return [esc(r.k),r.n]; }));
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by field</div>'+tbl(['Field','Loaded'],byField.map(function(r){ return [esc(r.k),r.n]; }));
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'],byTruck.map(function(r){ return [esc(r.k),r.n]; }));
+  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by track</div>'+tbl(['Track','Loaded'].concat(W?['Tons']:[]),byTrack.map(function(r){ return [esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by field</div>'+tbl(['Field','Loaded'].concat(W?['Tons']:[]),byField.map(function(r){ return [esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]),byTruck.map(function(r){ return [esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
   var log=ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'],log.map(function(x){
-    return ['<b>'+esc(x.no)+'</b>', (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')];
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
+    return ['<b>'+esc(x.no)+'</b>', (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
   }));
   var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill') ? document.activeElement.id : '';
   $('#reportBody').innerHTML=html;
@@ -1022,10 +1084,10 @@ function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.rep
 async function exportCsv(){
   if(!S.dl || !S.farmId) return;
   var days=(S.report.mode!=='range' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
-  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
   days.forEach(function(d){
     repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-      lines.push([d,fn,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy].map(csvCell).join(','));
+      lines.push([d,fn,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
     });
   });
   var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
@@ -1041,6 +1103,7 @@ async function loadPeople(){
     P=await rpc('people_list',{});
     var fl=S.isAdmin ? S.farms.map(function(f){ return f.id; }) : (S.crewFarm?[S.crewFarm]:[]);
     for(var i=0;i<fl.length;i++){ if(!INV[fl[i]]){ try{ INV[fl[i]]=await rpc('invite_get',{ p_farm:fl[i] }); }catch(e){} } }
+    for(var j=0;j<fl.length;j++){ if(!S.keyInfo[fl[j]]){ try{ S.keyInfo[fl[j]]=await rpc('scale_key_get',{ p_farm:fl[j] }); last.scale=''; }catch(e){} } }
     schedule();
   }
   catch(e){ if(e && e.code==='denied') S.err='denied'; schedule(); }
@@ -1055,6 +1118,41 @@ function inviteBox(){
       '<span class="acts"><button class="btn sm" type="button" data-act="copyInvite" data-farm="'+esc(f.id)+'">Copy</button><button class="btn ghost sm" type="button" data-act="newInvite" data-farm="'+esc(f.id)+'">'+(confirmKey==='newInvite:'+f.id?'Sure?':'New link')+'</button></span></div>';
   });
   return h;
+}
+function copyText(txt, msg){
+  var done=function(){ toast(msg); };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done,function(){ window.prompt(tr('Copy this:'),txt); });
+  else window.prompt(tr('Copy this:'),txt);
+}
+function scaleInstructions(fid){
+  var fn=farmName(fid), key=S.newKey[fid]||'PASTE-THE-FARM-KEY-HERE', url=baseUrl()+'/rest/v1/rpc/', ak=CFG.supabaseAnonKey||'';
+  var hdr='  apikey: '+ak+'\n'+(/^eyJ/.test(ak)?'  Authorization: Bearer '+ak+'\n':'')+'  Content-Type: application/json';
+  return 'CANE TRUCK LOG - SCALE CONNECTION FOR '+fn.toUpperCase()+'\n\n'+
+   '1) SEND A WEIGHT (each time a load is weighed)\nPOST '+url+'scale_weight\nHeaders:\n'+hdr+'\nBody (JSON):\n  {"p_key":"'+key+'","p_truck":"353","p_tons":30.09}\n'+
+   '  p_truck = truck number (must match the truck number in the truck log)\n  p_tons = net weight in tons (required)\n  p_trs = TRS, optional, for example "p_trs":207.28\n  p_ticket = ticket number, optional (a repeated ticket is ignored, so it is safe to resend)\n'+
+   'Reply: {"status":"matched"} weight put on the truck\'s oldest unweighed load, {"status":"waiting"} truck not tapped yet (it fills in when tapped), {"status":"duplicate"} already received.\n\n'+
+   '2) SEND THE QUOTA (whenever it changes)\nPOST '+url+'scale_quota\nSame headers. Body:\n  {"p_key":"'+key+'","p_mill":"MILL NAME","p_tons":450,"p_loads":36}\n'+
+   '  p_mill = the mill name exactly as it is in the truck log (leave out for a whole-farm quota). p_tons and p_loads are both optional. Applies to today unless "p_day":"2026-10-05" is added.\n\n'+
+   'The key is secret and works only for '+fn+'. Keep it out of screenshots and emails you do not trust.';
+}
+function scaleBox(){
+  var fl=S.isAdmin ? S.farms : S.farms.filter(function(f){ return f.id===S.crewFarm; });
+  var h='';
+  fl.forEach(function(f){
+    var ki=S.keyInfo[f.id], nk=S.newKey[f.id];
+    h+='<div class="ros-row" style="grid-template-columns:1fr;gap:8px"><div class="info"><span class="l1" style="font-size:16px">'+esc(f.name)+'</span><span class="l2">'+(ki&&ki.exists?'Connected. Key made '+esc(new Date(ki.created_at).toLocaleDateString()):'No key yet')+'</span></div>';
+    if(nk) h+='<div class="keybox">'+esc(nk)+'</div><p class="small">This key is shown only once. Copy it now.</p>';
+    h+='<div class="addrow"><button class="btn sm" type="button" data-act="scaleMake" data-farm="'+esc(f.id)+'">'+(ki&&ki.exists?(confirmKey==='scaleNew:'+f.id?'Sure? The old key stops working':'New key'):'Make key')+'</button>'+
+      (ki&&ki.exists?'<button class="btn ghost sm" type="button" data-act="scaleCopy" data-farm="'+esc(f.id)+'">Copy instructions</button>':'')+
+      (nk?'<button class="btn ghost sm" type="button" data-act="scaleCopyKey" data-farm="'+esc(f.id)+'">Copy key</button>':'')+
+      (ki&&ki.exists?'<button class="btn warn sm" type="button" data-act="scaleOff" data-farm="'+esc(f.id)+'">'+(confirmKey==='scaleOff:'+f.id?'Sure?':'Turn off')+'</button>':'')+'</div></div>';
+  });
+  return h || '<p class="small">Add a farm first.</p>';
+}
+function renderScale(){
+  var sig=JSON.stringify([S.keyInfo,S.newKey,S.farms.map(function(f){ return f.id+f.name; }),confirmKey,S.isAdmin]);
+  if(sig===last.scale) return; last.scale=sig;
+  $('#scaleList').innerHTML=scaleBox();
 }
 function renderAccess(){
   var sig=JSON.stringify([P,INV,S.isAdmin,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
@@ -1127,8 +1225,8 @@ function renderAll_(){
         ['<span class="bar" style="--w:'+(max?Math.round(tot[d]/max*60):0)+'px"></span><b>'+tot[d]+'</b>']);
   }));
   if(C.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'], per.map(function(s){
-    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'];
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons']:[]), per.map(function(s){
+    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–']:[]);
   }));
   var mk={};
   per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
@@ -1139,11 +1237,11 @@ function renderAll_(){
 async function exportCombCsv(){
   if(!S.dl) return;
   var days=combDays().slice().reverse();
-  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
   days.forEach(function(d){
     S.farms.forEach(function(f){
       combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-        lines.push([d,f.name,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy].map(csvCell).join(','));
+        lines.push([d,f.name,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
       });
     });
   });
@@ -1257,10 +1355,22 @@ document.addEventListener('click', function(e){
     case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else logLoad(lt); } break;
     case 'lang': setLang(LANG==='es'?'en':'es'); break;
     case 'setLang': if(el.getAttribute('data-lang')!==LANG){ try{ sessionStorage.setItem('cane-truck-log:reg','1'); }catch(_){} setLang(el.getAttribute('data-lang')); } break;
+    case 'dropWeight': rpc('scale_pending_drop',{ p_id:el.getAttribute('data-id') }).then(function(){ S.pendingW=S.pendingW.filter(function(x){ return x.id!==el.getAttribute('data-id'); }); last.board=''; schedule(); }).catch(fail); break;
+    case 'scaleMake':
+      var sf=el.getAttribute('data-farm'), had=S.keyInfo[sf] && S.keyInfo[sf].exists;
+      if(had && !confirmTap('scaleNew:'+sf)) break;
+      rpc('scale_key_new',{ p_farm:sf }).then(function(k){ S.newKey[sf]=k; S.keyInfo[sf]={ exists:true, created_at:new Date().toISOString() }; last.scale=''; toast('Key made. Copy it now, it is shown only once.'); schedule(); }).catch(fail);
+      break;
+    case 'scaleOff':
+      var of_=el.getAttribute('data-farm');
+      if(confirmTap('scaleOff:'+of_)) rpc('scale_key_off',{ p_farm:of_ }).then(function(){ delete S.newKey[of_]; S.keyInfo[of_]={ exists:false }; last.scale=''; toast('Scale connection turned off'); schedule(); }).catch(fail);
+      break;
+    case 'scaleCopy': copyText(scaleInstructions(el.getAttribute('data-farm')), 'Instructions copied. Send them to the scale app developer.'); break;
+    case 'scaleCopyKey': copyText(S.newKey[el.getAttribute('data-farm')]||'', 'Key copied.'); break;
     case 'quickAdd': openQuick(''); break;
     case 'refreshBoard':
       var rb=$('#refreshBtn'); rb.disabled=true; rb.textContent='Refreshing...';
-      subLoads(); poke(); refreshWho(); if(isLead()) loadPeople(); last.board=''; schedule();
+      subLoads(); poke(); refreshWho(); loadPending(); if(isLead()) loadPeople(); last.board=''; schedule();
       setTimeout(function(){ rb.disabled=false; rb.textContent='Refresh'; toast('Up to date'); },1200); break;
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
     case 'quickCancel': S.quick=null; schedule(); break;
@@ -1402,7 +1512,7 @@ var ES = {
  '+ Add truck':'+ Agregar camión','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
- 'All farms':'Todas las fincas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
+ 'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
  'Check again':'Revisar otra vez','Close':'Cerrar','Combine operator':'Operador de la cosechadora','Daily report':'Reporte diario',
  'Edit trucks and mills':'Editar camiones y molinos','Email':'Correo','Farm':'Finca','Farm name':'Nombre de la finca','New farm name':'Nombre de la finca nueva',
  'Farm you are viewing':'Finca que está viendo','Farms':'Fincas','First name and last initial':'Nombre y inicial del apellido',
@@ -1483,10 +1593,21 @@ var ES = {
  'Nothing logged.':'Nada registrado.','No mill':'Sin molino','No mill set':'Sin molino','No track set':'Sin track','No field set':'Sin campo','Not set':'Sin definir','None':'Ninguno','Unknown':'Desconocido',
  'You have view access only, so editing is turned off.':'Solo tiene acceso para ver, así que la edición está apagada.','Edit to move it to a farm':'Edite para pasarlo a una finca','Farm was removed':'La finca fue quitada',
  'An administrator has not approved your account yet.':'Un administrador todavía no aprueba su cuenta.','Delete':'Borrar',
+ 'Weights waiting for a truck tap':'Pesos esperando que toquen el camión','These came from the scale before the truck was tapped. Each lands on its load as soon as that truck is tapped.':'Estos llegaron de la báscula antes de tocar el camión. Cada uno se pone en su carga en cuanto se toca ese camión.',
+ 'Dismiss':'Descartar','Tons':'Toneladas','Average TRS':'TRS promedio','Tons (net)':'Toneladas (netas)','TRS (lb sugar per ton)':'TRS (lb de azúcar por tonelada)',
+ 'Scale connection':'Conexión con la báscula','Give each farm\'s key to whoever runs your scale app. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.':'Dele la llave de cada finca a quien maneja su app de la báscula. Manda cada peso neto (toneladas, y TRS si lo tiene) y la cuota, y se llenan en el Tablero y en los reportes. Los números de camión deben ser iguales a los números de camión de aquí.',
+ 'No key yet':'Todavía no hay llave','Make key':'Crear llave','New key':'Llave nueva','Turn off':'Apagar','Copy instructions':'Copiar instrucciones','Copy key':'Copiar llave',
+ 'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
+ 'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
+ 'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
  'waiting':'esperando','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
+ [/^Connected\. Key made (.+)$/, 'Conectada. Llave creada $1'],
+ [/^Weighed (\d+) of (\d+) loads$/, 'Pesadas $1 de $2 cargas'], [/^avg TRS (\d+)$/, 'TRS promedio $1'],
+ [/^([\d.]+) t of ([\d.]+) t$/, '$1 t de $2 t'], [/^(\d+) of (\d+) loads$/, '$1 de $2 cargas'],
+ [/^([\d.]+) t to go$/, 'faltan $1 t'], [/^(\d+) loads to go$/, 'faltan $1 cargas'], [/^(.+) quota$/, 'Cuota de $1'],
  [/^Filter loads by mill$/, 'Filtrar cargas por molino'],
  [/^Minutes a truck stays In route$/, 'Minutos que un camión queda En camino'],
  [/^Minutes a truck shows as Loaded$/, 'Minutos que un camión se ve Cargado'],
