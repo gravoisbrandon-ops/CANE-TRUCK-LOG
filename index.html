@@ -405,6 +405,7 @@ function millColor(farmId,mill){
   if(c && /^#[0-9a-f]{6}$/i.test(c)) return c;
   var i=millsOf(farmId).indexOf(mill); return MILL_DEFAULTS[(i<0?0:i)%MILL_DEFAULTS.length];
 }
+function weighedColor(farmId){ var f=farmById(farmId), c=f&&f.weighedColor; return (c && /^#[0-9a-f]{6}$/i.test(c)) ? c : '#2F6FB5'; }
 function inkOn(hex){ var n=parseInt(hex.slice(1),16), r=n>>16, g=(n>>8)&255, b=n&255; return (0.299*r+0.587*g+0.114*b)>150 ? '#0E1511' : '#FFFFFF'; }
 function millStyle(farmId,mill){ var c=millColor(farmId,mill); return 'background:'+c+';border-color:'+c+';color:'+inkOn(c); }
 function isRestricted(t){ var all=millsOf(t.farm); return all.length>1 && allowedMills(t).length<all.length; }
@@ -651,8 +652,8 @@ function renderEdit(force){
     '<label class="f">Truck<select id="eTruck">'+opts+'</select></label>'+
     '<label class="f">Time loaded<input type="time" id="eTime" value="'+esc(cur.time)+'"></label>'+
     (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
-    (tracks.length?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+tracks.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
-    (fields.length?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+fields.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (tracks.length||cur.track?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+(cur.track&&tracks.indexOf(cur.track)<0?tracks.concat([cur.track]):tracks).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (fields.length||cur.field?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+(cur.field&&fields.indexOf(cur.field)<0?fields.concat([cur.field]):fields).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (isLead()?'<label class="f">Tons (net)<input type="number" id="eTons" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTons')?$('#eTons').value:e.tons)+'"></label><label class="f">TRS (lb sugar per ton)<input type="number" id="eTrs" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTrs')?$('#eTrs').value:e.trs)+'"></label>':'')+
     '<div data-st="full"><button class="btn primary" type="button" data-act="saveEdit"'+(S.canWrite?'':' disabled')+'>Save changes</button></div>'+
     '<button class="btn warn" type="button" data-act="deleteLoad"'+(S.canWrite?'':' disabled')+'>'+(confirmKey===key?'Tap again to delete this load':'Delete this load')+'</button>'+
@@ -850,7 +851,7 @@ function renderBoard(){
   else {
     var trucks=farmTrucks(), mills=millsOf(S.farmId);
     var per={}, nowMs=Date.now(), routeMs=S.route*60000;
-    S.loads.forEach(function(l){ if(!l.loadedAt) return; var p=per[l.truck]||(per[l.truck]={n:0,last:0,mill:''}); p.n++; if(l.loadedAt>p.last){ p.last=l.loadedAt; p.mill=l.mill||''; } });
+    S.loads.forEach(function(l){ if(!l.loadedAt) return; var p=per[l.truck]||(per[l.truck]={n:0,last:0,mill:''}); p.n++; if(l.loadedAt>p.last){ p.last=l.loadedAt; p.mill=l.mill||''; p.w=(tonsOf(l)!=null); p.tons=tonsOf(l); } });
     var stage=function(t){ var p=per[t.id]; if(!p) return 'wait'; var a=nowMs-p.last; return a<routeMs ? 'route' : 'wait'; };
     var byNew=function(a,b){ return per[b.id].last-per[a.id].last; };
     var waiting=trucks.filter(function(t){ return stage(t)==='wait'; });
@@ -860,8 +861,8 @@ function renderBoard(){
       var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
       var off=(!S.canWrite || (!S.boardEdit && !recent && truckMill(t)===null)) ? ' disabled' : '';
       var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '';
-      var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : esc(tag));
-      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(rt?' style="'+millStyle(t.farm,p.mill)+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
+      var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(rt&&p.w?' · '+f1(p.tons)+' t':'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : esc(tag));
+      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(rt?' style="'+(p.w ? 'background:'+weighedColor(t.farm)+';border-color:'+millColor(t.farm,p.mill)+';border-width:3px;color:'+inkOn(weighedColor(t.farm)) : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
     html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
@@ -879,6 +880,7 @@ function renderBoard(){
     var opt=function(list,cur){ return list.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+' min</option>'; }).join(''); };
     html+='<div class="sec-head"><h2>In route <b>'+enRoute.length+'</b></h2><div class="holdbar"><span class="small">Back to Waiting after</span><select id="selRoute" aria-label="Minutes a truck stays In route">'+opt([30,45,60,90,120,180],S.route)+'</select></div></div>';
     if(!enRoute.length) html+='<p class="small">The truck you tap lands here, then returns to Waiting.</p>';
+    else if(S.canWrite) html+='<p class="small">A truck turns '+'<span class="sw" style="background:'+weighedColor(S.farmId)+'"></span>'+' once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.</p><div class="grid">'+enRoute.map(function(t){ return tile(t,'route'); }).join('')+'</div>';
     else html+='<div class="grid">'+enRoute.map(function(t){ return tile(t,'route'); }).join('')+'</div>';
 
     if(S.listMill && mills.indexOf(S.listMill)<0) S.listMill='';
@@ -944,6 +946,7 @@ function renderSetup(){
         (lead?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
         (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
         '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>':'')+
+        (lead?'<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="wcolor" data-farm="'+esc(f.id)+'" value="'+weighedColor(f.id)+'" aria-label="Weighed truck color"><span>Weighed truck color <span class="small">(a truck turns this color once its weight comes in)</span></span></label>':'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         '<div class="lbl">Fields</div><div class="chips">'+chips(f.fields,'Field','None yet. Fields are optional.')+'</div>'+
@@ -1542,6 +1545,11 @@ document.addEventListener('click', function(e){
 document.addEventListener('change', function(e){
   var id=e.target.id;
   if(id==='selMill'){ S.dest.mill=e.target.value; saveDest(); last.board=''; schedule(); }
+  else if(e.target.classList && e.target.classList.contains('wcolor')){
+    var wf=farmById(e.target.getAttribute('data-farm')); if(!wf) return;
+    wf.weighedColor=e.target.value; last.board=''; schedule();
+    dref('farms/'+wf.id).update({ weighedColor:e.target.value }).catch(fail);
+  }
   else if(e.target.classList && e.target.classList.contains('mcolor')){
     var mf=farmById(e.target.getAttribute('data-farm')); if(!mf) return;
     var mc=Object.assign({}, mf.millColors||{}); mc[e.target.getAttribute('data-v')]=e.target.value;
@@ -1612,7 +1620,7 @@ document.addEventListener('submit', function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- '+ Add truck':'+ Agregar camión','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ '+ Add truck':'+ Agregar camión','Weighed truck color':'Color del camión pesado','(a truck turns this color once its weight comes in)':'(un camión toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck turns':'Un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
