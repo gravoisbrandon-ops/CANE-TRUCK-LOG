@@ -150,6 +150,24 @@ td.n,th.n{text-align:right}
 .close{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:44px;height:44px;font-size:22px;line-height:1}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--btn-bg);color:var(--btn-ink);padding:10px 12px 10px 18px;border-radius:10px;font-weight:600;max-width:92%;display:flex;align-items:center;gap:12px}
 .toast button{border:1px solid currentColor;background:none;border-radius:8px;padding:8px 14px;min-height:40px;font-weight:700;color:inherit}
+@media (max-width:600px){
+  #reportBody{gap:8px !important}
+  #reportBody .fchip{min-height:34px;padding:4px 12px;font-size:13px}
+  #reportBody .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  #reportBody .toolbar label.f{min-width:0;font-size:12px}
+  #reportBody .toolbar select{min-height:38px;padding:4px 8px;font-size:14px}
+  #reportBody .toolbar .btn{min-height:38px;padding:4px 10px;font-size:14px}
+  #reportBody .toolbar.daynav{grid-template-columns:auto 1fr auto;align-items:center}
+  #reportBody .stats{grid-template-columns:repeat(4,1fr);gap:5px}
+  #reportBody .stat{padding:6px;gap:2px;min-width:0}
+  #reportBody .stat b{font-size:19px}
+  #reportBody .stat .lbl{font-size:9.5px;letter-spacing:.04em}
+  #reportBody .lbl{font-size:11px;margin-top:2px}
+  #reportBody table{min-width:0;font-size:13px}
+  #reportBody th,#reportBody td{padding:5px 7px}
+  #reportBody th{font-size:10px;letter-spacing:.03em}
+  #reportBody .rnote{display:none}
+}
 @media (min-width:700px){ body{padding-inline:24px} .top{margin-inline:-24px;padding-inline:24px} }
 @media (prefers-reduced-motion: no-preference){ .num,.btn{transition:transform .08s,box-shadow .12s} }
 </style>
@@ -1088,7 +1106,7 @@ function renderReport(){
   var html='<div class="fchips" role="group" aria-label="Report type">'+
     '<button type="button" class="fchip" data-act="repMode" data-mode="daily"'+(daily?' aria-pressed="true"':' aria-pressed="false"')+'>Daily report</button>'+
     '<button type="button" class="fchip" data-act="repMode" data-mode="range"'+(!daily?' aria-pressed="true"':' aria-pressed="false"')+'>Day to day</button></div>';
-  if(daily) html+='<div class="toolbar">'+
+  if(daily) html+='<div class="toolbar daynav">'+
     '<button class="btn ghost" type="button" data-act="repDay" data-dir="1"'+(si>=days.length-1?' disabled':'')+'>&larr; Earlier</button>'+
     '<b style="align-self:center">'+esc(dayLabel(sel))+(sel===today()?' (today)':'')+'</b>'+
     '<button class="btn ghost" type="button" data-act="repDay" data-dir="-1"'+(si<=0?' disabled':'')+'>Later &rarr;</button></div>';
@@ -1100,7 +1118,7 @@ function renderReport(){
     '<button class="btn ghost" type="button" data-act="refreshReport">'+(S.report.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csv">Save as CSV</button>':'')+
   '</div>';
-  html+='<p class="small">'+esc(fn)+' only'+(S.report.mill?', loads to '+esc(S.report.mill):'')+(S.report.track?', track '+esc(S.report.track):'')+(S.report.field?', field '+esc(S.report.field):'')+'. Each row is one date. Every tap on a truck number counts as one load.</p>';
+  html+='<p class="small rnote">'+esc(fn)+' only'+(S.report.mill?', loads to '+esc(S.report.mill):'')+(S.report.track?', track '+esc(S.report.track):'')+(S.report.field?', field '+esc(S.report.field):'')+'. Each row is one date. Every tap on a truck number counts as one load.</p>';
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+ss.loaded+'</b></div>'+
     '<div class="stat"><span class="lbl">Trucks used</span><b>'+ss.trucks+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(ss.first?esc(timeOf(ss.first)):'–')+'</b></div>'+
