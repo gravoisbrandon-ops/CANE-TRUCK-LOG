@@ -150,29 +150,32 @@ td.n,th.n{text-align:right}
 .close{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:44px;height:44px;font-size:22px;line-height:1}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--btn-bg);color:var(--btn-ink);padding:10px 12px 10px 18px;border-radius:10px;font-weight:600;max-width:92%;display:flex;align-items:center;gap:12px}
 .toast button{border:1px solid currentColor;background:none;border-radius:8px;padding:8px 14px;min-height:40px;font-weight:700;color:inherit}
-@media (max-height:520px) and (min-width:601px){ #reportBody .toolbar:not(.daynav){grid-template-columns:repeat(4,1fr);align-items:end} #reportBody .toolbar.daynav{grid-template-columns:auto 1fr auto} #reportBody .stats{grid-template-columns:repeat(6,1fr)} }
+@media (max-height:520px) and (min-width:601px){ .rep .toolbar:not(.daynav){grid-template-columns:repeat(4,1fr);align-items:end} .rep .toolbar.daynav{grid-template-columns:auto 1fr auto} .rep .stats{grid-template-columns:repeat(6,1fr)} }
 @media (max-height:520px){ .top{position:static;padding-block:6px 0} h1{font-size:22px} .tabs{margin-top:4px} .tab{min-height:38px;padding:6px 8px} }
 @media (max-width:600px),(max-height:520px){
-  #reportBody{gap:8px !important}
-  #reportBody .fchip{min-height:34px;padding:4px 12px;font-size:13px}
-  #reportBody .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  #reportBody .toolbar label.f{min-width:0;font-size:12px}
-  #reportBody .toolbar select{min-height:38px;padding:4px 8px;font-size:14px}
-  #reportBody .toolbar .btn{min-height:38px;padding:4px 10px;font-size:14px}
-  #reportBody .toolbar.daynav{grid-template-columns:auto 1fr auto;align-items:center}
-  #reportBody .stats{grid-template-columns:repeat(4,1fr);gap:5px}
-  #reportBody .stat{padding:6px;gap:2px;min-width:0}
-  #reportBody .stat b{font-size:16px;white-space:nowrap}
-  #reportBody .stat .lbl{font-size:9.5px;letter-spacing:.04em}
-  #reportBody .lbl{font-size:11px;margin-top:2px}
-  #reportBody table{min-width:0;font-size:13px}
-  #reportBody th,#reportBody td{padding:5px 7px}
-  #reportBody th{font-size:10px;letter-spacing:.03em}
-  #reportBody .rnote{display:none}
-  #reportBody th,#reportBody td{white-space:normal;line-height:1.2;vertical-align:middle}
-  #reportBody .hide-m{display:none}
-  #reportBody table{font-size:12.5px}
-  #reportBody th,#reportBody td{padding:4px 5px}
+  .rep{gap:8px !important}
+  .rep .fchip{min-height:34px;padding:4px 12px;font-size:13px}
+  .rep .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .rep .toolbar label.f{min-width:0;font-size:12px}
+  .rep .toolbar select{min-height:38px;padding:4px 8px;font-size:14px}
+  .rep .toolbar .btn{min-height:38px;padding:4px 10px;font-size:14px}
+  .rep .toolbar.daynav{grid-template-columns:auto 1fr auto;align-items:center}
+  .rep .stats{grid-template-columns:repeat(4,1fr);gap:5px}
+  .rep .stat{padding:6px;gap:2px;min-width:0}
+  .rep .stat b{font-size:16px;white-space:nowrap}
+  .rep .stat .lbl{font-size:9.5px;letter-spacing:.04em}
+  .rep .lbl{font-size:11px;margin-top:2px}
+  .rep table{min-width:0;font-size:13px}
+  .rep th,.rep td{padding:5px 7px}
+  .rep th{font-size:10px;letter-spacing:.03em}
+  .rep .rnote{display:none}
+  .rep th,.rep td{white-space:normal;line-height:1.2;vertical-align:middle}
+  .rep .hide-m{display:none}
+  #allBody .toolbar{grid-template-columns:1.3fr 1fr 1fr;align-items:end}
+  .rep .daypick{min-height:0;padding:2px 0;font-size:12.5px}
+  .rep .bar{height:7px;margin-right:4px}
+  .rep table{font-size:12.5px}
+  .rep th,.rep td{padding:4px 5px}
 }
 @media (min-width:700px){ body{padding-inline:24px} .top{margin-inline:-24px;padding-inline:24px} }
 @media (prefers-reduced-motion: no-preference){ .num,.btn{transition:transform .08s,box-shadow .12s} }
@@ -282,11 +285,11 @@ td.n,th.n{text-align:right}
     </section>
 
     <section id="view-report" hidden aria-label="Daily report">
-      <div id="reportBody" style="display:flex;flex-direction:column;gap:16px"></div>
+      <div id="reportBody" class="rep" style="display:flex;flex-direction:column;gap:16px"></div>
     </section>
 
     <section id="view-all" hidden aria-label="All farms report">
-      <div id="allBody" style="display:flex;flex-direction:column;gap:16px"></div>
+      <div id="allBody" class="rep" style="display:flex;flex-direction:column;gap:16px"></div>
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
@@ -1299,7 +1302,7 @@ function renderAll_(){
     '<button class="btn ghost" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csvAll">Save as CSV</button>':'')+
   '</div>';
-  html+='<p class="small">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
+  html+='<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+all.length+'</b></div>'+
     '<div class="stat"><span class="lbl">Farms loading</span><b>'+per.filter(function(s){ return s.loaded; }).length+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(times.length?esc(timeOf(Math.min.apply(null,times))):'–')+'</b></div>'+
