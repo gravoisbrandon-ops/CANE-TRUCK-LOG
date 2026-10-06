@@ -150,7 +150,9 @@ td.n,th.n{text-align:right}
 .close{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:44px;height:44px;font-size:22px;line-height:1}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:30;background:var(--btn-bg);color:var(--btn-ink);padding:10px 12px 10px 18px;border-radius:10px;font-weight:600;max-width:92%;display:flex;align-items:center;gap:12px}
 .toast button{border:1px solid currentColor;background:none;border-radius:8px;padding:8px 14px;min-height:40px;font-weight:700;color:inherit}
-@media (max-width:600px){
+@media (max-height:520px) and (min-width:601px){ #reportBody .toolbar:not(.daynav){grid-template-columns:repeat(4,1fr);align-items:end} #reportBody .toolbar.daynav{grid-template-columns:auto 1fr auto} #reportBody .stats{grid-template-columns:repeat(6,1fr)} }
+@media (max-height:520px){ .top{position:static;padding-block:6px 0} h1{font-size:22px} .tabs{margin-top:4px} .tab{min-height:38px;padding:6px 8px} }
+@media (max-width:600px),(max-height:520px){
   #reportBody{gap:8px !important}
   #reportBody .fchip{min-height:34px;padding:4px 12px;font-size:13px}
   #reportBody .toolbar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
@@ -160,13 +162,17 @@ td.n,th.n{text-align:right}
   #reportBody .toolbar.daynav{grid-template-columns:auto 1fr auto;align-items:center}
   #reportBody .stats{grid-template-columns:repeat(4,1fr);gap:5px}
   #reportBody .stat{padding:6px;gap:2px;min-width:0}
-  #reportBody .stat b{font-size:19px}
+  #reportBody .stat b{font-size:16px;white-space:nowrap}
   #reportBody .stat .lbl{font-size:9.5px;letter-spacing:.04em}
   #reportBody .lbl{font-size:11px;margin-top:2px}
   #reportBody table{min-width:0;font-size:13px}
   #reportBody th,#reportBody td{padding:5px 7px}
   #reportBody th{font-size:10px;letter-spacing:.03em}
   #reportBody .rnote{display:none}
+  #reportBody th,#reportBody td{white-space:normal;line-height:1.2;vertical-align:middle}
+  #reportBody .hide-m{display:none}
+  #reportBody table{font-size:12.5px}
+  #reportBody th,#reportBody td{padding:4px 5px}
 }
 @media (min-width:700px){ body{padding-inline:24px} .top{margin-inline:-24px;padding-inline:24px} }
 @media (prefers-reduced-motion: no-preference){ .num,.btn{transition:transform .08s,box-shadow .12s} }
@@ -1082,8 +1088,10 @@ function tally(rows, keyFn){
   return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
 }
 function tbl(head, rows){
-  return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i>0?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
-    (rows.length?rows.map(function(r){ return '<tr>'+r.map(function(c,i){ return '<td'+(i>0?' class="n"':'')+'>'+c+'</td>'; }).join('')+'</tr>'; }).join(''):'<tr><td colspan="'+head.length+'" class="small">Nothing logged.</td></tr>')+'</tbody></table></div>';
+  var hm=head.indexOf('Logged by');
+  var cls=function(i,n){ return ((n?'n':'')+(i===hm?' hide-m':'')).trim(); };
+  return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ var c=cls(i,i>0&&i!==hm); return '<th'+(c?' class="'+c+'"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
+    (rows.length?rows.map(function(r){ return '<tr>'+r.map(function(c,i){ var k=cls(i,i>0&&i!==hm); return '<td'+(k?' class="'+k+'"':'')+'>'+c+'</td>'; }).join('')+'</tr>'; }).join(''):'<tr><td colspan="'+head.length+'" class="small">Nothing logged.</td></tr>')+'</tbody></table></div>';
 }
 function renderReport(){
   if(!S.db){ if(last.report!=='nodb'){ last.report='nodb'; $('#reportBody').innerHTML=emptyCard('No report yet','Sign in to read the logged loads.'); } return; }
