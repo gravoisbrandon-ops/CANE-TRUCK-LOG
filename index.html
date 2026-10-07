@@ -996,12 +996,14 @@ function renderBoard(){
     if(!list.length){
       html+='<div class="card empty"><p>No loads logged yet today. Tap a truck number when it is loaded and it shows here with the time.</p></div>';
     } else {
+      var nextAt={}, byT={}; all.forEach(function(l){ (byT[l.truck]=byT[l.truck]||[]).push(l); });
+      Object.keys(byT).forEach(function(k){ var a=byT[k].sort(function(x,y){ return x.loadedAt-y.loadedAt; }); for(var i=0;i<a.length-1;i++) nextAt[a[i].id]=a[i+1].loadedAt; });
       var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && !usedPrev(t)) newIds[t.id]=1; });
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
         var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
         return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(newIds[l.truck]?';background:'+newColor(S.farmId):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
           '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
-          '<span class="ago">'+esc(ago(l.loadedAt))+'</span></button>';
+          '<span class="ago">'+(nextAt[l.id]?'Trip '+esc(fmtDur(nextAt[l.id]-l.loadedAt)):esc(ago(l.loadedAt)))+'</span></button>';
       }).join('')+'</div>';
     }
   }
@@ -1101,7 +1103,37 @@ function reportDays(){
   return out;
 }
 function loadsFor(d){ return d===S.loadsDay ? S.loads : (S.report.cache[d]||[]); }
-function repLoads(d){ return loadsFor(d).filter(function(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track || (x.track||'')===S.report.track) && (!S.report.field || (x.field||'')===S.report.field); }); }
+function repPass(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track || (x.track||'')===S.report.track) && (!S.report.field || (x.field||'')===S.report.field); }
+function repLoads(d){ return loadsFor(d).filter(repPass); }
+/* time between loads: for each truck, the time from one load to its next load the same day (the round trip).
+   Under 10 minutes (a double tap) or over 4 hours (a break, or the end of the day) is not counted. It belongs to the track the truck left from. */
+var GAP_MIN=10*60000, GAP_MAX=4*3600000;
+function cyclesOf(rows, pass){
+  var by={}, out=[];
+  rows.forEach(function(l){ if(l.loadedAt) (by[l.truck]=by[l.truck]||[]).push(l); });
+  Object.keys(by).forEach(function(k){
+    var a=by[k].sort(function(x,y){ return x.loadedAt-y.loadedAt; });
+    for(var i=0;i<a.length-1;i++){
+      var g=a[i+1].loadedAt-a[i].loadedAt; if(g<GAP_MIN || g>GAP_MAX) continue;
+      if(pass && !pass(a[i])) continue;
+      out.push({ truck:k, no:a[i].no, track:a[i].track||'', gap:g });
+    }
+  });
+  return out;
+}
+function avgOf(c){ if(!c.length) return 0; var t=0; c.forEach(function(x){ t+=x.gap; }); return t/c.length; }
+function fmtDur(ms){ var m=Math.round(ms/60000); if(m<60) return m+' min'; return Math.floor(m/60)+' h '+(m%60)+' m'; }
+/* loads cut per hour: loads on the day divided by the hours from the first to the last one */
+function ratePerHour(dayRows){
+  var n=0, h=0;
+  dayRows.forEach(function(rows){
+    var a=rows.filter(function(x){ return x.loadedAt; }); if(a.length<2) return;
+    var lo=Math.min.apply(null,a.map(function(x){ return x.loadedAt; })), hi=Math.max.apply(null,a.map(function(x){ return x.loadedAt; }));
+    if(hi-lo<600000) return;
+    n+=a.length-1; h+=(hi-lo)/3600000;
+  });
+  return h>0 ? n/h : 0;
+}
 /* names for the report pickers: the farm's list plus anything already on logged loads (renamed or removed ones) */
 function seenNames(key,listed){
   var o={}; listed.forEach(function(v){ o[v]=1; });
@@ -1171,6 +1203,10 @@ function renderReport(){
   days.forEach(function(d){ stats[d]=dayStats(repLoads(d)); if(stats[d].loaded>maxLoaded) maxLoaded=stats[d].loaded; });
   var sel=S.report.sel, ss=stats[sel], fn=farmName(S.farmId);
   var daily=S.report.mode!=='range', si=days.indexOf(sel);
+  var scopeDays = daily ? [sel] : days;
+  var cycAll=[]; scopeDays.forEach(function(d){ cycAll=cycAll.concat(cyclesOf(loadsFor(d),repPass)); });
+  var rateAll=ratePerHour(scopeDays.map(function(d){ return repLoads(d); }));
+  var cycSel=cyclesOf(loadsFor(sel),repPass);
   var html='<div class="fchips" role="group" aria-label="Report type">'+
     '<button type="button" class="fchip" data-act="repMode" data-mode="daily"'+(daily?' aria-pressed="true"':' aria-pressed="false"')+'>Daily report</button>'+
     '<button type="button" class="fchip" data-act="repMode" data-mode="range"'+(!daily?' aria-pressed="true"':' aria-pressed="false"')+'>Day to day</button></div>';
@@ -1192,7 +1228,9 @@ function renderReport(){
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(ss.first?esc(timeOf(ss.first)):'–')+'</b></div>'+
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div>'+
     (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(ss.rows)+'</b></div>':'')+
-    (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+'</div>';
+    (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+
+    (cycAll.length?'<div class="stat"><span class="lbl">Avg between loads</span><b>'+fmtDur(avgOf(cycAll))+'</b></div>':'')+
+    (rateAll>0?'<div class="stat"><span class="lbl">Loads per hour</span><b>'+f1(rateAll)+'</b></div>':'')+'</div>';
   var W=ss.weighed>0;
   if(daily){
     var byHour=tally(ss.rows,function(x){ var h=new Date(x.loadedAt).getHours(); return (h<10?'0':'')+h; }).sort(function(a,b){ return a.k<b.k?-1:1; });
@@ -1218,9 +1256,20 @@ function renderReport(){
     var byMill=tally(scopeRows,function(x){ return x.mill||'No mill set'; });
     html+='<div class="lbl">'+esc(scopeLbl)+' by mill</div>'+tbl(['Mill','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
   }
-  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(scopeLbl)+' by track</div>'+tbl(['Track','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byTrack.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
+  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(scopeLbl)+' by track</div>'+tbl(['Track','Loaded'].concat(WS?['Tons','Avg t/load']:[]).concat(cycAll.length?['Avg between','Loads/hr']:[]),byTrack.map(function(r){
+    var tk=r.k==='No track set'?'':r.k, cc=cycAll.filter(function(c){ return c.track===tk; });
+    var rt=ratePerHour(scopeDays.map(function(d){ return repLoads(d).filter(function(x){ return (x.track||'')===tk; }); }));
+    return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]).concat(cycAll.length?[cc.length?fmtDur(avgOf(cc)):'–', rt>0?f1(rt):'–']:[]); }));
   html+='<div class="lbl">'+esc(scopeLbl)+' by field</div>'+tbl(['Field','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byField.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]),byTruck.map(function(r){ return [newNoChip(r.k.replace(/^Truck /,''),sel,esc(r.k)),r.n].concat(W?[f1(r.t)]:[]); }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]).concat(cycSel.length?['Avg between','Efficiency']:[]),byTruck.map(function(r){
+    var no=r.k.replace(/^Truck /,''), mine=cycSel.filter(function(c){ return String(c.no)===String(no); }), cells=[];
+    if(cycSel.length){
+      if(mine.length){
+        var act=0, exp=0; mine.forEach(function(c){ act+=c.gap; var peers=cycSel.filter(function(z){ return z.track===c.track; }); exp+=avgOf(peers); });
+        cells=[fmtDur(act/mine.length), Math.round(exp/act*100)+'%'];
+      } else cells=['–','–'];
+    }
+    return [newNoChip(no,sel,esc(r.k)),r.n].concat(W?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it with the average for the track the truck left from: 100% is average, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
   var log=ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
   html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
     return [newNoChip(x.no,sel,'<b>'+esc(x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
@@ -1414,8 +1463,9 @@ function renderAll_(){
         ['<span class="bar" style="--w:'+(max?Math.round(tot[d]/max*60):0)+'px"></span><b>'+tot[d]+'</b>']);
   }));
   if(C.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons','Avg t/load']:[]), per.map(function(s){
-    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–']:[]);
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons','Avg t/load']:[]).concat(S.isMill?[]:['Avg between','Loads/hr']), per.map(function(s){
+    var cy=S.isMill?[]:cyclesOf(s.rows), rt=S.isMill?0:ratePerHour([s.rows]);
+    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–']:[]).concat(S.isMill?[]:[cy.length?fmtDur(avgOf(cy)):'–', rt>0?f1(rt):'–']);
   }));
   var mk={};
   per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
@@ -1888,12 +1938,13 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','new':'nuevo','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','Avg between loads':'Prom. entre cargas','Loads per hour':'Cargas por hora','Avg between':'Prom. entre','Loads/hr':'Cargas/h','Efficiency':'Eficiencia','Avg between is the time from a truck\'s load to its next load. Efficiency compares it with the average for the track the truck left from: 100% is average, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.':'Prom. entre es el tiempo desde la carga de un camión hasta su siguiente carga. La eficiencia lo compara con el promedio de la pista de la que salió el camión: 100% es el promedio, más es más rápido. No se cuentan intervalos menores de 10 minutos ni mayores de 4 horas.','new':'nuevo','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
  [/^(\d+) trucks? not used on the last harvest day (?:are|is) hidden\.$/, '$1 camión(es) sin usar el último día de cosecha están ocultos.'],
  [/^(\d+) trucks? not used on the last harvest day (?:are|is) dimmed\.$/, '$1 camión(es) sin usar el último día de cosecha se ven atenuados.'],
+ [/^Trip (.+)$/, 'Viaje $1'],
  [/^(\d+) brought back$/, '$1 traído(s) de vuelta'],
  [/^Connected\. Key made (.+)$/, 'Conectada. Llave creada $1'],
  [/^Weighed (\d+) of (\d+) loads$/, 'Pesadas $1 de $2 cargas'], [/^avg TRS (\d+)$/, 'TRS promedio $1'],
