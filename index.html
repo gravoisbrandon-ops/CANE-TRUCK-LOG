@@ -437,8 +437,9 @@ var confirmKey = null, confirmTimer = null;
 
 /* Administrators sign in with an admin code and see every farm. Crew sign in with their farm's code. */
 function isOffice(){ return S.isAdmin; }
+function isMill(){ return !!S.isMill; }
 function isLead(){ return S.isAdmin || S.isMgr; }
-function roleLabel(){ return S.isAdmin ? 'Administrator' : (S.isMgr ? 'Crew manager' : ((S.profile && ROLES[S.profile.role]) || '')); }
+function roleLabel(){ return S.isMill ? 'Mill field manager' : S.isAdmin ? 'Administrator' : (S.isMgr ? 'Crew manager' : ((S.profile && ROLES[S.profile.role]) || '')); }
 function byName(){ return (S.profile && S.profile.name) || 'Unknown'; }
 function farmById(id){ for(var i=0;i<S.farms.length;i++){ if(S.farms[i].id===id) return S.farms[i]; } return null; }
 function farmName(id){ var f=farmById(id); return f?f.name:''; }
@@ -639,7 +640,7 @@ function subscribe(){
   function onErr(e){ S.err = e && e.code; schedule(); }
   col('farms').onSnapshot(function(snap){
     S.farms = docs(snap).sort(function(a,b){ return (a.order||0)-(b.order||0); });
-    S.ready.farms=true; schedule();
+    S.ready.farms=true; schedule(); if(S.isMill && !S.millLoaded && S.farms.length){ S.millLoaded=true; loadComb(); }
   }, onErr);
   col('trucks').onSnapshot(function(snap){
     S.trucks = docs(snap).sort(sortNo);
@@ -776,11 +777,11 @@ function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile
 function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok';
-  S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.crewFarm = w.farm||'';
+  S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
-  if(!S.pending){ S.err=null; subscribe(); syncTruckForm(); if(isLead()) loadPeople(); }
+  if(!S.pending){ S.err=null; subscribe(); syncTruckForm(); if(isLead()) loadPeople(); if(S.isMill){ S.tab='all'; loadComb(); } }
   schedule();
 }
 async function enter(nm){
@@ -796,7 +797,7 @@ async function refreshWho(){
   try{
     var w=await rpc('whoami',{});
     if(w.status==='unregistered'){ signOut(); return; }
-    if(w.status==='ok' && S.authed && !S.pending && w.role===(S.isAdmin?'admin':S.isMgr?'manager':'crew') && (w.farm||'')===S.crewFarm) return;
+    if(w.status==='ok' && S.authed && !S.pending && w.role===(S.isAdmin?'admin':S.isMgr?'manager':S.isMill?'mill':'crew') && (w.farm||'')===S.crewFarm && (w.mill||'')===(S.mill||'')) return;
     if(w.status==='ok' && S.isAdmin && w.role==='admin' && !!w.owner===!!S.isOwner) return;
     applyWho(w); last.board=''; last.farms=''; last.roster=''; last.access='';
   }catch(e){ if(e && e.code==='denied') signOut(); }
@@ -840,12 +841,15 @@ function renderAll(){
   var ab=$('#adminBar');
   ab.hidden = !(S.isAdmin && S.farms.length>1 && S.tab!=='me' && S.tab!=='all' && S.tab!=='setup');
   if(!ab.hidden) setOptions($('#selFarm'), S.farms.map(function(f){ return [f.id,f.name]; }), S.farmId);
-  $('#tab-setup').hidden = false;
+  if(!S.isMill) $('#tab-setup').hidden = false;
   var npend = S.isOwner ? P.filter(function(p){ return p.role==='pending'; }).length : 0;
   $('#tab-setup').innerHTML = (isOffice() ? 'Setup' : 'Trucks') + (npend?' <span class="nbadge">'+npend+'</span>':'');
   try{ var bt=document.title.replace(/^\(\d+\) /,''); document.title = npend ? '('+npend+') '+bt : bt; }catch(e){}
-  $('#tab-all').hidden = !isOffice();
-  if(S.tab==='all' && !isOffice()) S.tab='board';
+  $('#tab-all').hidden = !(isOffice() || S.isMill);
+  $('#tab-board').hidden = $('#tab-report').hidden = $('#tab-setup').hidden = !!S.isMill;
+  $('#tab-all').textContent = S.isMill ? 'Report' : 'All farms';
+  if(S.isMill && S.tab!=='all' && S.tab!=='me'){ S.tab='all'; last.comb=''; loadComb(); }
+  if(S.tab==='all' && !(isOffice() || S.isMill)) S.tab='board';
   ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
   ['board','report','all','setup'].forEach(function(v){ $('#tab-'+v).setAttribute('aria-selected', S.tab===v ? 'true':'false'); });
   renderBanner();
@@ -1004,10 +1008,10 @@ function renderMe(){
   var p=S.profile||{};
   var locked = !S.isAdmin;                      /* crew stay on the farm their code opens */
   $('#meTitle').textContent = 'Your details';
-  $('#meIntro').textContent = S.isAdmin
+  $('#meIntro').textContent = S.isMill ? ('You are a mill field manager. You see the loads going to '+(S.mill||'your mill')+' on every farm that delivers to it. You cannot change anything.') : S.isAdmin
     ? 'You are an administrator. You can open any farm and switch between them. Pick a usual farm if you like to stay on one.'
     : 'Your name goes on every truck you log. Your code opens one farm, and only an administrator can give you another.';
-  $('#roleBox').hidden = S.isAdmin;
+  $('#roleBox').hidden = S.isAdmin || S.isMill;
   $('#pFarmText').textContent = S.isAdmin ? 'Usual farm (optional)' : 'Your farm';
   if(!$('#meForm').getAttribute('data-init')){
     $('#meForm').setAttribute('data-init','1');
@@ -1297,19 +1301,21 @@ function personRow(p, adm, view){
   var key='rmPerson:'+p.user_id, me=(p.name||p.email);
   var dot=p.online?'<span class="on-dot" title="Logged on"></span>':'';
   if(view){
-    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr);align-items:center"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+'</span><span class="l2">'+esc(roleName(p.role))+(p.farm?' · '+esc(farmName(p.farm)):'')+'</span></div></div>';
+    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr);align-items:center"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+'</span><span class="l2">'+esc(roleName(p.role))+(p.farm?' · '+esc(farmName(p.farm)):'')+(p.mill?' · '+esc(p.mill):'')+'</span></div></div>';
   }
   var roleSel='<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(me)+'">'+
     (adm?'<option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option>':'')+
     '<option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="manager"'+(p.role==='manager'?' selected':'')+'>Crew manager</option>'+
-    (adm?'<option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option>':'')+'</select>';
-  var farmSel=adm?'<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(me)+'"'+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>':'';
+    (adm?'<option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option><option value="mill"'+(p.role==='mill'?' selected':'')+'>Mill field manager</option>':'')+'</select>';
+  var millSel=adm?'<select class="pperson" data-kind="mill" data-user="'+esc(p.user_id)+'" aria-label="Mill for '+esc(me)+'"'+(p.role==='mill'?'':' hidden')+'><option value="">Pick a mill</option>'+allMills().map(function(m){ return '<option value="'+esc(m)+'"'+(m===p.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select>':'';
+  var farmSel=adm?'<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(me)+'"'+(p.role==='mill'?' hidden':'')+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>':'';
   var locked=(!adm && p.role==='admin') || p.owner;
   return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+(p.owner?' <span class="edited">main administrator</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
-    (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+'</div>')+'</div>'+
+    (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+millSel+'</div>')+'</div>'+
     (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
 }
-function roleName(r){ return r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
+function allMills(){ var o=[]; S.farms.forEach(function(f){ (f.mills||[]).forEach(function(m){ if(o.indexOf(m)<0) o.push(m); }); }); return o.sort(); }
+function roleName(r){ return r==='mill'?'Mill field manager':r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
 function renderAccess(){
   var sig=JSON.stringify([P,INV,S.isAdmin,S.isOwner,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
   if(sig===last.access) return; last.access=sig;
@@ -1325,7 +1331,7 @@ function renderAccess(){
       h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,true); }).join('');
     });
     var oth=on.filter(function(p){ return !p.farm || !farmById(p.farm); });
-    if(oth.length){ any=true; h+='<p class="small"><b>Administrators</b></p>'+oth.map(function(p){ return personRow(p,true,true); }).join(''); }
+    if(oth.length){ any=true; h+='<p class="small"><b>Administrators and mill managers</b></p>'+oth.map(function(p){ return personRow(p,true,true); }).join(''); }
     if(!any) h+='<p class="small">No one else is logged on right now.</p>';
   } else if(adm){
     h+='<div class="lbl">Crew by farm</div>';
@@ -1335,7 +1341,7 @@ function renderAccess(){
       h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,false); }).join('');
     });
     var oth2=P.filter(function(p){ return !p.farm || !farmById(p.farm); });
-    if(oth2.length){ any2=true; h+='<p class="small"><b>Administrators</b></p>'+oth2.map(function(p){ return personRow(p,true,false); }).join(''); }
+    if(oth2.length){ any2=true; h+='<p class="small"><b>Administrators and mill managers</b></p>'+oth2.map(function(p){ return personRow(p,true,false); }).join(''); }
     if(!any2) h+='<p class="small">No one has joined yet.</p>';
   } else {
     h+='<div class="lbl">People</div>';
@@ -1350,7 +1356,7 @@ var C={ range:7, cache:{}, loading:false, fails:0, sel:'' };
 function combDays(){ var t=today(), o=[]; for(var i=0;i<C.range;i++) o.push(addDays(t,-i)); return o; }
 function combRows(fid,d){ return (C.cache[fid+'|'+d]||[]).filter(function(x){ return x.loadedAt; }); }
 async function loadComb(){
-  if(!S.db || !S.isAdmin) return;
+  if(!S.db || !(S.isAdmin || S.isMill)) return;
   var jobs=[], days=combDays();
   S.farms.forEach(function(f){ days.forEach(function(d){ jobs.push([f.id,d]); }); });
   C.loading=true; C.fails=0; last.comb=''; schedule();
@@ -1384,7 +1390,7 @@ function renderAll_(){
     '<button class="btn refresh" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csvAll">Save as CSV</button>':'')+
   '</div>';
-  html+='<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
+  html+= S.isMill ? '<p class="small rnote">Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.</p>' : '<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+all.length+'</b></div>'+
     '<div class="stat"><span class="lbl">Farms loading</span><b>'+per.filter(function(s){ return s.loaded; }).length+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(times.length?esc(timeOf(Math.min.apply(null,times))):'–')+'</b></div>'+
@@ -1719,10 +1725,13 @@ document.addEventListener('change', function(e){
   }
   else if(e.target.classList && e.target.classList.contains('pperson')){
     var row=e.target.closest('.ros-row'), sels=row.querySelectorAll('select.pperson');
-    var role=sels[0].value, pf=sels[1]?sels[1].value:'', uid=e.target.getAttribute('data-user');
-    if(role==='pending' && pf && e.target===sels[1]){ role='crew'; sels[0].value='crew'; }
-    if(sels[1] && (role==='crew'||role==='manager') && !pf){ sels[1].disabled=false; toast('Now pick the farm for them.'); return; }
-    rpc('person_set',{ p_user:uid, p_role:role, p_farm:(role==='crew'||role==='manager')?pf:'' }).then(function(){ toast('Saved'); loadPeople(); }).catch(function(er){ toast((er&&er.message&&er.code==='error')?er.message:'Could not save.'); loadPeople(); });
+    var role=sels[0].value, uid=e.target.getAttribute('data-user'), fSel=row.querySelector('select[data-kind=farm]'), mSel=row.querySelector('select[data-kind=mill]');
+    var pf=fSel?fSel.value:'', pm=mSel?mSel.value:'';
+    if(mSel && fSel){ mSel.hidden=(role!=='mill'); fSel.hidden=(role==='mill'); }
+    if(role==='mill' && !pm){ toast('Now pick the mill for them.'); return; }
+    if(role==='pending' && pf && e.target===fSel){ role='crew'; sels[0].value='crew'; }
+    if(fSel && (role==='crew'||role==='manager') && !pf){ toast('Now pick the farm for them.'); return; }
+    rpc('person_set',{ p_user:uid, p_role:role, p_farm:(role==='crew'||role==='manager')?pf:'', p_mill:role==='mill'?pm:'' }).then(function(){ toast('Saved'); loadPeople(); }).catch(function(er){ toast((er&&er.message&&er.code==='error')?er.message:'Could not save.'); loadPeople(); });
   }
   else if(id==='tFarm'){ renderSetup(); renderTruckMills([]); }
   else if(id==='pFarm'){ /* nothing else depends on it */ }
@@ -1867,7 +1876,7 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
