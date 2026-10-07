@@ -455,6 +455,10 @@ function truckVisible(t,prev){
   var d=today();
   return !prev || usedToday(t) || t.lastUsed===d || t.addedDay===d || usedPrev(t);
 }
+function truckNewDay(t,prev){
+  if(prev===undefined) prev=prevUseDay(t.farm);
+  return !!prev && t.addedDay===today() && !usedPrev(t);
+}
 function truckIsNew(t,prev){
   if(prev===undefined) prev=prevUseDay(t.farm);
   return !!prev && t.addedDay===today() && !usedPrev(t) && !usedToday(t);
@@ -956,9 +960,9 @@ function renderBoard(){
     var tile=function(t, recent){
       var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
       var off=(!S.canWrite || (!S.boardEdit && !recent && truckMill(t)===null)) ? ' disabled' : '';
-      var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '', isNew=!recent && truckIsNew(t,prev), dim=!recent && !truckVisible(t,prev);
+      var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '', nd=truckNewDay(t,prev), isNew=!recent && nd, numNew=nd && !(recent && p && p.w), dim=!recent && !truckVisible(t,prev);
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(rt&&p.w?' · '+f1(p.tons)+' t':'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : (isNew?'New today':esc(tag)));
-      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(isNew?' style="background:'+newColor(t.farm)+';color:#0E1511;border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
+      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(numNew?' style="background:'+newColor(t.farm)+';color:#0E1511;border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
     html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
