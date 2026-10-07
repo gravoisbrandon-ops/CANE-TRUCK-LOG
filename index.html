@@ -98,6 +98,7 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .l1{font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
 .l2{font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ago{font-size:12px;color:var(--ink2);white-space:nowrap}
+.newno{display:inline-block;color:#0E1511;border-radius:6px;padding:0 8px;font-weight:700}
 .nbadge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:10px;background:#C62828;color:#fff;font-size:13px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
 .on-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#2E9E5B;margin-right:6px}
 .edited{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-left:6px}
@@ -960,9 +961,9 @@ function renderBoard(){
     var tile=function(t, recent){
       var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
       var off=(!S.canWrite || (!S.boardEdit && !recent && truckMill(t)===null)) ? ' disabled' : '';
-      var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '', nd=truckNewDay(t,prev), isNew=!recent && nd, numNew=nd && !(recent && p && p.w), dim=!recent && !truckVisible(t,prev);
+      var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '', nd=truckNewDay(t,prev), isNew=!recent && nd, numNew=nd, numW=!!(p && p.w && recent), dim=!recent && !truckVisible(t,prev);
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(rt&&p.w?' · '+f1(p.tons)+' t':'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : (isNew?'New today':esc(tag)));
-      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(numNew?' style="background:'+newColor(t.farm)+';color:#0E1511;border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
+      return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(numNew?' style="background:'+newColor(t.farm)+';color:'+(numW?weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.7)':'#0E1511')+';border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
     html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
@@ -998,7 +999,7 @@ function renderBoard(){
       var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && !usedPrev(t)) newIds[t.id]=1; });
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
         var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
-        return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';background:'+newColor(S.farmId)+';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
+        return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(newIds[l.truck]?';background:'+newColor(S.farmId):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
           '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
           '<span class="ago">'+esc(ago(l.loadedAt))+'</span></button>';
       }).join('')+'</div>';
@@ -1140,6 +1141,12 @@ function tally(rows, keyFn){
   var o={}, t={}, u={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; var n=tonsOf(x); if(n!=null){ t[k]=(t[k]||0)+n; u[k]=(u[k]||0)+1; } });
   return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0,u:u[k]||0}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
 }
+/* a truck added on this day keeps its new-truck mark in the reports, weighed or not */
+function newNoChip(no, day, label){
+  var t=null; for(var i=0;i<S.trucks.length;i++){ if(S.trucks[i].farm===S.farmId && String(S.trucks[i].no)===String(no)){ t=S.trucks[i]; break; } }
+  if(!t || t.addedDay!==day) return label;
+  return '<span class="newno" style="background:'+newColor(S.farmId)+'">'+label+'</span> <span class="edited">new</span>';
+}
 function tbl(head, rows){
   var hm=head.indexOf('Logged by');
   var cls=function(i,n){ return ((n?'n':'')+(i===hm?' hide-m':'')).trim(); };
@@ -1213,10 +1220,10 @@ function renderReport(){
   }
   if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(scopeLbl)+' by track</div>'+tbl(['Track','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byTrack.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
   html+='<div class="lbl">'+esc(scopeLbl)+' by field</div>'+tbl(['Field','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byField.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]),byTruck.map(function(r){ return [esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]),byTruck.map(function(r){ return [newNoChip(r.k.replace(/^Truck /,''),sel,esc(r.k)),r.n].concat(W?[f1(r.t)]:[]); }));
   var log=ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
   html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
-    return ['<b>'+esc(x.no)+'</b>', (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
+    return [newNoChip(x.no,sel,'<b>'+esc(x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
   }));
   var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill' || document.activeElement.id==='rTrack' || document.activeElement.id==='rField') ? document.activeElement.id : '';
   $('#reportBody').innerHTML=html;
@@ -1881,7 +1888,7 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','new':'nuevo','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
