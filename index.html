@@ -179,7 +179,7 @@ td.n,th.n{text-align:right}
   .rep .toolbar select{min-height:38px;padding:4px 8px;font-size:14px}
   .rep .toolbar .btn{min-height:38px;padding:4px 10px;font-size:14px}
   .rep .toolbar.daynav{grid-template-columns:auto 1fr auto;align-items:center}
-  .rep .stats{grid-template-columns:repeat(3,1fr);gap:5px}
+  .rep .stats{grid-template-columns:repeat(4,1fr);gap:5px}
   .rep .stat{padding:6px;gap:2px;min-width:0}
   .rep .stat b{font-size:16px;white-space:nowrap}
   .rep .stat .lbl{font-size:9.5px;letter-spacing:.04em}
@@ -1099,7 +1099,8 @@ function tonsOf(x){ if(x.tons==null || x.tons==='') return null; var n=Number(x.
 function sumTons(rows){ var t=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null) t+=n; }); return t; }
 function weighedOf(rows){ return rows.filter(function(x){ return tonsOf(x)!=null; }).length; }
 function avgTrs(rows){ var a=0,w=0; rows.forEach(function(x){ var n=tonsOf(x), r=Number(x.trs); if(n!=null && x.trs!=null && isFinite(r) && r>0){ a+=n*r; w+=n; } }); return w ? a/w : null; }
-function avgOf(n,u){ return u ? f1(n/u) : '–'; }
+function tonsPerTruck(rows){ var u={}, t=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null){ t+=n; u[(x.farm||'')+'|'+(x.day||'')+'|'+x.truck]=1; } }); var c=Object.keys(u).length; return c ? t/c : null; }
+function tpt(rows){ var v=tonsPerTruck(rows); return v==null ? '–' : f1(v); }
 function f1(n){ return (Math.round(n*10)/10).toFixed(1); }
 function dayStats(list){
   var L=list.filter(function(x){ return x.loadedAt; });
@@ -1124,8 +1125,8 @@ async function loadReport(){
   S.report.loading=false; last.report=''; schedule();
 }
 function tally(rows, keyFn){
-  var o={}, t={}, u={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; (u[k]=u[k]||{})[x.truck]=1; var n=tonsOf(x); if(n!=null) t[k]=(t[k]||0)+n; });
-  return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0,u:Object.keys(u[k]).length}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
+  var o={}, t={}, u={}; rows.forEach(function(x){ var k=keyFn(x); o[k]=(o[k]||0)+1; var n=tonsOf(x); if(n!=null){ t[k]=(t[k]||0)+n; (u[k]=u[k]||{})[(x.day||'')+'|'+x.truck]=1; } });
+  return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0,u:u[k]?Object.keys(u[k]).length:0}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
 }
 function tbl(head, rows){
   var hm=head.indexOf('Logged by');
@@ -1169,10 +1170,9 @@ function renderReport(){
   html+='<p class="small rnote">'+esc(fn)+' only'+(S.report.mill?', loads to '+esc(S.report.mill):'')+(S.report.track?', track '+esc(S.report.track):'')+(S.report.field?', field '+esc(S.report.field):'')+'. Each row is one date. Every tap on a truck number counts as one load.</p>';
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+ss.loaded+'</b></div>'+
     '<div class="stat"><span class="lbl">Trucks used</span><b>'+ss.trucks+'</b></div>'+
-    '<div class="stat"><span class="lbl">Loads per truck</span><b>'+avgOf(ss.loaded,ss.trucks)+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(ss.first?esc(timeOf(ss.first)):'–')+'</b></div>'+
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div>'+
-    (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div>':'')+
+    (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div><div class="stat"><span class="lbl">Tons per truck</span><b>'+tpt(ss.rows)+'</b></div>':'')+
     (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+'</div>';
   var W=ss.weighed>0;
   if(daily){
@@ -1181,23 +1181,26 @@ function renderReport(){
   } else {
   html+='<div class="lbl">Day to day</div>';
   var anyW=days.some(function(d){ return stats[d].weighed>0; });
-  html+=tbl(['Date','Loaded','Trucks','Avg/truck','First loaded','Last loaded'].concat(anyW?['Tons']:[]), days.map(function(d){
+  html+=tbl(['Date','Loaded','Trucks','First loaded','Last loaded'].concat(anyW?['Tons','Avg t/truck'].concat(mills.length>1&&mills.length<=3?mills.map(function(m){ return m+' t/truck'; }):[]):[]), days.map(function(d){
     var s=stats[d];
     return ['<button type="button" class="daypick" data-act="pickDay" data-day="'+d+'"'+(d===sel?' aria-current="true"':'')+'>'+esc(dayLabel(d))+(d===S.loadsDay?' (today)':'')+'</button>',
       '<span class="bar" style="--w:'+(maxLoaded?Math.round(s.loaded/maxLoaded*60):0)+'px"></span>'+s.loaded,
-      s.trucks, avgOf(s.loaded,s.trucks), s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(anyW?[s.weighed?f1(s.tons):'–']:[]);
+      s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(anyW?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–'].concat(mills.length>1&&mills.length<=3?mills.map(function(m){ return s.weighed?tpt(s.rows.filter(function(x){ return x.mill===m; })):'–'; }):[]):[]);
   }));
   }
   if(S.report.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
-  var byField=tally(ss.rows,function(x){ return x.field||'No field set'; });
-  var byTrack=tally(ss.rows,function(x){ return x.track||'No track set'; });
+  var scopeRows=ss.rows, scopeLbl=dayLabel(sel);
+  if(!daily){ scopeRows=[]; days.forEach(function(d){ scopeRows=scopeRows.concat(stats[d].rows); }); scopeLbl='Last '+days.length+' days'; }
+  var WS=daily?W:(weighedOf(scopeRows)>0);
+  var byField=tally(scopeRows,function(x){ return x.field||'No field set'; });
+  var byTrack=tally(scopeRows,function(x){ return x.track||'No track set'; });
   var byTruck=tally(ss.rows,function(x){ return 'Truck '+x.no; });
   if(mills.length){
-    var byMill=tally(ss.rows,function(x){ return x.mill||'No mill set'; });
-    html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Mill','Loaded','Trucks','Avg/truck'].concat(W?['Tons']:[]),byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n,r.u,avgOf(r.n,r.u)].concat(W?[f1(r.t)]:[]); }));
+    var byMill=tally(scopeRows,function(x){ return x.mill||'No mill set'; });
+    html+='<div class="lbl">'+esc(scopeLbl)+' by mill</div>'+tbl(['Mill','Loaded'].concat(WS?['Tons','Avg t/truck']:[]),byMill.map(function(r){ return [(r.k!=='No mill set'?'<span class="sw" style="background:'+millColor(S.farmId,r.k)+'"></span>':'')+esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
   }
-  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by track</div>'+tbl(['Track','Loaded','Trucks','Avg/truck'].concat(W?['Tons']:[]),byTrack.map(function(r){ return [esc(r.k),r.n,r.u,avgOf(r.n,r.u)].concat(W?[f1(r.t)]:[]); }));
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by field</div>'+tbl(['Field','Loaded','Trucks','Avg/truck'].concat(W?['Tons']:[]),byField.map(function(r){ return [esc(r.k),r.n,r.u,avgOf(r.n,r.u)].concat(W?[f1(r.t)]:[]); }));
+  if(tracksOf(S.farmId).length) html+='<div class="lbl">'+esc(scopeLbl)+' by track</div>'+tbl(['Track','Loaded'].concat(WS?['Tons','Avg t/truck']:[]),byTrack.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
+  html+='<div class="lbl">'+esc(scopeLbl)+' by field</div>'+tbl(['Field','Loaded'].concat(WS?['Tons','Avg t/truck']:[]),byField.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
   html+='<div class="lbl">'+esc(dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat(W?['Tons']:[]),byTruck.map(function(r){ return [esc(r.k),r.n].concat(W?[f1(r.t)]:[]); }));
   var log=ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
   html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
@@ -1343,7 +1346,6 @@ function renderAll_(){
   html+='<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
   html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+all.length+'</b></div>'+
     '<div class="stat"><span class="lbl">Farms loading</span><b>'+per.filter(function(s){ return s.loaded; }).length+'</b></div>'+
-    '<div class="stat"><span class="lbl">Loads per truck</span><b>'+avgOf(all.length,(function(){ var u={}; all.forEach(function(x){ u[x.farm+'|'+x.truck]=1; }); return Object.keys(u).length; })())+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(times.length?esc(timeOf(Math.min.apply(null,times))):'–')+'</b></div>'+
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(times.length?esc(timeOf(Math.max.apply(null,times))):'–')+'</b></div></div>';
   html+='<div class="lbl">Day to day, by farm</div>';
@@ -1353,8 +1355,8 @@ function renderAll_(){
         ['<span class="bar" style="--w:'+(max?Math.round(tot[d]/max*60):0)+'px"></span><b>'+tot[d]+'</b>']);
   }));
   if(C.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','Avg/truck','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons']:[]), per.map(function(s){
-    return [esc(s.f.name), s.loaded, s.trucks, avgOf(s.loaded,s.trucks), s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–']:[]);
+  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons','Avg t/truck']:[]), per.map(function(s){
+    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–']:[]);
   }));
   var mk={};
   per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
@@ -1733,7 +1735,7 @@ document.addEventListener('submit', function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- '+ Add truck':'+ Agregar camión','Loads per truck':'Cargas por camión','Avg/truck':'Prom/camión','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ '+ Add truck':'+ Agregar camión','Tons per truck':'Toneladas por camión','Avg t/truck':'Prom t/camión','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
