@@ -50,6 +50,12 @@ h1{font:700 30px/1 var(--font-display);letter-spacing:.03em;text-transform:upper
 .tabs{display:flex;gap:4px;margin-top:10px;border-bottom:1px solid var(--line)}
 .tab{flex:1;background:none;border:0;border-bottom:3px solid transparent;padding:12px 8px;min-height:48px;font-weight:600;color:var(--ink2);margin-bottom:-1px}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.tabs{gap:6px;border-bottom:0;padding-bottom:8px}
+.top{padding-bottom:6px}
+.tab{flex:1;background:var(--raise);border:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:10px;margin-bottom:0;min-height:46px;padding:8px 4px;font-size:16px;font-weight:700;color:var(--ink);box-shadow:0 3px 0 rgba(0,0,0,.2);transition:transform .08s,box-shadow .08s}
+.tab:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.2)}
+.tab[aria-selected="true"]{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg);box-shadow:0 3px 0 rgba(0,0,0,.45),inset 0 -3px 0 #4FA36B}
+
 .banner{margin-top:12px;padding:12px 14px;border:1px solid var(--line);background:var(--raise);border-radius:8px;color:var(--ink2)}
 .banner b{color:var(--ink)}
 main{padding-top:14px;display:flex;flex-direction:column;gap:16px}
