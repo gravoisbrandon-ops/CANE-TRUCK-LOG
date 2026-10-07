@@ -438,20 +438,31 @@ function truckById(id){ for(var i=0;i<S.trucks.length;i++){ if(S.trucks[i].id===
 function farmTrucks(){ return S.trucks.filter(function(t){ return t.farm===S.farmId; }); }
 /* A truck stays on the board while it was used on the last harvest day. Unused ones are cleared for the next day.
    A truck added or brought back today shows yellow so it stands out. */
-function prevUseDay(farmId){
-  var t0=today(), best='';
-  S.trucks.forEach(function(t){ if(t.farm===farmId && t.lastUsed && t.lastUsed<t0 && t.lastUsed>best) best=t.lastUsed; });
-  return best;
-}
+function prevUseDay(farmId){ var p=S.prev; return (p && p.farm===farmId && p.forDay===today()) ? p.day : ''; }
+function usedPrev(t){ var p=S.prev; return !!(p && p.ids[t.id]); }
 function usedToday(t){ return S.loads.some(function(l){ return l.truck===t.id && l.loadedAt; }); }
 function truckVisible(t,prev){
   if(prev===undefined) prev=prevUseDay(t.farm);
   var d=today();
-  return !prev || usedToday(t) || t.lastUsed===d || t.addedDay===d || t.lastUsed===prev;
+  return !prev || usedToday(t) || t.lastUsed===d || t.addedDay===d || usedPrev(t);
 }
 function truckIsNew(t,prev){
   if(prev===undefined) prev=prevUseDay(t.farm);
-  return !!prev && t.addedDay===today() && t.lastUsed!==prev && !usedToday(t);
+  return !!prev && t.addedDay===today() && !usedPrev(t) && !usedToday(t);
+}
+/* find the last harvest day that has loads, and which trucks ran that day */
+async function loadPrev(){
+  var farm=S.farmId, d0=today(); if(!S.db || !farm || S.prevBusy) return;
+  S.prevBusy=true;
+  try{
+    for(var k=1;k<=14;k++){
+      var d=ymd(new Date(Date.now()-k*86400000));
+      var rows=docs(await col(loadsPath(farm,d)).limit(1000).get()).filter(function(x){ return x.loadedAt; });
+      if(rows.length){ var ids={}; rows.forEach(function(x){ ids[x.truck]=1; }); if(farm===S.farmId) S.prev={ farm:farm, day:d, ids:ids, forDay:d0 }; break; }
+      if(k===14 && farm===S.farmId) S.prev={ farm:farm, day:'', ids:{}, forDay:d0 };
+    }
+  }catch(e){ if(farm===S.farmId) S.prev={ farm:farm, day:'', ids:{}, forDay:d0 }; }
+  S.prevBusy=false; last.board=''; schedule();
 }
 function markUsed(t,day){ if(t.lastUsed!==day){ t.lastUsed=day; dref('trucks/'+t.id).update({ lastUsed:day }).catch(function(){}); } }
 function millsOf(id){ var f=farmById(id); return (f&&f.mills)||[]; }
@@ -917,6 +928,7 @@ function renderBoard(){
       '<button class="btn" type="button" data-act="quickAdd">Add a truck</button>');
   }
   else {
+    if(!S.prevBusy && !(S.prev && S.prev.farm===S.farmId && S.prev.forDay===today())) setTimeout(loadPrev,0);
     var allT=farmTrucks(), mills=millsOf(S.farmId), prev=prevUseDay(S.farmId);
     var hiddenN=allT.filter(function(t){ return !truckVisible(t,prev); }).length;
     var trucks=(S.showAll||S.boardEdit)?allT:allT.filter(function(t){ return truckVisible(t,prev); });
@@ -965,7 +977,7 @@ function renderBoard(){
     if(!list.length){
       html+='<div class="card empty"><p>No loads logged yet today. Tap a truck number when it is loaded and it shows here with the time.</p></div>';
     } else {
-      var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && t.lastUsed!==prev) newIds[t.id]=1; });
+      var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && !usedPrev(t)) newIds[t.id]=1; });
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
         var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
         return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';background:'+newColor(S.farmId)+';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
@@ -1549,7 +1561,7 @@ document.addEventListener('click', function(e){
     case 'scaleCopy': copyText(scaleInstructions(el.getAttribute('data-farm')), 'Instructions copied. Send them to the scale app developer.'); break;
     case 'scaleCopyKey': copyText(S.newKey[el.getAttribute('data-farm')]||'', 'Key copied.'); break;
     case 'quickAdd': openQuick(''); break;
-    case 'refreshBoard':
+    case 'refreshBoard': S.prev=null;
       var rb=$('#refreshBtn'); rb.disabled=true; rb.textContent='Refreshing...';
       subLoads(); poke(); refreshWho(); loadPending(); if(isLead()) loadPeople(); last.board=''; schedule();
       setTimeout(function(){ rb.disabled=false; rb.textContent='Refresh'; toast('Up to date'); },1200); break;
