@@ -98,6 +98,8 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .l1{font-weight:700;font-size:18px;font-variant-numeric:tabular-nums}
 .l2{font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ago{font-size:12px;color:var(--ink2);white-space:nowrap}
+.nbadge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:10px;background:#C62828;color:#fff;font-size:13px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
+.on-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#2E9E5B;margin-right:6px}
 .edited{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-left:6px}
 
 /* cards, empty */
@@ -774,7 +776,7 @@ function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile
 function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok';
-  S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.crewFarm = w.farm||'';
+  S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
@@ -795,7 +797,7 @@ async function refreshWho(){
     var w=await rpc('whoami',{});
     if(w.status==='unregistered'){ signOut(); return; }
     if(w.status==='ok' && S.authed && !S.pending && w.role===(S.isAdmin?'admin':S.isMgr?'manager':'crew') && (w.farm||'')===S.crewFarm) return;
-    if(w.status==='ok' && S.isAdmin && w.role==='admin') return;
+    if(w.status==='ok' && S.isAdmin && w.role==='admin' && !!w.owner===!!S.isOwner) return;
     applyWho(w); last.board=''; last.farms=''; last.roster=''; last.access='';
   }catch(e){ if(e && e.code==='denied') signOut(); }
 }
@@ -839,7 +841,9 @@ function renderAll(){
   ab.hidden = !(S.isAdmin && S.farms.length>1 && S.tab!=='me' && S.tab!=='all' && S.tab!=='setup');
   if(!ab.hidden) setOptions($('#selFarm'), S.farms.map(function(f){ return [f.id,f.name]; }), S.farmId);
   $('#tab-setup').hidden = false;
-  $('#tab-setup').textContent = isOffice() ? 'Setup' : 'Trucks';
+  var npend = S.isOwner ? P.filter(function(p){ return p.role==='pending'; }).length : 0;
+  $('#tab-setup').innerHTML = (isOffice() ? 'Setup' : 'Trucks') + (npend?' <span class="nbadge">'+npend+'</span>':'');
+  try{ var bt=document.title.replace(/^\(\d+\) /,''); document.title = npend ? '('+npend+') '+bt : bt; }catch(e){}
   $('#tab-all').hidden = !isOffice();
   if(S.tab==='all' && !isOffice()) S.tab='board';
   ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
@@ -1231,6 +1235,11 @@ async function loadPeople(){
   if(!isLead()) return;
   try{
     P=await rpc('people_list',{});
+    if(S.isOwner){
+      var pn=P.filter(function(p){ return p.role==='pending'; }), ids=pn.map(function(p){ return p.user_id; });
+      if(S.seenPend){ var fresh=pn.filter(function(p){ return S.seenPend.indexOf(p.user_id)<0; }); if(fresh.length) toast(fresh.length===1?((fresh[0].name||fresh[0].email)+' is waiting to join.'):(fresh.length+' people are waiting to join.')); }
+      S.seenPend=ids;
+    }
     var fl=S.isAdmin ? S.farms.map(function(f){ return f.id; }) : (S.crewFarm?[S.crewFarm]:[]);
     for(var i=0;i<fl.length;i++){ if(!INV[fl[i]]){ try{ INV[fl[i]]=await rpc('invite_get',{ p_farm:fl[i] }); }catch(e){} } }
     for(var j=0;j<fl.length;j++){ if(!S.keyInfo[fl[j]]){ try{ S.keyInfo[fl[j]]=await rpc('scale_key_get',{ p_farm:fl[j] }); last.scale=''; }catch(e){} } }
@@ -1284,23 +1293,55 @@ function renderScale(){
   if(sig===last.scale) return; last.scale=sig;
   $('#scaleList').innerHTML=scaleBox();
 }
+function personRow(p, adm, view){
+  var key='rmPerson:'+p.user_id, me=(p.name||p.email);
+  var dot=p.online?'<span class="on-dot" title="Logged on"></span>':'';
+  if(view){
+    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr);align-items:center"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+'</span><span class="l2">'+esc(roleName(p.role))+(p.farm?' · '+esc(farmName(p.farm)):'')+'</span></div></div>';
+  }
+  var roleSel='<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(me)+'">'+
+    (adm?'<option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option>':'')+
+    '<option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="manager"'+(p.role==='manager'?' selected':'')+'>Crew manager</option>'+
+    (adm?'<option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option>':'')+'</select>';
+  var farmSel=adm?'<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(me)+'"'+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>':'';
+  var locked=(!adm && p.role==='admin') || p.owner;
+  return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+(p.owner?' <span class="edited">main administrator</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
+    (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+'</div>')+'</div>'+
+    (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
+}
+function roleName(r){ return r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
 function renderAccess(){
-  var sig=JSON.stringify([P,INV,S.isAdmin,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
+  var sig=JSON.stringify([P,INV,S.isAdmin,S.isOwner,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
   if(sig===last.access) return; last.access=sig;
-  var adm=S.isAdmin, h=inviteBox()+'<div class="lbl">People</div>';
-  if(!P.length) h+='<p class="small">No one has joined yet.</p>';
-  P.forEach(function(p){
-    var key='rmPerson:'+p.user_id, me=(p.name||p.email);
-    var roleSel='<select class="pperson" data-user="'+esc(p.user_id)+'" aria-label="Role for '+esc(me)+'">'+
-      (adm?'<option value="pending"'+(p.role==='pending'?' selected':'')+'>Waiting</option>':'')+
-      '<option value="crew"'+(p.role==='crew'?' selected':'')+'>Crew</option><option value="manager"'+(p.role==='manager'?' selected':'')+'>Crew manager</option>'+
-      (adm?'<option value="admin"'+(p.role==='admin'?' selected':'')+'>Administrator</option>':'')+'</select>';
-    var farmSel=adm?'<select class="pperson" data-kind="farm" data-user="'+esc(p.user_id)+'" aria-label="Farm for '+esc(me)+'"'+'><option value="">Pick a farm</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===p.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select>':'';
-    var locked=!adm && (p.role==='admin');
-    h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
-      (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+'</div>')+'</div>'+
-      (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
-  });
+  var adm=S.isAdmin, h=inviteBox();
+  if(S.isOwner){
+    var wt=P.filter(function(p){ return p.role==='pending'; });
+    h+='<div class="lbl">Waiting to join</div>';
+    h+= wt.length ? wt.map(function(p){ return personRow(p,true,false); }).join('') : '<p class="small">No one is waiting.</p>';
+    h+='<div class="lbl">Logged on now</div>';
+    var on=P.filter(function(p){ return p.role!=='pending'; }), any=false;
+    S.farms.forEach(function(f){
+      var g=on.filter(function(p){ return p.farm===f.id; }); if(!g.length) return; any=true;
+      h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,true); }).join('');
+    });
+    var oth=on.filter(function(p){ return !p.farm || !farmById(p.farm); });
+    if(oth.length){ any=true; h+='<p class="small"><b>Administrators</b></p>'+oth.map(function(p){ return personRow(p,true,true); }).join(''); }
+    if(!any) h+='<p class="small">No one else is logged on right now.</p>';
+  } else if(adm){
+    h+='<div class="lbl">Crew by farm</div>';
+    var any2=false;
+    S.farms.forEach(function(f){
+      var g=P.filter(function(p){ return p.farm===f.id; }); if(!g.length) return; any2=true;
+      h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,false); }).join('');
+    });
+    var oth2=P.filter(function(p){ return !p.farm || !farmById(p.farm); });
+    if(oth2.length){ any2=true; h+='<p class="small"><b>Administrators</b></p>'+oth2.map(function(p){ return personRow(p,true,false); }).join(''); }
+    if(!any2) h+='<p class="small">No one has joined yet.</p>';
+  } else {
+    h+='<div class="lbl">People</div>';
+    if(!P.length) h+='<p class="small">No one has joined yet.</p>';
+    P.forEach(function(p){ h+=personRow(p,false,false); });
+  }
   $('#peopleList').innerHTML=h;
 }
 
@@ -1826,7 +1867,7 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
