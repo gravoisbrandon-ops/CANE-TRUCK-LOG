@@ -1317,32 +1317,33 @@ function personRow(p, adm, view){
 function allMills(){ var o=[]; S.farms.forEach(function(f){ (f.mills||[]).forEach(function(m){ if(o.indexOf(m)<0) o.push(m); }); }); return o.sort(); }
 function roleName(r){ return r==='mill'?'Mill field manager':r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
 function renderAccess(){
-  var sig=JSON.stringify([P,INV,S.isAdmin,S.isOwner,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
+  var sig=JSON.stringify([P,INV,S.isAdmin,S.isOwner,S.farmId,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
   if(sig===last.access) return; last.access=sig;
   var adm=S.isAdmin, h=inviteBox();
+  var grp=function(label,arr,row){ return arr.length ? '<p class="small"><b>'+esc(label)+'</b></p>'+arr.map(row).join('') : ''; };
+  var rowEdit=function(p){ return personRow(p,true,false); };
   if(S.isOwner){
-    var wt=P.filter(function(p){ return p.role==='pending'; });
+    var wt=P.filter(function(p){ return p.role==='pending'; }), rest=P.filter(function(p){ return p.role!=='pending'; });
     h+='<div class="lbl">Waiting to join</div>';
-    h+= wt.length ? wt.map(function(p){ return personRow(p,true,false); }).join('') : '<p class="small">No one is waiting.</p>';
-    h+='<div class="lbl">Logged on now</div>';
-    var on=P.filter(function(p){ return p.role!=='pending'; }), any=false;
-    S.farms.forEach(function(f){
-      var g=on.filter(function(p){ return p.farm===f.id; }); if(!g.length) return; any=true;
-      h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,true); }).join('');
-    });
-    var oth=on.filter(function(p){ return !p.farm || !farmById(p.farm); });
-    if(oth.length){ any=true; h+='<p class="small"><b>Administrators and mill managers</b></p>'+oth.map(function(p){ return personRow(p,true,true); }).join(''); }
-    if(!any) h+='<p class="small">No one else is logged on right now.</p>';
+    h+= wt.length ? wt.map(rowEdit).join('') : '<p class="small">No one is waiting.</p>';
+    h+='<div class="lbl">Everyone with access</div><p class="small"><span class="on-dot"></span>= logged on right now</p>';
+    var seen=0;
+    S.farms.forEach(function(f){ var g=rest.filter(function(p){ return p.farm===f.id && (p.role==='crew'||p.role==='manager'); }); seen+=g.length; h+=grp(f.name,g,rowEdit); });
+    var lost=rest.filter(function(p){ return (p.role==='crew'||p.role==='manager') && !farmById(p.farm); });
+    h+=grp('No farm yet',lost,rowEdit);
+    h+=grp('Administrators',rest.filter(function(p){ return p.role==='admin'; }),rowEdit);
+    var mm=rest.filter(function(p){ return p.role==='mill'; });
+    allMills().concat(['']).forEach(function(m){ h+=grp('Mill field managers'+(m?' - '+m:''),mm.filter(function(p){ return (p.mill||'')===m; }),rowEdit); });
+    if(!rest.length) h+='<p class="small">No one has joined yet.</p>';
   } else if(adm){
-    h+='<div class="lbl">Crew by farm</div>';
-    var any2=false;
-    S.farms.forEach(function(f){
-      var g=P.filter(function(p){ return p.farm===f.id; }); if(!g.length) return; any2=true;
-      h+='<p class="small"><b>'+esc(f.name)+'</b></p>'+g.map(function(p){ return personRow(p,true,false); }).join('');
-    });
-    var oth2=P.filter(function(p){ return !p.farm || !farmById(p.farm); });
-    if(oth2.length){ any2=true; h+='<p class="small"><b>Administrators and mill managers</b></p>'+oth2.map(function(p){ return personRow(p,true,false); }).join(''); }
-    if(!any2) h+='<p class="small">No one has joined yet.</p>';
+    var cf=farmById(S.farmId), crewAll=P.filter(function(p){ return p.role==='crew'||p.role==='manager'; });
+    h+='<div class="lbl">Assigned to '+esc(cf?cf.name:'this farm')+'</div><p class="small"><span class="on-dot"></span>= logged on right now. Use the farm switcher at the top to see another farm.</p>';
+    var mine=cf?crewAll.filter(function(p){ return p.farm===cf.id; }):[];
+    h+= mine.length ? mine.map(rowEdit).join('') : '<p class="small">No one is assigned to this farm yet.</p>';
+    var others=S.farms.filter(function(f){ return !cf || f.id!==cf.id; });
+    others.forEach(function(f){ var g=crewAll.filter(function(p){ return p.farm===f.id; }); h+=grp('Also on '+f.name,g,rowEdit); });
+    h+=grp('Administrators',P.filter(function(p){ return p.role==='admin'; }),rowEdit);
+    h+=grp('Mill field managers',P.filter(function(p){ return p.role==='mill'; }),rowEdit);
   } else {
     h+='<div class="lbl">People</div>';
     if(!P.length) h+='<p class="small">No one has joined yet.</p>';
@@ -1876,7 +1877,7 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
