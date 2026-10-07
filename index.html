@@ -105,6 +105,16 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .btn.primary{background:var(--c);border-color:var(--c);color:var(--plate-ink);min-height:56px;font-size:18px;width:100%}
 .btn.sm{min-height:40px;padding:6px 12px;font-size:14px}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn,.fchip{transition:transform .08s,box-shadow .08s}
+.btn{background-image:linear-gradient(rgba(255,255,255,.16),rgba(0,0,0,.10));box-shadow:0 4px 0 rgba(0,0,0,.38),0 6px 8px rgba(0,0,0,.14)}
+.btn.ghost,.btn.warn{background-color:var(--raise);box-shadow:0 4px 0 rgba(0,0,0,.20),0 6px 8px rgba(0,0,0,.10)}
+.btn.ghost{background-image:linear-gradient(rgba(255,255,255,.5),rgba(0,0,0,.04))}
+.btn.warn{background-image:none}
+.fchip{box-shadow:0 3px 0 rgba(0,0,0,.22)}
+.fchip[aria-pressed="true"]{box-shadow:0 3px 0 rgba(0,0,0,.45)}
+.btn:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.38),0 2px 3px rgba(0,0,0,.14)}
+.fchip:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.22)}
+.btn[disabled]{box-shadow:0 2px 0 rgba(0,0,0,.15)}
 
 /* forms */
 .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
@@ -136,7 +146,7 @@ th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);whit
 th{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);background:var(--surface)}
 tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right}
-.btn.refresh{background:linear-gradient(#4A8BD6,#2F6FB5);color:#fff;border:1px solid #1F5594;border-radius:10px;box-shadow:0 4px 0 #1B4A80,0 6px 8px rgba(0,0,0,.25);font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.25);transition:transform .08s,box-shadow .08s}
+.btn.refresh{background-image:none;background:linear-gradient(#4A8BD6,#2F6FB5);color:#fff;border:1px solid #1F5594;border-radius:10px;box-shadow:0 4px 0 #1B4A80,0 6px 8px rgba(0,0,0,.25);font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.25);transition:transform .08s,box-shadow .08s}
 .btn.refresh:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 #1B4A80,0 2px 4px rgba(0,0,0,.25)}
 .btn.refresh:disabled{opacity:.7}
 .bar{display:inline-block;height:10px;border-radius:3px;background:var(--full);width:var(--w);min-width:2px;vertical-align:middle;margin-right:8px}
