@@ -136,6 +136,9 @@ th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);whit
 th{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);background:var(--surface)}
 tr:last-child td{border-bottom:0}
 td.n,th.n{text-align:right}
+.btn.refresh{background:linear-gradient(#4A8BD6,#2F6FB5);color:#fff;border:1px solid #1F5594;border-radius:10px;box-shadow:0 4px 0 #1B4A80,0 6px 8px rgba(0,0,0,.25);font-weight:700;text-shadow:0 1px 0 rgba(0,0,0,.25);transition:transform .08s,box-shadow .08s}
+.btn.refresh:active:not(:disabled){transform:translateY(3px);box-shadow:0 1px 0 #1B4A80,0 2px 4px rgba(0,0,0,.25)}
+.btn.refresh:disabled{opacity:.7}
 .bar{display:inline-block;height:10px;border-radius:3px;background:var(--full);width:var(--w);min-width:2px;vertical-align:middle;margin-right:8px}
 .daypick{border:0;background:none;padding:6px 0;min-height:36px;font-weight:500;text-align:left}
 .daypick[aria-current="true"]{font-weight:700;text-decoration:underline}
@@ -252,7 +255,7 @@ td.n,th.n{text-align:right}
         <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
         <button class="btn ghost sm" type="button" data-act="listsOpen">Fields and tracks</button>
         <button class="btn ghost sm" type="button" data-act="missedOpen">Add missed load</button>
-        <button class="btn ghost sm" type="button" data-act="refreshBoard" id="refreshBtn">Refresh</button>
+        <button class="btn sm refresh" type="button" data-act="refreshBoard" id="refreshBtn">Refresh</button>
         <button class="btn ghost sm" type="button" id="editToggle" data-act="toggleEdit" aria-pressed="false">Edit trucks and mills</button>
       </div>
       <form class="card" id="quick" hidden autocomplete="off" style="margin-bottom:16px;gap:12px;flex-direction:column;display:flex">
@@ -1130,7 +1133,7 @@ function renderReport(){
     (mills.length>1 ? '<label class="f">Mill<select id="rMill"><option value="">All mills</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===S.report.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>' : '')+
     (tracksL.length ? '<label class="f">Track<select id="rTrack"><option value="">All tracks</option>'+tracksL.map(function(m){ return '<option value="'+esc(m)+'"'+(m===S.report.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>' : '')+
     (fieldsL.length ? '<label class="f">Field<select id="rField"><option value="">All fields</option>'+fieldsL.map(function(m){ return '<option value="'+esc(m)+'"'+(m===S.report.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>' : '')+
-    '<button class="btn ghost" type="button" data-act="refreshReport">'+(S.report.loading?'Loading…':'Refresh')+'</button>'+
+    '<button class="btn refresh" type="button" data-act="refreshReport">'+(S.report.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csv">Save as CSV</button>':'')+
   '</div>';
   html+='<p class="small rnote">'+esc(fn)+' only'+(S.report.mill?', loads to '+esc(S.report.mill):'')+(S.report.track?', track '+esc(S.report.track):'')+(S.report.field?', field '+esc(S.report.field):'')+'. Each row is one date. Every tap on a truck number counts as one load.</p>';
@@ -1303,7 +1306,7 @@ function renderAll_(){
   var times=all.map(function(x){ return x.loadedAt; });
   var html='<div class="toolbar">'+
     '<label class="f">Days to show<select id="cRange">'+[7,14,30].map(function(n){ return '<option value="'+n+'"'+(n===C.range?' selected':'')+'>Last '+n+' days</option>'; }).join('')+'</select></label>'+
-    '<button class="btn ghost" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
+    '<button class="btn refresh" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csvAll">Save as CSV</button>':'')+
   '</div>';
   html+='<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
