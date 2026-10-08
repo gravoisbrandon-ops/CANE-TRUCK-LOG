@@ -921,8 +921,8 @@ function renderAll(){
   $('#tab-setup').innerHTML = (isOffice() ? 'Setup' : 'Trucks') + (npend?' <span class="nbadge">'+npend+'</span>':'');
   try{ var bt=document.title.replace(/^\(\d+\) /,''); document.title = npend ? '('+npend+') '+bt : bt; }catch(e){}
   $('#tab-all').hidden = !(isOffice() || S.isMill);
-  $('#tab-tools').hidden = !isOffice();
-  if(S.tab==='tools' && !isOffice()) S.tab='board';
+  $('#tab-tools').hidden = !(isOffice() || S.isMgr);
+  if(S.tab==='tools' && !(isOffice() || S.isMgr)) S.tab='board';
   $('#tab-board').hidden = $('#tab-report').hidden = $('#tab-setup').hidden = !!S.isMill;
   $('#tab-all').textContent = S.isMill ? 'Report' : 'All farms';
   if(S.isMill && S.tab!=='all' && S.tab!=='me'){ S.tab='all'; last.comb=''; loadComb(); }
@@ -1854,15 +1854,27 @@ function bnCsv(list){
   return L.join('\n');
 }
 function bnDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:bnCsv(list) }); }
+BN.docFarms={};
 function bnPersist(){
   lsSet('cane-truck-log:burnlog', JSON.stringify(BN.log));
-  dref('tools/burnlog').set({ entries:BN.log, station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon }).then(function(){ if(!BN.shared){ BN.shared=true; bnLogRender(); } }).catch(function(){ if(BN.shared){ BN.shared=false; bnLogRender(); } });
+  var by={}, rest=[], jobs=[], set={ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon };
+  BN.log.forEach(function(e){ if(e.farm && farmById(e.farm)) (by[e.farm]=by[e.farm]||[]).push(e); else rest.push(e); });
+  if(S.isAdmin){
+    S.farms.forEach(function(f){ if(by[f.id] || BN.docFarms[f.id]){ BN.docFarms[f.id]=1; jobs.push(dref('tools/burnlog-'+f.id).set({ entries:by[f.id]||[] })); } });
+    jobs.push(dref('tools/burnlog').set(Object.assign({ entries:rest },set)));
+  } else if(S.crewFarm){ jobs.push(dref('tools/burnlog-'+S.crewFarm).set(Object.assign({ entries:by[S.crewFarm]||[] },set))); }
+  Promise.all(jobs).then(function(){ if(!BN.shared){ BN.shared=true; bnLogRender(); } }).catch(function(){ if(BN.shared){ BN.shared=false; bnLogRender(); } });
 }
 async function bnLoad(){
   BN.loaded=true; var local=[]; try{ local=JSON.parse(lsGet('cane-truck-log:burnlog')||'[]')||[]; }catch(e){}
   try{
-    var r=docs(await col('tools').get()).filter(function(x){ return x.id==='burnlog'; })[0];
-    if(r){ BN.log=r.entries||[]; if(!BN.station && r.station){ BN.station=r.station; BN.stationName=r.stationName||''; BN.lat=r.lat||BN.lat; BN.lon=r.lon||BN.lon; } }
+    var all=docs(await col('tools').get()), legacy=all.filter(function(x){ return x.id==='burnlog'; })[0], fd=all.filter(function(x){ return x.id.indexOf('burnlog-')===0; });
+    var r=legacy||fd[0];
+    if(r){
+      var m={}; (legacy&&legacy.entries||[]).forEach(function(e){ m[e.id]=e; }); fd.forEach(function(d){ BN.docFarms[d.id.slice(8)]=1; (d.entries||[]).forEach(function(e){ m[e.id]=e; }); });
+      BN.log=Object.keys(m).map(function(k){ return m[k]; });
+      if(!BN.station && r.station){ BN.station=r.station; BN.stationName=r.stationName||''; BN.lat=r.lat||BN.lat; BN.lon=r.lon||BN.lon; }
+    }
     else { BN.log=local; if(local.length) bnPersist(); }
   }catch(e){ BN.shared=false; BN.log=local; }
   if(!bnTyping()) bnRender(); else bnLogRender();
@@ -2083,14 +2095,24 @@ function sgRowsOf(e){
 var SG_HEAD=['date','level','farm','mill','acres','tons','trs','liquidation_pct','lb_sugar','tons_per_acre','lb_sugar_per_acre','avg_lb_sugar_per_ton'];
 function sgCsv(list){ var L=[SG_HEAD.join(',')]; list.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; }).forEach(function(e){ sgRowsOf(e).forEach(function(r){ L.push(r.map(csvCell).join(',')); }); }); return L.join('\n'); }
 function sgFoot(){ var f=$('#sgFoot'); if(f) f.textContent=SG.shared?'The log is saved and shared with the other administrators.':'The log is saved on this device only. Run the latest schema.sql in Supabase to share it.'; }
+SG.docFarms={};
 function sgPersist(){
   lsSet('cane-truck-log:sugarlog', JSON.stringify(SG.log));
-  dref('tools/sugarlog').set({ entries:SG.log }).then(function(){ if(!SG.shared){ SG.shared=true; sgFoot(); } }).catch(function(){ if(SG.shared){ SG.shared=false; sgFoot(); } });
+  var by={}, rest=[], jobs=[];
+  SG.log.forEach(function(e){ if(e.scope && e.scope!=='all' && farmById(e.scope)) (by[e.scope]=by[e.scope]||[]).push(e); else rest.push(e); });
+  if(S.isAdmin){
+    S.farms.forEach(function(f){ if(by[f.id] || SG.docFarms[f.id]){ SG.docFarms[f.id]=1; jobs.push(dref('tools/sugarlog-'+f.id).set({ entries:by[f.id]||[] })); } });
+    jobs.push(dref('tools/sugarlog').set({ entries:rest }));
+  } else if(S.crewFarm){ jobs.push(dref('tools/sugarlog-'+S.crewFarm).set({ entries:by[S.crewFarm]||[] })); }
+  Promise.all(jobs).then(function(){ if(!SG.shared){ SG.shared=true; sgFoot(); } }).catch(function(){ if(SG.shared){ SG.shared=false; sgFoot(); } });
 }
 async function sgLoad(){
   SG.logLoaded=true; var local=[]; try{ local=JSON.parse(lsGet('cane-truck-log:sugarlog')||'[]')||[]; }catch(e){}
-  try{ var r=docs(await col('tools').get()).filter(function(x){ return x.id==='sugarlog'; })[0]; if(r && r.entries) SG.log=r.entries; else { SG.log=local; if(local.length) sgPersist(); } }
-  catch(e){ SG.shared=false; SG.log=local; }
+  try{
+    var all=docs(await col('tools').get()), legacy=all.filter(function(x){ return x.id==='sugarlog'; })[0], fd=all.filter(function(x){ return x.id.indexOf('sugarlog-')===0; });
+    if(legacy || fd.length){ var m={}; (legacy&&legacy.entries||[]).forEach(function(e){ m[e.id]=e; }); fd.forEach(function(d){ SG.docFarms[d.id.slice(9)]=1; (d.entries||[]).forEach(function(e){ m[e.id]=e; }); }); SG.log=Object.keys(m).map(function(k){ return m[k]; }); }
+    else { SG.log=local; if(local.length) sgPersist(); }
+  }catch(e){ SG.shared=false; SG.log=local; }
   sgLogRender(); sgFoot();
 }
 function sgProgress(asc){
