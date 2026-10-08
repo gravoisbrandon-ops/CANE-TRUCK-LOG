@@ -1498,9 +1498,9 @@ function toolsShow(){
   if(t==='burn') bnShow();
 }
 /* ---- Burn log: field, date and time burned, weather from a National Weather Service station ---- */
-var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'30.02', lon:'-90.56', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
-(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.farm=d.farm||''; BN.grid=d.grid||''; BN.cwa=d.cwa||''; BN.fz=d.fz||''; } }catch(e){} })();
-function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, farm:BN.farm, grid:BN.grid, cwa:BN.cwa, fz:BN.fz })); }
+var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
+(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.place=d.place||''; BN.farm=d.farm||''; BN.grid=d.grid||''; BN.cwa=d.cwa||''; BN.fz=d.fz||''; } }catch(e){} })();
+function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, place:BN.place, farm:BN.farm, grid:BN.grid, cwa:BN.cwa, fz:BN.fz })); }
 function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())+':'+pad(d.getMinutes()) }; }
 function bnMs(){ var t=new Date(BN.date+'T'+(BN.time||'00:00')); return isNaN(t.getTime()) ? Date.now() : t.getTime(); }
 function bnCompass(deg){ if(deg==null||isNaN(deg)) return ''; var n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']; return n[Math.round(deg/22.5)%16]; }
@@ -1513,18 +1513,51 @@ function bnObs(p){
   return { obsAt:Date.parse(p.timestamp), tempF:c==null?null:c*9/5+32, dewF:dp==null?null:dp*9/5+32, rh:rh, windMph:toMph(ws), gustMph:toMph(wg), windDeg:wd, windDir:bnCompass(wd), pressInHg:pr==null?null:pr*0.0002953, visMi:vs==null?null:vs/1609.34, sky:p.textDescription||'' };
 }
 async function bnJson(url){ var r=await fetch(url,{ headers:{ 'Accept':'application/geo+json' } }); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+async function bnJsonRetry(url){ try{ return await bnJson(url); }catch(e){ await new Promise(function(r){ setTimeout(r,800); }); return bnJson(url); } }
 async function bnFindStation(){
-  var lat=parseFloat(BN.lat), lon=parseFloat(BN.lon); if(!isFinite(lat)||!isFinite(lon)){ BN.msg='Enter the latitude and longitude of the farm first.'; bnMsg(); return; }
+  var lat=parseFloat(BN.lat), lon=parseFloat(BN.lon); if(!isFinite(lat)||!isFinite(lon)){ BN.msg='Type your town or ZIP code and press Find my town, or press Use my location, then look for the station.'; bnMsg(); return; }
   BN.loading=true; BN.msg='Looking for the nearest station…'; bnMsg();
   try{
-    var pt=await bnJson('https://api.weather.gov/points/'+lat.toFixed(4)+','+lon.toFixed(4));
+    var pt=await bnJsonRetry('https://api.weather.gov/points/'+lat.toFixed(4)+','+lon.toFixed(4));
     BN.grid=pt.properties.gridId+'/'+pt.properties.gridX+','+pt.properties.gridY; BN.cwa=pt.properties.cwa||''; BN.fz=String(pt.properties.fireWeatherZone||'').split('/').pop();
-    var st=await bnJson(pt.properties.observationStations);
-    var f=st.features&&st.features[0]; if(!f) throw new Error('no stations');
+    var st=await bnJsonRetry(pt.properties.observationStations);
+    var fs=(st.features||[]).slice(0,6); if(!fs.length) throw new Error('no stations listed');
+    var pick=null, tried=0;
+    for(var k=0;k<fs.length && !pick;k++){
+      var id=fs[k].properties.stationIdentifier; tried++;
+      try{ var o=await bnJson('https://api.weather.gov/stations/'+id+'/observations/latest'); var tt=Date.parse(o.properties&&o.properties.timestamp); if(o.properties && o.properties.temperature && o.properties.temperature.value!=null && Date.now()-tt<6*3600*1000) pick=fs[k]; }catch(e2){}
+    }
+    var f=pick||fs[0];
     BN.station=f.properties.stationIdentifier; BN.stationName=f.properties.name||'';
-    BN.msg='Nearest station: '+BN.station+(BN.stationName?' ('+BN.stationName+')':'')+'.'; bnSaveLocal(); bnPersist();
-  }catch(e){ try{ console.warn('station lookup',e); }catch(x){} BN.msg='Could not look up a station. Type a station ID such as KMSY instead.'; }
+    BN.msg='Nearest station: '+BN.station+(BN.stationName?' ('+BN.stationName+')':'')+(pick&&tried>1?' (closer stations had no recent readings).':'.'); bnSaveLocal(); bnPersist();
+  }catch(e){ try{ console.warn('station lookup',e); }catch(x){} BN.msg='Could not reach the National Weather Service ('+((e&&e.message)||'error')+'). Try again in a minute, or type a station ID such as KLFT (Lafayette) or KMSY (New Orleans).'; }
   BN.loading=false; bnRender();
+}
+function bnSetPlace(lat,lon,label){ BN.lat=Number(lat).toFixed(4); BN.lon=Number(lon).toFixed(4); BN.cwa=''; BN.fz=''; BN.grid=''; BN.station=''; BN.stationName=''; if(label) BN.place=label; bnSaveLocal(); }
+async function bnFindPlace(){
+  var q=(BN.place||'').trim(); if(!q){ BN.msg='Type your town or ZIP code first.'; bnMsg(); return; }
+  BN.loading=true; BN.msg='Looking up '+q+'…'; bnMsg();
+  try{
+    var lat,lon,label=q;
+    if(/^\d{5}/.test(q)){
+      var z=await (await fetch('https://api.zippopotam.us/us/'+q.slice(0,5))).json(); var pl=z.places&&z.places[0]; if(!pl) throw new Error('ZIP not found');
+      lat=pl.latitude; lon=pl.longitude; label=pl['place name']+', '+pl['state abbreviation'];
+    } else {
+      var parts=q.split(','), nm=parts[0].trim(), stt=(parts[1]||'Louisiana').trim().toLowerCase();
+      var g=await (await fetch('https://geocoding-api.open-meteo.com/v1/search?count=20&language=en&format=json&name='+encodeURIComponent(nm))).json();
+      var us=(g.results||[]).filter(function(r){ return r.country_code==='US'; });
+      var m=us.filter(function(r){ var a=(r.admin1||'').toLowerCase(); return a===stt || a.indexOf(stt)===0 || (stt.length===2 && ({la:'louisiana',tx:'texas',ms:'mississippi',al:'alabama',ar:'arkansas',fl:'florida'})[stt]===a); })[0] || us[0];
+      if(!m) throw new Error('town not found');
+      lat=m.latitude; lon=m.longitude; label=m.name+', '+(m.admin1||'');
+    }
+    bnSetPlace(lat,lon,label); BN.loading=false; await bnFindStation(); return;
+  }catch(e){ try{ console.warn('place lookup',e); }catch(x){} BN.msg='Could not find that place. Try the ZIP code instead, or press Use my location.'; }
+  BN.loading=false; bnRender();
+}
+function bnLocate(){
+  if(!navigator.geolocation){ BN.msg='This device cannot share its location. Type your town or ZIP code instead.'; bnMsg(); return; }
+  BN.msg='Getting your location…'; bnMsg();
+  navigator.geolocation.getCurrentPosition(function(p){ bnSetPlace(p.coords.latitude,p.coords.longitude,'My location'); bnFindStation(); },function(){ BN.msg='Could not get your location. Allow location access, or type your town or ZIP code.'; bnMsg(); },{ timeout:15000, maximumAge:600000 });
 }
 /* Category day, mixing height and transport wind come from the National Weather Service fire weather forecast (FWF) for the burn's fire weather zone */
 function bnUgcSet(txt){
@@ -1628,10 +1661,12 @@ function bnRender(){
   var farm=BN.farm && farmById(BN.farm) ? BN.farm : (S.farms[0]&&S.farms[0].id)||''; BN.farm=farm;
   var fields=fieldsOf(farm), wx=BN.wx||{}, ed=BN.log.filter(function(x){ return x.id===BN.edit; })[0];
   var h='<div class="card"><h2>Burn log</h2><p class="small">Log each field you burn with the date and time. Fetch the weather from the nearest weather station for that time, or type it in.</p>'+
+    '<div class="toolbar"><label class="f">Town or ZIP code<input type="text" data-bnf="place" value="'+esc(BN.place)+'" placeholder="e.g. Youngsville, LA or 70592" autocomplete="off"></label></div>'+
+    '<div class="toolbar"><button class="btn" type="button" data-bn="place"'+(BN.loading?' disabled':'')+'>Find my town and station</button><button class="btn ghost" type="button" data-bn="locate"'+(BN.loading?' disabled':'')+'>Use my location</button></div>'+
     '<div class="toolbar"><label class="f">Weather station<input type="text" data-bnf="station" value="'+esc(BN.station)+'" placeholder="e.g. KMSY" autocapitalize="characters"></label>'+
     '<label class="f">Latitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lat" value="'+esc(BN.lat)+'"></label>'+
     '<label class="f">Longitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lon" value="'+esc(BN.lon)+'"></label></div>'+
-    '<div class="toolbar"><button class="btn ghost" type="button" data-bn="find"'+(BN.loading?' disabled':'')+'>Find the nearest station</button></div>'+
+    '<div class="toolbar"><button class="btn ghost" type="button" data-bn="find"'+(BN.loading?' disabled':'')+'>Find the nearest station from latitude and longitude</button></div>'+
     '<p class="small">'+(BN.stationName?esc(BN.station+' · '+BN.stationName):'')+'</p></div>';
   h+='<div class="card"><h2>'+(ed?'Editing a burn':'New burn')+'</h2>'+
     '<div class="toolbar"><label class="f">Farm<select data-bnf="farm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label>'+
@@ -1715,10 +1750,13 @@ document.addEventListener('change',function(e){
   if(f==='catDay') BN.catDay=el.value;
   if(f==='viewFarm'){ BN.viewFarm=el.value; bnLogRender(); }
 });
+document.addEventListener('keydown',function(e){ if(e.key==='Enter' && e.target && e.target.getAttribute && e.target.getAttribute('data-bnf')==='place'){ e.preventDefault(); BN.place=e.target.value; bnFindPlace(); } });
 document.addEventListener('click',function(e){
   var el=e.target.closest ? e.target.closest('[data-bn]') : null; if(!el) return;
   var a=el.getAttribute('data-bn');
   if(a==='find') bnFindStation();
+  else if(a==='place') bnFindPlace();
+  else if(a==='locate') bnLocate();
   else if(a==='fetch') bnFetchWx();
   else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
   else if(a==='save'||a==='saveNew'){
