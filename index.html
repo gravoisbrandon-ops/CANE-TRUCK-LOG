@@ -1607,8 +1607,8 @@ function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
   var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
-  var scope=vw==='*'?'all':vw, ck=sgCheck(scope,false);
-  if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint' }); secs.push({ head:ck.runHead, rows:ck.run }); secs.push({ h:'Results for each period, since the previous logged data' }); secs.push({ head:ck.segHead, rows:ck.seg }); }
+  var scope=vw==='*'?'all':vw, ck=sgCheck(scope);
+  if(ck.run.length){ secs.push({ h:'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); secs.push({ h:'Running average, start to each checkpoint (newest first)' }); secs.push({ head:ck.runHead, rows:ck.run.filter(function(r){ return !/not saved/.test(r[0]); }) }); }
   pdfShare('Sugar per acre',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('sugar-per-acre-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
 }
 function pdfReport(which){
@@ -1978,7 +1978,7 @@ function sgOut(){
 }
 /* per mill, per farm and combined, as rows (shared by the screen and the PDF) */
 function sgBreakData(farmsOnly){
-  var sh=sgN(SG.share), head=['Farm / mill','Acres','Tons','Tons/acre','Avg TRS','Liq %','Lb sugar','Lb sugar/acre'].concat(sh!=null?['Grower lb/acre']:[]), rows=[], bold=[];
+  var sh=sgN(SG.share), head=['Farm / mill','Acres','Tons','Tons/acre','Avg TRS','Liq %','Lb sugar/acre'].concat(sh!=null?['Grower lb/acre']:[],['Total lb sugar']), rows=[], bold=[];
   var A={ t:0, sg:0, st:0, tw:0, ac:0, at:0, as:0, ast:0 }, n0=function(x){ return x==null?'–':sgNf(x); };
   S.farms.forEach(function(f){
     if(farmsOnly && f.id!==farmsOnly) return;
@@ -1986,15 +1986,15 @@ function sgBreakData(farmsOnly){
     if(!has && !ac) return;
     rows.push([f.name,'','','','','','','']);   bold.push(rows.length-1); if(sh!=null) rows[rows.length-1].push('');
     o.rows.forEach(function(r,i){ var t=sgN(r.tons); if(!(t>0)) return; var trs=sgN(r.trs), lq=sgPct(r.liq); if(lq==null) lq=sgPct(SG.liq); if(lq==null) lq=100;
-      var row=['   '+(r.mill||'Mill'),'',f1(t),'',trs>0?trs.toFixed(1):'–',lq.toFixed(1).replace(/\.0$/,''),c.rows[i]!=null?sgNf(c.rows[i]):'–','']; if(sh!=null) row.push(''); rows.push(row); });
+      var row=['   '+(r.mill||'Mill'),'',f1(t),'',trs>0?trs.toFixed(1):'–',lq.toFixed(1).replace(/\.0$/,''),'']; if(sh!=null) row.push(''); row.push(c.rows[i]!=null?sgNf(c.rows[i]):'–'); rows.push(row); });
     var per=c.sTons>0?c.sugar/c.sTons:null, tpa=ac&&has?c.tons/ac:null;
-    var fr=[f.name+' combined',ac?f1(ac):'',has?f1(c.tons):'',tpa!=null?tpa.toFixed(2):'',c.sTons>0?(c.trsW/c.sTons).toFixed(1):'','',c.sTons>0?sgNf(c.sugar):'–',(tpa!=null&&per!=null)?sgNf(tpa*per):'–']; if(sh!=null) fr.push((tpa!=null&&per!=null)?sgNf(tpa*per*sh/100):'–');
+    var fr=[f.name+' combined',ac?f1(ac):'',has?f1(c.tons):'',tpa!=null?tpa.toFixed(2):'',c.sTons>0?(c.trsW/c.sTons).toFixed(1):'','',(tpa!=null&&per!=null)?sgNf(tpa*per):'–']; if(sh!=null) fr.push((tpa!=null&&per!=null)?sgNf(tpa*per*sh/100):'–'); fr.push(c.sTons>0?sgNf(c.sugar):'–');
     rows.push(fr); bold.push(rows.length-1);
     A.t+=c.tons; A.sg+=c.sugar; A.st+=c.sTons; A.tw+=c.trsW; if(ac&&has){ A.ac+=ac; A.at+=c.tons; A.as+=c.sugar; A.ast+=c.sTons; }
   });
   if(!farmsOnly){
     var per2=A.ast>0?A.as/A.ast:null, tpa2=A.ac?A.at/A.ac:null;
-    var tr=['All farms combined',A.ac?f1(A.ac):'',A.t>0?f1(A.t):'',tpa2!=null?tpa2.toFixed(2):'',A.st>0?(A.tw/A.st).toFixed(1):'','',A.st>0?sgNf(A.sg):'–',(tpa2!=null&&per2!=null)?sgNf(tpa2*per2):'–']; if(sh!=null) tr.push((tpa2!=null&&per2!=null)?sgNf(tpa2*per2*sh/100):'–');
+    var tr=['All farms combined',A.ac?f1(A.ac):'',A.t>0?f1(A.t):'',tpa2!=null?tpa2.toFixed(2):'',A.st>0?(A.tw/A.st).toFixed(1):'','',(tpa2!=null&&per2!=null)?sgNf(tpa2*per2):'–']; if(sh!=null) tr.push((tpa2!=null&&per2!=null)?sgNf(tpa2*per2*sh/100):'–'); tr.push(A.st>0?sgNf(A.sg):'–');
     rows.push(tr); bold.push(rows.length-1);
   }
   return { head:head, rows:rows, bold:bold };
@@ -2101,7 +2101,7 @@ function sgProgress(asc){
     if(lp!=null) prev=lp;
     return '<td>'+esc(e.date)+'</td><td class="n">'+esc(r[5])+'</td><td class="n">'+esc(r[9])+'</td><td class="n">'+esc(lp==null?'':Math.round(lp).toLocaleString())+'</td><td class="n">'+esc(d)+'</td>';
   });
-  return '<div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Tons</th><th class="n">Tons/acre</th><th class="n">Lb sugar/acre</th><th class="n">Change</th></tr></thead><tbody>'+body.map(function(t){ return '<tr>'+t+'</tr>'; }).join('')+'</tbody></table></div>';
+  return '<div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Tons</th><th class="n">Tons/acre</th><th class="n">Lb sugar/acre</th><th class="n">Change</th></tr></thead><tbody>'+body.slice().reverse().map(function(t){ return '<tr>'+t+'</tr>'; }).join('')+'</tbody></table></div>';
 }
 function sgModeRender(){
   var els=document.querySelectorAll('[data-sgmode]');
@@ -2137,35 +2137,66 @@ function sgDays(a,b){ var x=Date.parse(a+'T12:00:00'), y=Date.parse(b+'T12:00:00
 function sgZeroDate(scope){ if(scope!=='all'){ var f=farmById(scope); return harvestStartFor(f); } var m=''; S.farms.forEach(function(f){ var h=harvestStartFor(f); if(!m||h<m) m=h; }); return m||today(); }
 function sgTot(e){ if(e.zero) return { date:e.date, ac:null, tons:0, trs:null, sugar:0, tpa:0, lpa:0, per:null }; var r=sgRowsOf(e), t=r[r.length-1], n=function(v){ return v===''||v==null?null:Number(v); }; return { date:e.date, ac:n(t[4]), tons:n(t[5]), trs:n(t[6]), sugar:n(t[8]), tpa:n(t[9]), lpa:n(t[10]), per:n(t[11]) }; }
 /* checkpoints: each saved set is an end-of-day running total. Start -> first checkpoint -> next ... */
-function sgCheck(scope, withCur){
-  var sets=sgSetsOf(scope).map(function(e){ return sgTot(e); });
-  if(withCur){ var cur=sgSnapshot(scope), ct=sgTot(cur); if(ct.tons>0 && (!sets.length || ct.date>=sets[sets.length-1].date)) { ct.cur=true; sets.push(ct); } }
-  var z0=sgZeroDate(scope), prev={ date:z0, ac:null, tons:0, trs:null, sugar:0 }, n1=function(v,d){ return v==null||!isFinite(v)?'–':(d?Number(v).toFixed(d):Math.round(v).toLocaleString()); };
-  var run=[], seg=[], prev={ date:z0, ac:0, tons:0, trs:null, sugar:0 };
-  sets.forEach(function(b,k){
-    var label=b.date+(b.cur?' (on screen, not saved)':''), d=sgDays(z0,b.date);
-    run.push([label,d==null?'':d,n1(b.ac,1),n1(b.tons,1),n1(b.tpa,2),n1(b.trs,1),n1(b.per,1),n1(b.sugar),n1(b.lpa)]);
-    var dt=b.tons-prev.tons, ds=(b.sugar!=null&&prev.sugar!=null)?b.sugar-prev.sugar:null, ac=(b.ac!=null)?(b.ac-(prev.ac||0)):null, dd=sgDays(prev.date,b.date); var same=false; if(ac!=null&&ac===0&&b.ac>0){ ac=b.ac; same=true; } else if(ac!=null&&ac<0) ac=null;
-    var tr=dt>0?(prev.tons===0?b.trs:((prev.trs!=null&&b.trs!=null)?(b.trs*b.tons-prev.trs*prev.tons)/dt:null)):null;
-    seg.push([(k===0?'Start':prev.date)+' to '+b.date+(b.cur?' (screen)':''),dd==null?'':dd,ac?n1(ac,1)+(same?'*':''):'–',dt>0?n1(dt,1):'–',n1(tr,1),(dt>0&&ac)?n1(dt/ac,2):'–',(ds!=null&&ac&&dt>0)?n1(ds/ac):'–']);
-    prev=b;
-  });
-  return { run:run, seg:seg, runHead:['Checkpoint (end of day)','Days since start','Acres','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'], segHead:['Results for the period','Days','New acres','Tons hauled','Avg TRS','Tons/acre','Lb sugar/acre'] };
+function sgItems(scope){
+  var items=sgSetsOf(scope).map(function(e){ var t=sgTot(e); t.id=e.id; return t; });
+  var ct=sgTot(sgSnapshot(scope)); ct.id='cur'; ct.cur=true; var ls=items[items.length-1]; ct.valid=ct.tons>0 && !(ls && ls.date===ct.date && ls.tons===ct.tons && ls.ac===ct.ac && ls.sugar===ct.sugar); items.push(ct);
+  return items;
+}
+var SG_N1=function(v,d){ return v==null||!isFinite(v)?'–':(d?Number(v).toFixed(d):Math.round(v).toLocaleString()); };
+/* results in just the period from A to B: new totals minus the old ones */
+function sgPeriod(A,B){
+  var n1=SG_N1, dt=B.tons-A.tons, ds=(B.sugar!=null&&A.sugar!=null)?B.sugar-A.sugar:null, ac=(B.ac!=null)?(B.ac-(A.ac||0)):null, dd=sgDays(A.date,B.date), same=false;
+  if(ac!=null&&ac===0&&B.ac>0){ ac=B.ac; same=true; } else if(ac!=null&&ac<0) ac=null;
+  var tr=dt>0?(A.tons===0?B.trs:((A.trs!=null&&B.trs!=null)?(B.trs*B.tons-A.trs*A.tons)/dt:null)):null;
+  return { days:dd, acres:ac?n1(ac,1)+(same?'*':''):'–', tons:dt>0?n1(dt,1):'–', trs:n1(tr,1), tpa:(dt>0&&ac)?n1(dt/ac,2):'–', lpa:(ds!=null&&ac&&dt>0)?n1(ds/ac):'–' };
+}
+function sgSel(scope,items){
+  var c=SG.cmp[scope]||(SG.cmp[scope]={}), z0=sgZeroDate(scope), zero={ id:'zero', date:z0, ac:0, tons:0, trs:null, sugar:0, tpa:0, lpa:0, per:null };
+  var all=[zero].concat(items), by=function(id){ return all.filter(function(x){ return x.id===id; })[0]; };
+  var saved=items.filter(function(x){ return !x.cur; }), cur=items[items.length-1];
+  var bId=c.b&&by(c.b)?c.b:(cur&&cur.valid?'cur':(saved.length?saved[saved.length-1].id:'zero'));
+  var bi=all.indexOf(by(bId)), aId=c.a&&by(c.a)?c.a:(bi>0?all[bi-1].id:'zero');
+  return { a:by(aId), b:by(bId), auto:{ a:!(c.a&&by(c.a)), b:!(c.b&&by(c.b)) }, all:all };
+}
+function sgCheck(scope){
+  var items=sgItems(scope), z0=sgZeroDate(scope), n1=SG_N1;
+  var rows=items.filter(function(b){ return !b.cur || b.valid; }).map(function(b){ return [b.date+(b.cur?' (on screen, not saved)':''),sgDays(z0,b.date)==null?'':sgDays(z0,b.date),n1(b.ac,1),n1(b.tons,1),n1(b.tpa,2),n1(b.trs,1),n1(b.per,1),n1(b.lpa),n1(b.sugar)]; }).reverse();
+  var sel=sgSel(scope,items), A=sel.a, B=sel.b;
+  if(A.date>B.date){ var t=A; A=B; B=t; }
+  var pr=sgPeriod(A,B);
+  return { run:rows, runHead:['Checkpoint (end of day)','Days since start','Acres','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar/acre','Total lb sugar'], A:A, B:B, pr:pr, items:items, sel:sel,
+    perHead:['Since','To','Days','New acres','Tons hauled','Avg TRS','Tons/acre','Lb sugar/acre'], perRow:[A.date+(A.id==='zero'?' (start)':''),B.date+(B.cur?' (screen)':''),pr.days==null?'':pr.days,pr.acres,pr.tons,pr.trs,pr.tpa,pr.lpa] };
 }
 function sgCmpOut(scope){
-  var c=sgCheck(scope,true); if(!c.run.length) return '<p class="small">Save a set at the end of a day to make the first checkpoint. Numbers typed on screen show here as the next checkpoint.</p>';
+  var c=sgCheck(scope); if(!c.run.length && !c.items.some(function(x){ return !x.cur; })) return '<p class="small">Save a set at the end of a day to make the first checkpoint. Numbers typed on screen show here as the next checkpoint.</p>';
   var T=function(head,rows){ return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+rows.map(function(r){ return '<tr>'+r.map(function(x,i){ return '<td'+(i?' class="n"':'')+'>'+esc(x)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>'; };
-  return '<p class="small">Each saved set is an end-of-day checkpoint. The first one is measured from the start of harvest ('+esc(sgZeroDate(scope))+').</p>'+
-    '<div class="lbl" style="margin-top:8px">Running average, start to each checkpoint</div>'+T(c.runHead,c.run)+
-    '<div class="lbl" style="margin-top:12px">Results for each period, since the previous logged data</div>'+T(c.segHead,c.seg)+
-    '<p class="small">The second table is what the results were in just that period. New acres and tons hauled are this checkpoint\'s total minus the last logged total. Tons per acre and lb sugar per acre divide the new tons and new sugar by the new acres. Period TRS = (new tons x new TRS minus old tons x old TRS) / new tons, where tons are tons per acre x acres, so it is the same as weighting old and new by tons per acre and acres. A * means the acres did not change since the last log, so the total acres were used. The first period runs from the start of harvest.</p>';
+  var pr=c.pr, box=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+esc(v)+'</b></div>'; };
+  return '<div class="lbl">Results since '+esc(c.A.date)+(c.A.id==='zero'?' (start of harvest)':'')+' to '+esc(c.B.date)+(pr.days!=null?' · '+pr.days+' day'+(pr.days===1?'':'s'):'')+'</div>'+
+    '<div class="stats">'+box('New acres',pr.acres)+box('Tons hauled',pr.tons)+box('Avg TRS',pr.trs)+box('Tons per acre',pr.tpa)+box('Lb sugar per acre',pr.lpa)+'</div>'+
+    '<p class="small">New acres and tons are the later total minus the earlier total. Tons per acre and lb sugar per acre divide the new tons and new sugar by the new acres. Period TRS = (new tons x new TRS minus old tons x old TRS) / new tons. A * means the acres did not change, so the total acres were used.</p>'+
+    '<div class="lbl" style="margin-top:12px">Running average, start to each checkpoint (newest first)</div>'+T(c.runHead,c.run);
+}
+function sgMonths(scope){ var z=sgZeroDate(scope), t=today(), out=[], y=Number(z.slice(0,4)), m=Number(z.slice(5,7)), ty=Number(t.slice(0,4)), tm=Number(t.slice(5,7));
+  while(y<ty || (y===ty && m<=tm)){ out.push(y+'-'+(m<10?'0':'')+m); m++; if(m>12){ m=1; y++; } if(out.length>24) break; } return out.reverse(); }
+function sgMonthName(ym){ var d=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7))-1,1); return d.toLocaleDateString([],{month:'long',year:'numeric'}); }
+function sgPickMonth(scope,ym){
+  var items=sgItems(scope).filter(function(x){ return !x.cur || x.valid; }), first=ym+'-01', last=ym+'-31', z={ id:'zero', date:sgZeroDate(scope) };
+  var inM=items.filter(function(x){ return x.date<=last; }), B=inM[inM.length-1];
+  var before=items.filter(function(x){ return x.date<first; }), A=before[before.length-1]||z;
+  var c=SG.cmp[scope]||(SG.cmp[scope]={}); c.a=A.id; c.b=B?B.id:undefined; if(!B) toast('No data logged in '+sgMonthName(ym)+' yet.');
 }
 function sgCmpRender(){
   var els=document.querySelectorAll('[data-sgcmp]');
-  for(var q=0;q<els.length;q++){ var scope=els[q].getAttribute('data-sgcmp'); if(!els[q].querySelector('[data-sgcmpout]')) els[q].innerHTML='<div data-sgcmpout="'+esc(scope)+'"></div>'; sgCmpOutRender(scope); }
+  for(var q=0;q<els.length;q++){
+    var el=els[q], scope=el.getAttribute('data-sgcmp'), items=sgItems(scope), sel=sgSel(scope,items), z0=sgZeroDate(scope);
+    var saved=items.filter(function(x){ return !x.cur; }).reverse();
+    var opts=function(cur,from){ return (items[items.length-1]?'<option value="cur"'+(cur==='cur'?' selected':'')+'>Numbers on screen</option>':'')+saved.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===cur?' selected':'')+'>'+esc(x.date)+'</option>'; }).join('')+'<option value="zero"'+(cur==='zero'?' selected':'')+'>Start of harvest ('+esc(z0)+')</option>'; };
+    el.innerHTML='<div class="toolbar"><label class="f">By month<select data-sgcq="1" data-scope="'+esc(scope)+'"><option value="">Pick a month…</option>'+sgMonths(scope).map(function(m){ return '<option value="'+m+'">'+esc(sgMonthName(m))+'</option>'; }).join('')+'</select></label></div><div class="toolbar"><label class="f">Since<select data-sgcs="a" data-scope="'+esc(scope)+'">'+opts(sel.a.id)+'</select></label><label class="f">To<select data-sgcs="b" data-scope="'+esc(scope)+'">'+opts(sel.b.id)+'</select></label></div><div data-sgcmpout="'+esc(scope)+'"></div>';
+    sgCmpOutRender(scope);
+  }
 }
 function sgCmpOutRender(scope){ var o=document.querySelector('[data-sgcmpout="'+scope+'"]'); if(o) o.innerHTML=sgCmpOut(scope); }
-document.addEventListener('change',function(e){ var el=e.target, k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; sgCmpOutRender(sc); });
+document.addEventListener('change',function(e){ var el=e.target; if(el&&el.getAttribute&&el.getAttribute('data-sgcq')){ if(el.value){ sgPickMonth(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } var k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; sgCmpOutRender(sc); });
 function sgDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:sgCsv(list) }); }
 async function sgFetch(){
   if(!S.db){ toast('Sign in first.'); return; }
