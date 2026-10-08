@@ -101,7 +101,7 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .newno{display:inline-block;color:#0E1511;border-radius:6px;padding:0 8px;font-weight:700}
 .tm{display:flex;flex-direction:column;gap:14px}
 #tmRoot{display:flex;flex-direction:column;gap:14px;min-width:0}
-.tm input[type=number],.tm textarea,#tmSheet textarea,#tmSheet input[type=text]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:0}
+.tm input[type=date],.tm input[type=time],.tm input[type=text],.tm input[type=number],.tm textarea,#tmSheet textarea,#tmSheet input[type=text]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:0}
 .tm textarea,#tmSheet textarea{min-height:90px;resize:vertical;font-family:inherit}
 #tmSheet textarea.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.5}
 .tmgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -358,10 +358,12 @@ td.n,th.n{text-align:right}
         <div class="fchips" id="toolPick" role="group" aria-label="Pick a tool">
           <button type="button" class="fchip" data-act="toolPick" data-tool="tank" aria-pressed="true">Tank mix</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="sugar" aria-pressed="false">Sugar per acre</button>
+          <button type="button" class="fchip" data-act="toolPick" data-tool="burn" aria-pressed="false">Burn log</button>
         </div>
       </div>
       <div id="toolTank" class="tm"><div id="tmRoot"></div></div>
       <div id="toolSugar" class="tm" hidden><div id="sgRoot"></div></div>
+      <div id="toolBurn" class="tm" hidden><div id="bnRoot"></div></div>
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
@@ -1472,11 +1474,175 @@ document.addEventListener('change',function(e){
 
 function toolsShow(){
   var t=S.tool||'tank';
-  $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar');
+  $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolBurn').hidden=(t!=='burn');
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
   if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
   if(t==='sugar') sgShow();
+  if(t==='burn') bnShow();
 }
+/* ---- Burn log: field, date and time burned, weather from a National Weather Service station ---- */
+var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', wx:{}, station:'', stationName:'', lat:'30.02', lon:'-90.56', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
+(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.farm=d.farm||''; BN.grid=d.grid||''; } }catch(e){} })();
+function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, farm:BN.farm, grid:BN.grid })); }
+function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())+':'+pad(d.getMinutes()) }; }
+function bnMs(){ var t=new Date(BN.date+'T'+(BN.time||'00:00')); return isNaN(t.getTime()) ? Date.now() : t.getTime(); }
+function bnCompass(deg){ if(deg==null||isNaN(deg)) return ''; var n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']; return n[Math.round(deg/22.5)%16]; }
+function bnR(v,d){ if(v==null||v===''||isNaN(v)) return ''; var k=Math.pow(10,d||0); return String(Math.round(Number(v)*k)/k); }
+function bnVal(q){ return q && q.value!=null ? Number(q.value) : null; }
+function bnObs(p){
+  var c=bnVal(p.temperature), dp=bnVal(p.dewpoint), ws=bnVal(p.windSpeed), wg=bnVal(p.windGust), wd=bnVal(p.windDirection), pr=bnVal(p.barometricPressure), vs=bnVal(p.visibility), rh=bnVal(p.relativeHumidity);
+  var ws_u=(p.windSpeed&&p.windSpeed.unitCode)||'';  /* km/h normally, m/s sometimes */
+  var toMph=function(v){ if(v==null) return null; return /m_s-1/.test(ws_u) ? v*2.23694 : v*0.621371; };
+  return { obsAt:Date.parse(p.timestamp), tempF:c==null?null:c*9/5+32, dewF:dp==null?null:dp*9/5+32, rh:rh, windMph:toMph(ws), gustMph:toMph(wg), windDeg:wd, windDir:bnCompass(wd), pressInHg:pr==null?null:pr*0.0002953, visMi:vs==null?null:vs/1609.34, sky:p.textDescription||'' };
+}
+async function bnJson(url){ var r=await fetch(url,{ headers:{ 'Accept':'application/geo+json' } }); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+async function bnFindStation(){
+  var lat=parseFloat(BN.lat), lon=parseFloat(BN.lon); if(!isFinite(lat)||!isFinite(lon)){ BN.msg='Enter the latitude and longitude of the farm first.'; bnMsg(); return; }
+  BN.loading=true; BN.msg='Looking for the nearest station…'; bnMsg();
+  try{
+    var pt=await bnJson('https://api.weather.gov/points/'+lat.toFixed(4)+','+lon.toFixed(4));
+    BN.grid=pt.properties.gridId+'/'+pt.properties.gridX+','+pt.properties.gridY;
+    var st=await bnJson(pt.properties.observationStations);
+    var f=st.features&&st.features[0]; if(!f) throw new Error('no stations');
+    BN.station=f.properties.stationIdentifier; BN.stationName=f.properties.name||'';
+    BN.msg='Nearest station: '+BN.station+(BN.stationName?' ('+BN.stationName+')':'')+'.'; bnSaveLocal(); bnPersist();
+  }catch(e){ try{ console.warn('station lookup',e); }catch(x){} BN.msg='Could not look up a station. Type a station ID such as KMSY instead.'; }
+  BN.loading=false; bnRender();
+}
+async function bnFetchWx(){
+  var st=(BN.station||'').trim().toUpperCase(); if(!st){ BN.msg='Pick a weather station first.'; bnMsg(); return; }
+  var when=bnMs(); BN.loading=true; BN.msg='Fetching the weather…'; bnMsg();
+  try{
+    var best=null, bd=1e18, scan=function(list){ list.forEach(function(f){ var o=bnObs(f.properties); if(o.tempF==null||isNaN(o.obsAt)) return; var d=Math.abs(o.obsAt-when); if(d<bd){ bd=d; best=o; } }); };
+    var a=new Date(when-2*3600000).toISOString(), z=new Date(when+2*3600000).toISOString();
+    try{ var j=await bnJson('https://api.weather.gov/stations/'+encodeURIComponent(st)+'/observations?start='+encodeURIComponent(a)+'&end='+encodeURIComponent(z)+'&limit=60'); scan(j.features||[]); }catch(e2){}
+    if(!best && Math.abs(Date.now()-when)<3*3600000){ var l=await bnJson('https://api.weather.gov/stations/'+encodeURIComponent(st)+'/observations/latest'); scan([l]); }
+    if(!best || bd>3*3600000) throw new Error('none');
+    BN.wx={ station:st, src:'NWS', obsAt:best.obsAt, tempF:bnR(best.tempF,0), dewF:bnR(best.dewF,0), rh:bnR(best.rh,0), windMph:bnR(best.windMph,0), gustMph:bnR(best.gustMph,0), windDir:best.windDir, windDeg:bnR(best.windDeg,0), pressInHg:bnR(best.pressInHg,2), visMi:bnR(best.visMi,1), sky:best.sky };
+    try{
+      if(!BN.grid){ var pt2=await bnJson('https://api.weather.gov/points/'+parseFloat(BN.lat).toFixed(4)+','+parseFloat(BN.lon).toFixed(4)); BN.grid=pt2.properties.gridId+'/'+pt2.properties.gridX+','+pt2.properties.gridY; bnSaveLocal(); }
+      var gp=(await bnJson('https://api.weather.gov/gridpoints/'+BN.grid)).properties, at=function(q,f){ if(!q||!q.values) return null; for(var i=0;i<q.values.length;i++){ var v=q.values[i], parts=String(v.validTime).split('/'), t0=Date.parse(parts[0]), m=/PT?(\d+)H/.exec(parts[1]||'')||[0,1], d=/P(\d+)D/.exec(parts[1]||''), dur=(d?Number(d[1])*24:0)+(/T(\d+)H/.exec(parts[1]||'')?Number(/T(\d+)H/.exec(parts[1])[1]):0)||1; if(when>=t0 && when<t0+dur*3600000 && v.value!=null) return v.value*f; } return null; };
+      var mh=at(gp.mixingHeight,3.28084), tw=at(gp.transportWindSpeed,0.621371);
+      if(mh!=null) BN.wx.mixHt=bnR(mh,0); if(tw!=null) BN.wx.transMph=bnR(tw,0);
+    }catch(e3){}
+    BN.msg='Weather from '+st+' at '+new Date(best.obsAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})+'. You can change any number.';
+  }catch(e){ BN.msg='No weather came back from '+st+' for that time. The weather service keeps about a week of readings. You can type the numbers in by hand.'; }
+  BN.loading=false; bnRender();
+}
+function bnMsg(){ var e=$('#bnMsg'); if(e) e.textContent=BN.msg; }
+var BN_WX=[['tempF','Temp °F'],['dewF','Dew point °F'],['rh','Humidity %'],['windMph','Wind mph'],['gustMph','Gust mph'],['windDeg','Wind from (deg)'],['pressInHg','Pressure inHg'],['visMi','Visibility mi'],['mixHt','Mixing height ft'],['transMph','Transport wind mph']];
+function bnRender(){
+  var root=$('#bnRoot'); if(!root) return;
+  if(!BN.date){ var n=bnNow(); BN.date=n.date; BN.time=n.time; }
+  var farm=BN.farm && farmById(BN.farm) ? BN.farm : (S.farms[0]&&S.farms[0].id)||''; BN.farm=farm;
+  var fields=fieldsOf(farm), wx=BN.wx||{}, ed=BN.log.filter(function(x){ return x.id===BN.edit; })[0];
+  var h='<div class="card"><h2>Burn log</h2><p class="small">Log each field you burn with the date and time. Fetch the weather from the nearest weather station for that time, or type it in.</p>'+
+    '<div class="toolbar"><label class="f">Weather station<input type="text" data-bnf="station" value="'+esc(BN.station)+'" placeholder="e.g. KMSY" autocapitalize="characters"></label>'+
+    '<label class="f">Latitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lat" value="'+esc(BN.lat)+'"></label>'+
+    '<label class="f">Longitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lon" value="'+esc(BN.lon)+'"></label></div>'+
+    '<div class="toolbar"><button class="btn ghost" type="button" data-bn="find"'+(BN.loading?' disabled':'')+'>Find the nearest station</button></div>'+
+    '<p class="small">'+(BN.stationName?esc(BN.station+' · '+BN.stationName):'')+'</p></div>';
+  h+='<div class="card"><h2>'+(ed?'Editing a burn':'New burn')+'</h2>'+
+    '<div class="toolbar"><label class="f">Farm<select data-bnf="farm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label>'+
+    '<label class="f">Field ID<input type="text" list="bnFields" data-bnf="field" value="'+esc(BN.field)+'" placeholder="Field" autocomplete="off"></label><datalist id="bnFields">'+fields.map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist></div>'+
+    '<div class="toolbar"><label class="f">Date burned<input type="date" data-bnf="date" value="'+esc(BN.date)+'"></label>'+
+    '<label class="f">Time<input type="time" data-bnf="time" value="'+esc(BN.time)+'"></label>'+
+    '<label class="f">Acres (optional)<input type="number" step="0.01" min="0" inputmode="decimal" data-bnf="acres" value="'+esc(BN.acres)+'"></label></div>'+
+    '<div class="toolbar"><button class="btn ghost sm" type="button" data-bn="now">Use the date and time now</button></div>'+
+    '<label class="f" style="margin-top:12px">Category day<select data-bnf="catDay"><option value="">Not set</option>'+[['1','1 · No burning'],['2','2 · After 11 am, once the inversion lifts'],['3','3 · After the inversion lifts'],['4','4 · Any time of day'],['5','5 · Unstable and windy, burn with caution']].map(function(o){ return '<option value="'+o[0]+'"'+(String(BN.catDay)===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select></label>'+
+    '<p class="small">The category day comes from the National Weather Service fire weather forecast for the morning. Pick it from the forecast. Mixing height and transport wind are fetched from the forecast grid when they are available, or type them in.</p>'+
+    '<div class="lbl" style="margin-top:14px">Weather at the burn</div>'+
+    '<div class="toolbar"><button class="btn" type="button" data-bn="fetch"'+(BN.loading?' disabled':'')+'>'+(BN.loading?'Working…':'Fetch weather')+'</button></div>'+
+    '<p class="small" id="bnMsg">'+esc(BN.msg)+'</p>'+
+    '<div class="toolbar">'+BN_WX.map(function(w){ return '<label class="f">'+w[1]+'<input type="number" step="any" inputmode="decimal" data-bnw="'+w[0]+'" value="'+esc(wx[w[0]]==null?'':wx[w[0]])+'"></label>'; }).join('')+'</div>'+
+    '<div class="toolbar"><label class="f">Sky or conditions<input type="text" data-bnw="sky" value="'+esc(wx.sky||'')+'" placeholder="e.g. Clear"></label></div>'+
+    (wx.obsAt?'<p class="small">Reading from '+esc(wx.station||'')+' taken '+esc(new Date(wx.obsAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(wx.windDir?' · wind from the '+esc(wx.windDir):'')+'.</p>':'')+
+    '<label class="f" style="margin-top:12px">Notes (optional)<textarea rows="2" data-bnf="notes">'+esc(BN.notes)+'</textarea></label>'+
+    '<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-bn="save">'+(ed?'Update this burn':'Save burn')+'</button>'+(ed?'<button class="btn ghost" type="button" data-bn="saveNew">Save as new burn</button><button class="btn ghost" type="button" data-bn="cancel">Cancel edit</button>':'')+'</div></div>';
+  h+='<div class="card"><h2>Saved burns</h2><div id="bnLog"></div><div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download all as CSV</button></div><p class="small" id="bnFoot"></p></div>';
+  root.innerHTML=h; bnLogRender();
+}
+function bnWhen(e){ return new Date(e.burnedAt).toLocaleString([],{weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
+function bnLogRender(){
+  var el=$('#bnLog'); if(!el) return;
+  var f=$('#bnFoot'); if(f) f.textContent=BN.shared?'Saved automatically and shared with the other administrators.':'Saved on this device only. Run the latest schema.sql in Supabase to share it.';
+  var l=BN.log.slice().sort(function(a,b){ return b.burnedAt-a.burnedAt; });
+  if(!l.length){ el.innerHTML='<p class="small">No burns saved yet.</p>'; return; }
+  el.innerHTML=l.map(function(e){
+    var w=e.wx||{}, bits=[]; if(w.tempF!=='' && w.tempF!=null) bits.push(w.tempF+'°F'); if(w.rh!==''&&w.rh!=null) bits.push(w.rh+'% RH'); if(w.windMph!==''&&w.windMph!=null) bits.push((w.windDir?w.windDir+' ':'')+w.windMph+' mph'); if(w.gustMph!==''&&w.gustMph!=null&&Number(w.gustMph)>0) bits.push('gust '+w.gustMph);
+    if(e.catDay) bits.unshift('Category '+e.catDay); if(w.mixHt!==''&&w.mixHt!=null) bits.push('mixing '+Number(w.mixHt).toLocaleString()+' ft'); if(w.transMph!==''&&w.transMph!=null) bits.push('transport '+w.transMph+' mph');
+    var k='del:'+e.id;
+    return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="sec-head"><b>'+esc(e.field||'(no field)')+'</b><span class="small">'+esc(e.farmName||'')+'</span></div>'+
+      '<div class="small">'+esc(bnWhen(e))+(e.acres?' · '+esc(e.acres)+' ac':'')+'</div>'+
+      '<div class="small">'+(bits.length?esc(bits.join(' · ')):'No weather')+(w.station?' · '+esc(w.station):'')+(w.sky?' · '+esc(w.sky):'')+'</div>'+
+      (e.notes?'<div class="small">'+esc(e.notes)+'</div>':'')+
+      '<div class="small">Logged '+esc(new Date(e.loggedAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(e.by?' by '+esc(e.by):'')+(e.editedAt?' · edited':'')+'</div>'+
+      '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button><button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
+  }).join('');
+}
+var BN_HEAD=['logged_at','farm','field','burn_date','burn_time','acres','category_day','temp_f','dew_point_f','humidity_pct','wind_mph','gust_mph','wind_from','wind_from_deg','pressure_inhg','visibility_mi','mixing_height_ft','transport_wind_mph','ventilation_rate','conditions','station','observed_at','source','notes','logged_by'];
+function bnCsv(list){
+  var L=[BN_HEAD.join(',')]; list.slice().sort(function(a,b){ return a.burnedAt-b.burnedAt; }).forEach(function(e){ var w=e.wx||{};
+    L.push([new Date(e.loggedAt).toISOString(),e.farmName,e.field,e.date,e.time,e.acres,e.catDay,w.tempF,w.dewF,w.rh,w.windMph,w.gustMph,w.windDir,w.windDeg,w.pressInHg,w.visMi,w.mixHt,w.transMph,(Number(w.mixHt)>0&&Number(w.transMph)>0?Math.round(Number(w.mixHt)*Number(w.transMph)):''),w.sky,w.station,w.obsAt?new Date(w.obsAt).toISOString():'',w.src||'',e.notes,e.by].map(csvCell).join(',')); });
+  return L.join('\n');
+}
+function bnDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:bnCsv(list) }); }
+function bnPersist(){
+  lsSet('cane-truck-log:burnlog', JSON.stringify(BN.log));
+  dref('tools/burnlog').set({ entries:BN.log, station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon }).then(function(){ if(!BN.shared){ BN.shared=true; bnLogRender(); } }).catch(function(){ if(BN.shared){ BN.shared=false; bnLogRender(); } });
+}
+async function bnLoad(){
+  BN.loaded=true; var local=[]; try{ local=JSON.parse(lsGet('cane-truck-log:burnlog')||'[]')||[]; }catch(e){}
+  try{
+    var r=docs(await col('tools').get()).filter(function(x){ return x.id==='burnlog'; })[0];
+    if(r){ BN.log=r.entries||[]; if(!BN.station && r.station){ BN.station=r.station; BN.stationName=r.stationName||''; BN.lat=r.lat||BN.lat; BN.lon=r.lon||BN.lon; } }
+    else { BN.log=local; if(local.length) bnPersist(); }
+  }catch(e){ BN.shared=false; BN.log=local; }
+  if(!bnTyping()) bnRender(); else bnLogRender();
+}
+function bnTyping(){ var a=document.activeElement, r=$('#bnRoot'); return !!(a && r && r.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)); }
+function bnShow(){ if(!$('#bnRoot').firstChild) bnRender(); if(!BN.loaded) bnLoad(); }
+function bnEntry(){
+  var fm=farmById(BN.farm), w=BN.wx||{}, now=Date.now();
+  var e={ farm:BN.farm, farmName:fm?fm.name:'', field:(BN.field||'').trim(), catDay:BN.catDay||'', date:BN.date, time:BN.time, burnedAt:bnMs(), acres:BN.acres, notes:(BN.notes||'').trim(), loggedAt:now, by:(S.profile&&S.profile.name)||'',
+    wx:{ station:w.station||(BN.station||'').toUpperCase(), src:w.src||'manual', obsAt:w.obsAt||null, windDir:w.windDir||'' } };
+  BN_WX.forEach(function(x){ e.wx[x[0]]=w[x[0]]==null?'':w[x[0]]; }); e.wx.sky=w.sky||'';
+  if(!e.wx.windDir && e.wx.windDeg!=='') e.wx.windDir=bnCompass(Number(e.wx.windDeg));
+  return e;
+}
+document.addEventListener('input',function(e){
+  var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'), w=el&&el.getAttribute&&el.getAttribute('data-bnw');
+  if(f){ if(f==='farm') return; BN[f]=el.value; if(f==='station'||f==='lat'||f==='lon'){ if(f==='station') BN.stationName=''; bnSaveLocal(); } }
+  else if(w){ BN.wx=BN.wx||{}; BN.wx[w]=el.value; if(w==='windDeg'){ BN.wx.windDir=bnCompass(Number(el.value)); } BN.wx.src='manual'; }
+});
+document.addEventListener('change',function(e){
+  var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'); if(!f) return;
+  if(f==='farm'){ BN.farm=el.value; BN.field=''; bnSaveLocal(); bnRender(); }
+  if(f==='station'){ BN.station=el.value.trim().toUpperCase(); bnSaveLocal(); bnPersist(); }
+  if(f==='catDay') BN.catDay=el.value;
+});
+document.addEventListener('click',function(e){
+  var el=e.target.closest ? e.target.closest('[data-bn]') : null; if(!el) return;
+  var a=el.getAttribute('data-bn');
+  if(a==='find') bnFindStation();
+  else if(a==='fetch') bnFetchWx();
+  else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
+  else if(a==='save'||a==='saveNew'){
+    if(!(BN.field||'').trim()){ toast('Enter the field ID.'); return; }
+    var en=bnEntry(), old=a==='save' && BN.edit ? BN.log.filter(function(x){ return x.id===BN.edit; })[0] : null;
+    if(old){ en.id=old.id; en.loggedAt=old.loggedAt; en.by=old.by; en.editedAt=Date.now(); BN.log=BN.log.map(function(x){ return x.id===old.id?en:x; }); }
+    else { en.id='b'+Date.now(); BN.log.push(en); }
+    BN.edit=''; BN.field=''; BN.catDay=''; BN.acres=''; BN.notes=''; BN.wx={}; BN.msg=old?'Burn updated.':'Burn saved.'; bnPersist(); bnRender(); toast(BN.msg);
+  }
+  else if(a==='edit'){
+    var x=BN.log.filter(function(r){ return r.id===el.getAttribute('data-id'); })[0]; if(!x) return;
+    BN.edit=x.id; BN.farm=x.farm; BN.field=x.field; BN.catDay=x.catDay||''; BN.date=x.date; BN.time=x.time; BN.acres=x.acres||''; BN.notes=x.notes||''; BN.wx=Object.assign({},x.wx); BN.msg=''; bnRender(); window.scrollTo(0,0);
+  }
+  else if(a==='cancel'){ BN.edit=''; BN.field=''; BN.catDay=''; BN.acres=''; BN.notes=''; BN.wx={}; BN.msg=''; bnRender(); }
+  else if(a==='csvAll') bnDownload('burn-log.csv',BN.log);
+  else if(a==='csv'){ var id=el.getAttribute('data-id'); bnDownload('burn-'+id+'.csv',BN.log.filter(function(r){ return r.id===id; })); }
+  else if(a==='del'){ var id2=el.getAttribute('data-id'), k='del:'+id2; if(BN.confirm===k){ BN.confirm=''; BN.log=BN.log.filter(function(r){ return r.id!==id2; }); if(BN.edit===id2) BN.edit=''; bnPersist(); } else { BN.confirm=k; setTimeout(function(){ if(BN.confirm===k){ BN.confirm=''; bnLogRender(); } },4000); } bnLogRender(); }
+});
 /* ---- Sugar per acre: per mill, then combined per farm and for all farms ---- */
 var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'', gdate:'', edit:{}, log:[], logLoaded:false, shared:true, sig:'', confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; SG.liq=d.liq||''; SG.share=d.share||''; SG.gdate=d.gdate||''; } }catch(e){} })();
