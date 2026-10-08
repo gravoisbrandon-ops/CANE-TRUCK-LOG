@@ -727,7 +727,7 @@ function openEdit(id){
   S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs) };
   $('#sheetWrap').hidden=false;
   renderEdit(true);
-  var s=$('#eTruck'); if(s) s.focus();
+  var s=document.querySelector('#sheet .close'); if(s) s.focus();
 }
 function closeEdit(){ S.edit=null; $('#sheetWrap').hidden=true; $('#sheet').innerHTML=''; }
 function renderEdit(force){
