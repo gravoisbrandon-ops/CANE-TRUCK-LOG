@@ -1478,7 +1478,7 @@ function toolsShow(){
   if(t==='sugar') sgShow();
 }
 /* ---- Sugar per acre: per mill, then combined per farm and for all farms ---- */
-var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'', gdate:'', log:[], logLoaded:false, shared:true, sig:'', confirm:'' };
+var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'', gdate:'', edit:{}, log:[], logLoaded:false, shared:true, sig:'', confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; SG.liq=d.liq||''; SG.share=d.share||''; SG.gdate=d.gdate||''; } }catch(e){} })();
 function sgSave(){ lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share, gdate:SG.gdate })); }
 function sgFarm(id){
@@ -1561,7 +1561,7 @@ function sgRender(){
       '<h2 style="margin-top:16px">'+esc(f.name)+' combined</h2><div class="stats" id="sgO_'+esc(f.id)+'"></div>'+sgSaveBox(f.id,o.date)+'</div>';
   });
   h+='<div class="card"><h2>All farms combined</h2><div class="stats" id="sgAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
-  root.innerHTML=h; sgOut(); sgLogRender(); sgFoot();
+  root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender();
 }
 
 function sgSig(){ return JSON.stringify(S.farms.map(function(f){ return [f.id,f.name,f.mills||[]]; })); }
@@ -1575,7 +1575,10 @@ function sgShow(){
 function sgAggM(ms){ var t=0,sg=0,st=0,tw=0; ms.forEach(function(m){ var n=sgN(m.tons), r=sgN(m.trs), l=sgN(m.liq); if(n!=null&&n>0){ t+=n; if(r!=null&&r>0){ sg+=n*r*(l==null?100:l)/100; st+=n; tw+=n*r; } } }); return { tons:t, sugar:sg, sTons:st, trsW:tw }; }
 function sgSaveBox(scope,date){
   return '<div class="sgsave" style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px"><div class="toolbar"><label class="f">Date<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||today())+'"></label>'+
-    '<button class="btn" type="button" data-sg="save" data-scope="'+esc(scope)+'">Save to log</button></div>'+
+    '<button class="btn" type="button" data-sg="save" data-scope="'+esc(scope)+'">Save as new set</button>'+
+    '<button class="btn" type="button" data-sg="update" data-scope="'+esc(scope)+'" hidden>Update this set</button>'+
+    '<button class="btn ghost" type="button" data-sg="cancel" data-scope="'+esc(scope)+'" hidden>Cancel edit</button></div>'+
+    '<p class="small" data-sgmode="'+esc(scope)+'"></p>'+
     '<div class="lbl" style="margin-top:12px">Progress</div><div data-sgprog="'+esc(scope)+'"></div>'+
     '<div class="lbl" style="margin-top:12px">Saved log</div><div data-sglog="'+esc(scope)+'"></div>'+
     '<div class="toolbar"><button class="btn ghost sm" type="button" data-sg="csvAll" data-scope="'+esc(scope)+'">Download all as CSV</button></div></div>';
@@ -1626,6 +1629,16 @@ function sgProgress(asc){
   });
   return '<div class="tablewrap"><table><thead><tr><th>Date</th><th class="n">Tons</th><th class="n">Tons/acre</th><th class="n">Lb sugar/acre</th><th class="n">Change</th></tr></thead><tbody>'+body.map(function(t){ return '<tr>'+t+'</tr>'; }).join('')+'</tbody></table></div>';
 }
+function sgModeRender(){
+  var els=document.querySelectorAll('[data-sgmode]');
+  for(var i=0;i<els.length;i++){
+    var el=els[i], sc=el.getAttribute('data-sgmode'), box=el.parentNode;
+    var en=SG.edit[sc] ? SG.log.filter(function(x){ return x.id===SG.edit[sc]; })[0] : null;
+    if(SG.edit[sc] && !en) delete SG.edit[sc];
+    box.querySelector('[data-sg=update]').hidden=!en; box.querySelector('[data-sg=cancel]').hidden=!en;
+    el.textContent = en ? 'Editing the set from '+en.date+(en.savedAt?' ('+new Date(en.savedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+')':'')+'. Change the numbers, then Update this set. Save as new set keeps it and adds another.' : 'Save as new set adds a snapshot. Open a saved set below to change it.';
+  }
+}
 function sgInScope(e,scope){ return scope==='all' ? (!e.scope || e.scope==='all') : e.scope===scope; }
 function sgLogRender(){
   var els=document.querySelectorAll('[data-sglog]');
@@ -1636,8 +1649,8 @@ function sgLogRender(){
     var pe=document.querySelector('[data-sgprog="'+scope+'"]'); if(pe) pe.innerHTML=sgProgress(l.slice().reverse());
     el.innerHTML=l.map(function(e){
       var rows=sgRowsOf(e), last=rows[rows.length-1], k='del:'+e.id, lpa=last[10];
-      return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="sec-head"><b>'+esc(e.date)+'</b><span class="small">'+(e.savedAt?esc(new Date(e.savedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))+' · ':'')+esc(last[5])+' tons'+(lpa!==''?' · '+esc(Number(lpa).toLocaleString())+' lb/acre':'')+(e.by?' · '+esc(e.by):'')+'</span></div>'+
-        '<div class="toolbar"><button class="btn sm" type="button" data-sg="open" data-id="'+esc(e.id)+'">Open</button><button class="btn sm" type="button" data-sg="csv" data-id="'+esc(e.id)+'">CSV</button><button class="btn ghost sm" type="button" data-sg="del" data-id="'+esc(e.id)+'">'+(SG.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
+      return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="sec-head"><b>'+esc(e.date)+'</b><span class="small">'+(e.savedAt?esc(new Date(e.savedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))+' · ':'')+esc(last[5])+' tons'+(lpa!==''?' · '+esc(Number(lpa).toLocaleString())+' lb/acre':'')+(e.by?' · '+esc(e.by):'')+(e.editedAt?' · edited':'')+'</span></div>'+
+        '<div class="toolbar"><button class="btn sm" type="button" data-sg="open" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-sg="csv" data-id="'+esc(e.id)+'">CSV</button><button class="btn ghost sm" type="button" data-sg="del" data-id="'+esc(e.id)+'">'+(SG.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
     }).join('');
   }
 }
@@ -1693,17 +1706,24 @@ document.addEventListener('click',function(e){
   else if(a==='rm'){ sgFarm(fid).rows.splice(Number(el.getAttribute('data-i')),1); sgSave(); sgRender(); }
   else if(a==='save'){
     var sc=el.getAttribute('data-scope'), e2=sgSnapshot(sc); if(!e2.farms.length){ toast('Enter some tons first.'); return; }
-    SG.log.push(e2); sgPersist(); sgLogRender(); toast('Saved as a new set for '+e2.date+'.');
+    SG.log.push(e2); sgPersist(); sgLogRender(); SG.edit[sc]=''; delete SG.edit[sc]; sgModeRender(); toast('Saved as a new set for '+e2.date+'.');
   }
   else if(a==='csvAll'){ var sc2=el.getAttribute('data-scope'); sgDownload('sugar-per-acre-'+(sc2==='all'?'all-farms':(farmById(sc2)||{name:'farm'}).name.replace(/[^A-Za-z0-9]+/g,'-'))+'.csv',SG.log.filter(function(x){ return sgInScope(x,sc2); })); }
   else if(a==='csv'){ var id=el.getAttribute('data-id'); sgDownload('sugar-per-acre-'+id.replace(/[^A-Za-z0-9-]+/g,'-')+'.csv',SG.log.filter(function(x){ return x.id===id; })); }
-  else if(a==='del'){ var id2=el.getAttribute('data-id'), k='del:'+id2; if(SG.confirm===k){ SG.confirm=''; SG.log=SG.log.filter(function(x){ return x.id!==id2; }); sgPersist(); } else { SG.confirm=k; setTimeout(function(){ if(SG.confirm===k){ SG.confirm=''; sgLogRender(); } },4000); } sgLogRender(); }
+  else if(a==='del'){ var id2=el.getAttribute('data-id'), k='del:'+id2; if(SG.confirm===k){ SG.confirm=''; SG.log=SG.log.filter(function(x){ return x.id!==id2; }); sgPersist(); } else { SG.confirm=k; setTimeout(function(){ if(SG.confirm===k){ SG.confirm=''; sgLogRender(); } },4000); } sgLogRender();  sgModeRender(); }
+  else if(a==='update'){
+    var sc3=el.getAttribute('data-scope'), oid=SG.edit[sc3], old=SG.log.filter(function(x){ return x.id===oid; })[0]; if(!old){ toast('That set is gone.'); return; }
+    var e3=sgSnapshot(sc3); if(!e3.farms.length){ toast('Enter some tons first.'); return; }
+    e3.id=old.id; e3.savedAt=old.savedAt; e3.by=old.by; e3.editedAt=Date.now(); e3.editedBy=(S.profile&&S.profile.name)||'';
+    SG.log=SG.log.map(function(x){ return x.id===oid ? e3 : x; }); sgPersist(); sgLogRender(); sgModeRender(); toast('Updated the set from '+e3.date+'.');
+  }
+  else if(a==='cancel'){ delete SG.edit[el.getAttribute('data-scope')]; sgModeRender(); }
   else if(a==='open'){
     var en=SG.log.filter(function(x){ return x.id===el.getAttribute('data-id'); })[0]; if(!en) return;
     var one=en.scope && en.scope!=='all'; if(one) sgFarm(en.scope).date=en.date; else SG.gdate=en.date;
     S.farms.forEach(function(f){ if(one && f.id!==en.scope) return; var o=sgFarm(f.id); o.acres=''; o.rows.forEach(function(r){ r.tons=''; r.trs=''; r.liq=''; r.src=''; }); });
     en.farms.forEach(function(sf){ var o=sgFarm(sf.id); o.acres=sf.acres?String(sf.acres):''; sf.mills.forEach(function(m){ var row=null; o.rows.forEach(function(r){ if(!row && String(r.mill).toLowerCase()===String(m.mill).toLowerCase()) row=r; }); if(!row){ row={ mill:m.mill, tons:'', trs:'', liq:'', src:'' }; o.rows.push(row); } row.tons=String(m.tons); row.trs=String(m.trs); row.liq=String(m.liq); }); });
-    sgSave(); sgRender(); window.scrollTo(0,0); toast('Opened '+en.date+'.');
+    SG.edit[one?en.scope:'all']=en.id; sgSave(); sgRender(); toast('Editing the set from '+en.date+'.');
   }
 });
 
