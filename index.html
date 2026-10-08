@@ -1608,7 +1608,7 @@ function pdfSugar(){
   var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
   var scope=vw==='*'?'all':vw, ck=sgCheck(scope,false);
-  if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint' }); secs.push({ head:ck.runHead, rows:ck.run }); secs.push({ h:'Checkpoint to checkpoint' }); secs.push({ head:ck.segHead, rows:ck.seg }); }
+  if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint' }); secs.push({ head:ck.runHead, rows:ck.run }); secs.push({ h:'Results for each period, since the previous logged data' }); secs.push({ head:ck.segHead, rows:ck.seg }); }
   pdfShare('Sugar per acre',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('sugar-per-acre-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
 }
 function pdfReport(which){
@@ -2141,24 +2141,24 @@ function sgCheck(scope, withCur){
   var sets=sgSetsOf(scope).map(function(e){ return sgTot(e); });
   if(withCur){ var cur=sgSnapshot(scope), ct=sgTot(cur); if(ct.tons>0 && (!sets.length || ct.date>=sets[sets.length-1].date)) { ct.cur=true; sets.push(ct); } }
   var z0=sgZeroDate(scope), prev={ date:z0, ac:null, tons:0, trs:null, sugar:0 }, n1=function(v,d){ return v==null||!isFinite(v)?'–':(d?Number(v).toFixed(d):Math.round(v).toLocaleString()); };
-  var run=[], seg=[];
+  var run=[], seg=[], prev={ date:z0, ac:0, tons:0, trs:null, sugar:0 };
   sets.forEach(function(b,k){
     var label=b.date+(b.cur?' (on screen, not saved)':''), d=sgDays(z0,b.date);
-    run.push([label,d==null?'':d,n1(b.tons,1),n1(b.tpa,2),n1(b.trs,1),n1(b.per,1),n1(b.sugar),n1(b.lpa)]);
-    var dt=b.tons-prev.tons, ds=(b.sugar!=null&&prev.sugar!=null)?b.sugar-prev.sugar:null, ac=b.ac||prev.ac, dd=sgDays(prev.date,b.date);
+    run.push([label,d==null?'':d,n1(b.ac,1),n1(b.tons,1),n1(b.tpa,2),n1(b.trs,1),n1(b.per,1),n1(b.sugar),n1(b.lpa)]);
+    var dt=b.tons-prev.tons, ds=(b.sugar!=null&&prev.sugar!=null)?b.sugar-prev.sugar:null, ac=(b.ac!=null)?(b.ac-(prev.ac||0)):null, dd=sgDays(prev.date,b.date); var same=false; if(ac!=null&&ac===0&&b.ac>0){ ac=b.ac; same=true; } else if(ac!=null&&ac<0) ac=null;
     var tr=dt>0?(prev.tons===0?b.trs:((prev.trs!=null&&b.trs!=null)?(b.trs*b.tons-prev.trs*prev.tons)/dt:null)):null;
-    seg.push([(k===0?'Start':prev.date)+' to '+b.date+(b.cur?' (screen)':''),dd==null?'':dd,dt>0?n1(dt,1):'–',(dt>0&&ac)?n1(dt/ac,2):'–',n1(tr,1),(dt>0&&ds!=null)?n1(ds/dt,1):'–',(ds!=null&&dt>0)?n1(ds):'–',(ds!=null&&ac&&dt>0)?n1(ds/ac):'–']);
+    seg.push([(k===0?'Start':prev.date)+' to '+b.date+(b.cur?' (screen)':''),dd==null?'':dd,ac?n1(ac,1)+(same?'*':''):'–',dt>0?n1(dt,1):'–',n1(tr,1),(dt>0&&ac)?n1(dt/ac,2):'–',(ds!=null&&ac&&dt>0)?n1(ds/ac):'–']);
     prev=b;
   });
-  return { run:run, seg:seg, runHead:['Checkpoint (end of day)','Days since start','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'], segHead:['Between checkpoints','Days','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'] };
+  return { run:run, seg:seg, runHead:['Checkpoint (end of day)','Days since start','Acres','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'], segHead:['Results for the period','Days','New acres','Tons hauled','Avg TRS','Tons/acre','Lb sugar/acre'] };
 }
 function sgCmpOut(scope){
   var c=sgCheck(scope,true); if(!c.run.length) return '<p class="small">Save a set at the end of a day to make the first checkpoint. Numbers typed on screen show here as the next checkpoint.</p>';
   var T=function(head,rows){ return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+rows.map(function(r){ return '<tr>'+r.map(function(x,i){ return '<td'+(i?' class="n"':'')+'>'+esc(x)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>'; };
   return '<p class="small">Each saved set is an end-of-day checkpoint. The first one is measured from the start of harvest ('+esc(sgZeroDate(scope))+').</p>'+
     '<div class="lbl" style="margin-top:8px">Running average, start to each checkpoint</div>'+T(c.runHead,c.run)+
-    '<div class="lbl" style="margin-top:12px">Checkpoint to checkpoint</div>'+T(c.segHead,c.seg)+
-    '<p class="small">The second table is only what happened between the two checkpoints: the tons hauled, their average TRS and their lb sugar per ton and per acre.</p>';
+    '<div class="lbl" style="margin-top:12px">Results for each period, since the previous logged data</div>'+T(c.segHead,c.seg)+
+    '<p class="small">The second table is what the results were in just that period. New acres and tons hauled are this checkpoint\'s total minus the last logged total. Tons per acre and lb sugar per acre divide the new tons and new sugar by the new acres. Period TRS = (new tons x new TRS minus old tons x old TRS) / new tons, where tons are tons per acre x acres, so it is the same as weighting old and new by tons per acre and acres. A * means the acres did not change since the last log, so the total acres were used. The first period runs from the start of harvest.</p>';
 }
 function sgCmpRender(){
   var els=document.querySelectorAll('[data-sgcmp]');
