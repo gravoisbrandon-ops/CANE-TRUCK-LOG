@@ -1498,7 +1498,7 @@ function toolsShow(){
   if(t==='burn') bnShow();
 }
 /* ---- Burn log: field, date and time burned, weather from a National Weather Service station ---- */
-var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
+var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', smsg:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.place=d.place||''; BN.farm=d.farm||''; BN.grid=d.grid||''; BN.cwa=d.cwa||''; BN.fz=d.fz||''; } }catch(e){} })();
 function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, place:BN.place, farm:BN.farm, grid:BN.grid, cwa:BN.cwa, fz:BN.fz })); }
 function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())+':'+pad(d.getMinutes()) }; }
@@ -1515,8 +1515,8 @@ function bnObs(p){
 async function bnJson(url){ var r=await fetch(url,{ headers:{ 'Accept':'application/geo+json' } }); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
 async function bnJsonRetry(url){ try{ return await bnJson(url); }catch(e){ await new Promise(function(r){ setTimeout(r,800); }); return bnJson(url); } }
 async function bnFindStation(){
-  var lat=parseFloat(BN.lat), lon=parseFloat(BN.lon); if(!isFinite(lat)||!isFinite(lon)){ BN.msg='Type your town or ZIP code and press Find my town, or press Use my location, then look for the station.'; bnMsg(); return; }
-  BN.loading=true; BN.msg='Looking for the nearest station…'; bnMsg();
+  var lat=parseFloat(BN.lat), lon=parseFloat(BN.lon); if(!isFinite(lat)||!isFinite(lon)){ BN.smsg='Type your town or ZIP code and press Find my town, or press Use my location, then look for the station.'; bnSMsg(); return; }
+  BN.loading=true; BN.smsg='Looking for the nearest station…'; bnSMsg();
   try{
     var pt=await bnJsonRetry('https://api.weather.gov/points/'+lat.toFixed(4)+','+lon.toFixed(4));
     BN.grid=pt.properties.gridId+'/'+pt.properties.gridX+','+pt.properties.gridY; BN.cwa=pt.properties.cwa||''; BN.fz=String(pt.properties.fireWeatherZone||'').split('/').pop();
@@ -1529,14 +1529,14 @@ async function bnFindStation(){
     }
     var f=pick||fs[0];
     BN.station=f.properties.stationIdentifier; BN.stationName=f.properties.name||'';
-    BN.msg='Nearest station: '+BN.station+(BN.stationName?' ('+BN.stationName+')':'')+(pick&&tried>1?' (closer stations had no recent readings).':'.'); bnSaveLocal(); bnPersist();
-  }catch(e){ try{ console.warn('station lookup',e); }catch(x){} BN.msg='Could not reach the National Weather Service ('+((e&&e.message)||'error')+'). Try again in a minute, or type a station ID such as KLFT (Lafayette) or KMSY (New Orleans).'; }
+    BN.smsg='Nearest station: '+BN.station+(BN.stationName?' ('+BN.stationName+')':'')+(pick&&tried>1?' (closer stations had no recent readings).':'.'); bnSaveLocal(); bnPersist();
+  }catch(e){ try{ console.warn('station lookup',e); }catch(x){} BN.smsg='Could not reach the National Weather Service ('+((e&&e.message)||'error')+'). Try again in a minute, or type a station ID such as KLFT (Lafayette) or KMSY (New Orleans).'; }
   BN.loading=false; bnRender();
 }
 function bnSetPlace(lat,lon,label){ BN.lat=Number(lat).toFixed(4); BN.lon=Number(lon).toFixed(4); BN.cwa=''; BN.fz=''; BN.grid=''; BN.station=''; BN.stationName=''; if(label) BN.place=label; bnSaveLocal(); }
 async function bnFindPlace(){
-  var q=(BN.place||'').trim(); if(!q){ BN.msg='Type your town or ZIP code first.'; bnMsg(); return; }
-  BN.loading=true; BN.msg='Looking up '+q+'…'; bnMsg();
+  var q=(BN.place||'').trim(); if(!q){ BN.smsg='Type your town or ZIP code first.'; bnSMsg(); return; }
+  BN.loading=true; BN.smsg='Looking up '+q+'…'; bnSMsg();
   try{
     var lat,lon,label=q;
     if(/^\d{5}/.test(q)){
@@ -1551,13 +1551,13 @@ async function bnFindPlace(){
       lat=m.latitude; lon=m.longitude; label=m.name+', '+(m.admin1||'');
     }
     bnSetPlace(lat,lon,label); BN.loading=false; await bnFindStation(); return;
-  }catch(e){ try{ console.warn('place lookup',e); }catch(x){} BN.msg='Could not find that place. Try the ZIP code instead, or press Use my location.'; }
+  }catch(e){ try{ console.warn('place lookup',e); }catch(x){} BN.smsg='Could not find that place. Try the ZIP code instead, or press Use my location.'; }
   BN.loading=false; bnRender();
 }
 function bnLocate(){
-  if(!navigator.geolocation){ BN.msg='This device cannot share its location. Type your town or ZIP code instead.'; bnMsg(); return; }
-  BN.msg='Getting your location…'; bnMsg();
-  navigator.geolocation.getCurrentPosition(function(p){ bnSetPlace(p.coords.latitude,p.coords.longitude,'My location'); bnFindStation(); },function(){ BN.msg='Could not get your location. Allow location access, or type your town or ZIP code.'; bnMsg(); },{ timeout:15000, maximumAge:600000 });
+  if(!navigator.geolocation){ BN.smsg='This device cannot share its location. Type your town or ZIP code instead.'; bnSMsg(); return; }
+  BN.smsg='Getting your location…'; bnSMsg();
+  navigator.geolocation.getCurrentPosition(function(p){ bnSetPlace(p.coords.latitude,p.coords.longitude,'My location'); bnFindStation(); },function(){ BN.smsg='Could not get your location. Allow location access, or type your town or ZIP code.'; bnSMsg(); },{ timeout:15000, maximumAge:600000 });
 }
 /* Category day, mixing height and transport wind come from the National Weather Service fire weather forecast (FWF) for the burn's fire weather zone */
 function bnUgcSet(txt){
@@ -1653,6 +1653,7 @@ async function bnFetchWx(){
   BN.msg=(bits.length?'Got '+bits.join('; ')+'. ':'')+(miss.length?'Could not get '+miss.join(' or ')+', type it in. ':'')+(bits.length?'You can change any number.':'');
   BN.loading=false; bnRender();
 }
+function bnSMsg(){ var e=$('#bnSMsg'); if(e) e.textContent=BN.smsg||''; }
 function bnMsg(){ var e=$('#bnMsg'); if(e) e.textContent=BN.msg; }
 var BN_WX=[['tempF','Temp °F'],['dewF','Dew point °F'],['rh','Humidity %'],['windMph','Wind mph'],['windDeg','Wind from (deg)'],['pressInHg','Pressure inHg'],['visMi','Visibility mi'],['mixHt','Mixing height ft'],['transMph','Transport wind mph']];
 function bnRender(){
@@ -1667,7 +1668,7 @@ function bnRender(){
     '<label class="f">Latitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lat" value="'+esc(BN.lat)+'"></label>'+
     '<label class="f">Longitude<input type="number" step="0.0001" inputmode="decimal" data-bnf="lon" value="'+esc(BN.lon)+'"></label></div>'+
     '<div class="toolbar"><button class="btn ghost" type="button" data-bn="find"'+(BN.loading?' disabled':'')+'>Find the nearest station from latitude and longitude</button></div>'+
-    '<p class="small">'+(BN.stationName?esc(BN.station+' · '+BN.stationName):'')+'</p></div>';
+    '<p class="small" style="font-weight:600">'+(BN.stationName?esc(BN.station+' · '+BN.stationName):'')+'</p><p class="small" id="bnSMsg">'+esc(BN.smsg||'')+'</p></div>';
   h+='<div class="card"><h2>'+(ed?'Editing a burn':'New burn')+'</h2>'+
     '<div class="toolbar"><label class="f">Farm<select data-bnf="farm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label>'+
     '<label class="f">Track<input type="text" list="bnTracks" data-bnf="track" value="'+esc(BN.track)+'" placeholder="Track" autocomplete="off"></label><datalist id="bnTracks">'+tracksOf(farm).map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist>'+
