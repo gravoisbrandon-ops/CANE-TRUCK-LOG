@@ -1506,6 +1506,8 @@ document.addEventListener('change',function(e){
   var el=e.target; if(!el||!el.getAttribute||!isOffice()) return;
   var hc=el.getAttribute('data-hc'), hm=el.getAttribute('data-hm');
   if(hc){ var f=farmById(hc); if(!f) return; var v=el.value.replace(/[^0-9A-Za-z]/g,'').slice(0,6); f.haulerCode=v; last.farms=''; last.report=''; schedule(); dref('farms/'+hc).update({ haulerCode:v }).catch(fail); }
+  var hk=el.getAttribute('data-hmc');
+  if(hk){ var q=farmById(hk); if(!q) return; var mc=Object.assign({},q.haulerMillCodes||{}), mm=el.getAttribute('data-v'), vv=el.value.replace(/[^0-9A-Za-z]/g,'').slice(0,6); if(vv) mc[mm]=vv; else delete mc[mm]; q.haulerMillCodes=mc; last.farms=''; last.report=''; schedule(); dref('farms/'+hk).update({ haulerMillCodes:mc }).catch(fail); }
   if(hm){ var g=farmById(hm); if(!g) return; var cur=(g.haulerMills||[]).slice(), m=el.getAttribute('data-v'), i=cur.indexOf(m); if(el.checked && i<0) cur.push(m); if(!el.checked && i>=0) cur.splice(i,1); g.haulerMills=cur; last.report=''; schedule(); dref('farms/'+hm).update({ haulerMills:cur }).catch(fail); }
 });
 /* ---- Shareable PDF reports: a small built-in PDF writer (Helvetica, no outside files, works offline) ---- */
@@ -2344,7 +2346,7 @@ function renderSetup(){
         (lead?'<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="wcolor" data-farm="'+esc(f.id)+'" value="'+weighedColor(f.id)+'" aria-label="Weighed number color"><span>Weighed number color <span class="small">(the truck keeps its mill color, and its number turns this color once its weight comes in)</span></span></label><label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="ncolor" data-farm="'+esc(f.id)+'" value="'+newColor(f.id)+'" aria-label="New truck number color"><span>New truck number color <span class="small">(a truck that is new for the day gets its number highlighted in this color)</span></span></label>':'')+
         (adm?'<div class="lbl">Truck ID at the mill</div><p class="small">Some mills (for example Lula Westfield and Lafourche) know a truck by the hauler number and the truck number, like 54-154. Enter the hauler number and tick those mills. The Board keeps the 3 digit number. The Report (by truck and load log) shows just 54-154 for loads going to the ticked mills, and the CSV has a Mill truck ID column. Each farm has its own hauler number, so another farm like Armant sets its own number on its own card.</p>'+
           '<label class="f">Hauler number<input type="text" maxlength="6" inputmode="numeric" data-hc="'+esc(f.id)+'" value="'+esc(f.haulerCode||'')+'" placeholder="e.g. 54"></label>'+
-          '<div class="chips">'+((f.mills||[]).map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-hm="'+esc(f.id)+'" data-v="'+esc(m)+'"'+((f.haulerMills||[]).indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'; }).join('')||'<span class="small">Add the mills first.</span>')+'</div>':'')+
+          '<div class="chips">'+((f.mills||[]).map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-hm="'+esc(f.id)+'" data-v="'+esc(m)+'"'+((f.haulerMills||[]).indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'; }).join('')||'<span class="small">Add the mills first.</span>')+'</div>'+(f.haulerMills||[]).filter(function(m){ return (f.mills||[]).indexOf(m)>=0; }).map(function(m){ return '<label class="f">Number for '+esc(m)+' <span class="small">(blank = hauler number above)</span><input type="text" maxlength="6" data-hmc="'+esc(f.id)+'" data-v="'+esc(m)+'" value="'+esc((f.haulerMillCodes||{})[m]||'')+'" placeholder="'+esc(f.haulerCode||'')+'"></label>'; }).join(''):'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         (lead?'<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="addEdgardTracts" data-farm="'+esc(f.id)+'">Add the Edgard tracts</button></div>':'')+
@@ -2477,7 +2479,7 @@ function tally(rows, keyFn){
 }
 /* a truck added on this day keeps its new-truck mark in the reports, weighed or not */
 /* the number the mill knows a truck by: hauler number + truck number, for the mills ticked on the farm */
-function millTruckNo(no, mill, farmId){ var f=farmById(farmId||S.farmId); if(!f || !f.haulerCode || !mill) return ''; return (f.haulerMills||[]).indexOf(mill)>=0 ? f.haulerCode+'-'+no : ''; }
+function millTruckNo(no, mill, farmId){ var f=farmById(farmId||S.farmId); if(!f || !mill) return ''; var c=(f.haulerMillCodes||{})[mill]||f.haulerCode; if(!c) return ''; return (f.haulerMills||[]).indexOf(mill)>=0 ? c+'-'+no : ''; }
 function newNoChip(no, day, label){
   var t=null; for(var i=0;i<S.trucks.length;i++){ if(S.trucks[i].farm===S.farmId && String(S.trucks[i].no)===String(no)){ t=S.trucks[i]; break; } }
   if(!t || t.addedDay!==day) return label;
