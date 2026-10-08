@@ -2347,6 +2347,7 @@ function renderSetup(){
           '<div class="chips">'+((f.mills||[]).map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-hm="'+esc(f.id)+'" data-v="'+esc(m)+'"'+((f.haulerMills||[]).indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'; }).join('')||'<span class="small">Add the mills first.</span>')+'</div>':'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
+        (lead?'<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="addEdgardTracts" data-farm="'+esc(f.id)+'">Add the Edgard tracts</button></div>':'')+
         '<div class="lbl">Fields</div><div class="chips">'+chips(f.fields,'Field','None yet. Fields are optional.')+'</div>'+
         '<form class="addrow" data-form="addField" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Field name or number" aria-label="New field for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
       '</article>';
@@ -3085,6 +3086,10 @@ document.addEventListener('click', function(e){
       var fid=el.getAttribute('data-farm');
       if(S.trucks.some(function(t){ return t.farm===fid; })){ toast('Remove or move this farm’s trucks first.'); break; }
       if(confirmTap('delFarm:'+fid)) dref('farms/'+fid).delete().then(function(){ toast('Farm removed'); }).catch(fail);
+      break;
+    case 'addEdgardTracts':
+      var EDG=['Columbia','Johnson','Webre & Becnel','Estate Elmire Webre','Laurent','All Other Tracts','Kismet','Madere/Lapeyrolerie/Rybiskie','Millet Tract','Hymel & Webre','3C Riverside'];
+      editList(el.getAttribute('data-farm'),'tracks',function(arr){ var have=arr.map(function(x){ return x.toLowerCase(); }); EDG.forEach(function(t){ if(have.indexOf(t.toLowerCase())<0) arr.push(t); }); return arr; }); toast('Edgard tracts added');
       break;
     case 'delTrack': editList(el.getAttribute('data-farm'),'tracks',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
     case 'delField': editList(el.getAttribute('data-farm'),'fields',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
