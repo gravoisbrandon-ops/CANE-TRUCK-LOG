@@ -352,10 +352,12 @@ td.n,th.n{text-align:right}
     <section id="view-report" hidden aria-label="Daily report">
       <div id="listsHostRep"></div>
       <div id="reportBody" class="rep" style="display:flex;flex-direction:column;gap:16px"></div>
+      <div class="toolbar" style="margin-top:16px"><button class="btn" type="button" data-pdf="report">Share PDF report</button></div>
     </section>
 
     <section id="view-all" hidden aria-label="All farms report">
       <div id="allBody" class="rep" style="display:flex;flex-direction:column;gap:16px"></div>
+      <div class="toolbar" style="margin-top:16px"><button class="btn" type="button" data-pdf="all">Share PDF report</button></div>
     </section>
 
     <section id="view-tools" hidden aria-label="Cane tools" style="display:flex;flex-direction:column;gap:16px">
@@ -1497,12 +1499,137 @@ function toolsShow(){
   if(t==='sugar') sgShow();
   if(t==='burn') bnShow();
 }
+
+/* ---- Shareable PDF reports: a small built-in PDF writer (Helvetica, no outside files, works offline) ---- */
+var PDF_W=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+var PDF_WB=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+function pdfT(x){ return String(x==null?'':x).replace(/\s+/g,' ').replace(/[–—]/g,'-').replace(/[‘’]/g,"'").replace(/[“”]/g,'"').replace(/…/g,'...').replace(/≥/g,'>=').replace(/[^\x20-\x7e\xb0\xb7\xd7]/g,'?').trim(); }
+function pdfW(str,bold,size){ var t=bold?PDF_WB:PDF_W, w=0; for(var i=0;i<str.length;i++){ var c=str.charCodeAt(i); w+= c>=32&&c<=126 ? t[c-32] : (c===176?400:c===215?584:c===183?278:556); } return w*size/1000; }
+function pdfWrap(str,bold,size,maxW){
+  var words=str.split(' '), lines=[], cur='';
+  words.forEach(function(w){
+    while(pdfW(w,bold,size)>maxW && w.length>1){ var k=w.length-1; while(k>1 && pdfW(w.slice(0,k),bold,size)>maxW) k--; if(cur){ lines.push(cur); cur=''; } lines.push(w.slice(0,k)); w=w.slice(k); }
+    var t=cur?cur+' '+w:w; if(cur && pdfW(t,bold,size)>maxW){ lines.push(cur); cur=w; } else cur=t;
+  });
+  if(cur||!lines.length) lines.push(cur); return lines;
+}
+function pdfBuild(title, sub, secs, landscape){
+  var PW=landscape?792:612, PH=landscape?612:792, M=36, CW=PW-2*M, pages=[], ops=null, y=0;
+  var esc2=function(t){ return t.replace(/[\\()]/g,'\\$&'); };
+  var np=function(){ ops=[]; pages.push(ops); y=M; };
+  var txt=function(x,yy,t,bold,size,gray,align){ if(!t) return; var w=align==='r'?pdfW(t,bold,size):0; ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+gray+' '+gray+' '+gray+' rg '+(x-w).toFixed(2)+' '+(PH-yy).toFixed(2)+' Td ('+esc2(t)+') Tj ET'); };
+  var rect=function(x,yy,w,h,rgb){ ops.push(rgb.join(' ')+' rg '+x.toFixed(2)+' '+(PH-yy-h).toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+' re f'); };
+  var need=function(h){ if(y+h>PH-M-14) np(); };
+  np();
+  txt(M,y+14,pdfT(title),true,18,0); y+=24;
+  txt(M,y+8,pdfT(sub+'  ·  made '+new Date().toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})),false,9,0.35); y+=20;
+  secs.forEach(function(sc){
+    if(sc.h!=null){ need(36); y+=8; txt(M,y+10,pdfT(sc.h),true,11,0); y+=18; }
+    else if(sc.p!=null){ var ls=pdfWrap(pdfT(sc.p),false,8.5,CW); ls.forEach(function(l){ need(12); txt(M,y+9,l,false,8.5,0.35); y+=11; }); y+=4; }
+    else if(sc.stats){
+      var colW=CW/2;
+      for(var i=0;i<sc.stats.length;i+=2){ need(16); [sc.stats[i],sc.stats[i+1]].forEach(function(st,k){ if(!st) return; var x=M+k*colW; txt(x,y+10,pdfT(st[0]),false,9,0.35); txt(x+colW-14,y+10,pdfT(st[1]),true,10,0,'r'); }); y+=16; }
+      y+=6;
+    } else if(sc.head){
+      var n=sc.head.length, head=sc.head.map(pdfT), rows=sc.rows.map(function(r){ return r.map(pdfT); }), bold=sc.bold||[], fs=8, pad=3, lh=10, numc=function(i){ return i>0 && sc.num!==false; };
+      var maxw=[], minw=[];
+      for(var c=0;c<n;c++){ var all=[head[c]].concat(rows.map(function(r){ return r[c]||''; })), mx=0, mn=0; all.forEach(function(t){ mx=Math.max(mx,pdfW(t,true,fs)); t.split(' ').forEach(function(w){ mn=Math.max(mn,pdfW(w,true,fs)); }); }); maxw.push(mx+2*pad); minw.push(Math.min(mn+2*pad,mx+2*pad)); }
+      var sumMax=maxw.reduce(function(a,b){ return a+b; },0), sumMin=minw.reduce(function(a,b){ return a+b; },0), cw=[];
+      if(sumMax<=CW){ for(var c2=0;c2<n;c2++) cw.push(maxw[c2]+(CW-sumMax)*maxw[c2]/sumMax); }
+      else if(sumMin>=CW){ for(var c3=0;c3<n;c3++) cw.push(minw[c3]*CW/sumMin); }
+      else { var extra=CW-sumMin, want=sumMax-sumMin; for(var c4=0;c4<n;c4++) cw.push(minw[c4]+extra*(maxw[c4]-minw[c4])/want); }
+      var drawRow=function(cells,isHead,isBold,shade){
+        var lines=cells.map(function(t,i){ return pdfWrap(t||'',isHead||isBold,fs,cw[i]-2*pad); }), h=Math.max.apply(null,lines.map(function(l){ return l.length; }))*lh+2*pad;
+        if(y+h>PH-M-14){ np(); if(!isHead) drawRow(head,true,true,false); }
+        if(isHead) rect(M,y,CW,h,[0.13,0.21,0.17]); else if(shade) rect(M,y,CW,h,[0.957,0.965,0.953]);
+        var x=M; lines.forEach(function(ls,i){ ls.forEach(function(l,li){ var ty=y+pad+9+li*lh; if(numc(i)) txt(x+cw[i]-pad,ty,l,isHead||isBold,fs,isHead?1:0,'r'); else txt(x+pad,ty,l,isHead||isBold,fs,isHead?1:0); }); x+=cw[i]; });
+        y+=h;
+      };
+      need(40); drawRow(head,true,true,false);
+      if(!rows.length){ need(14); txt(M+pad,y+12,'Nothing logged.',false,8,0.35); y+=16; }
+      rows.forEach(function(r,ri){ drawRow(r,false,bold.indexOf(ri)>=0,ri%2===1); });
+      y+=10;
+    }
+  });
+  /* assemble the PDF file */
+  var objs=[], add=function(body){ objs.push(body); return objs.length; };
+  add('<< /Type /Catalog /Pages 2 0 R >>'); add(null); add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'); add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  var kids=[];
+  pages.forEach(function(po,pi){
+    po.push('BT /F1 8 Tf 0.47 0.47 0.47 rg '+(PW-M-pdfW('Cane Truck Log  ·  page '+(pi+1)+' of '+pages.length,false,8)).toFixed(2)+' 16 Td (Cane Truck Log  \xb7  page '+(pi+1)+' of '+pages.length+') Tj ET');
+    var stream=po.join('\n'), ci=add('<< /Length '+stream.length+' >>\nstream\n'+stream+'\nendstream'), pn=add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+ci+' 0 R >>'); kids.push(pn+' 0 R');
+  });
+  objs[1]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+kids.length+' >>';
+  var out='%PDF-1.4\n', offs=[];
+  objs.forEach(function(o,i){ offs.push(out.length); out+=(i+1)+' 0 obj\n'+o+'\nendobj\n'; });
+  var xr=out.length; out+='xref\n0 '+(objs.length+1)+'\n0000000000 65535 f \n'+offs.map(function(o){ return ('0000000000'+o).slice(-10)+' 00000 n \n'; }).join('')+'trailer\n<< /Size '+(objs.length+1)+' /Root 1 0 R >>\nstartxref\n'+xr+'\n%%EOF';
+  var u=new Uint8Array(out.length); for(var q=0;q<out.length;q++) u[q]=out.charCodeAt(q)&255;
+  return new Blob([u],{ type:'application/pdf' });
+}
+/* read the sections of a report straight from what is on the screen */
+function pdfSections(root){
+  var out=[];
+  (function walk(el){
+    for(var i=0;i<el.children.length;i++){
+      var c=el.children[i], tag=c.tagName, cl=c.classList;
+      if(c.hidden || /^(SELECT|INPUT|BUTTON|TEXTAREA|SCRIPT|STYLE|FORM|DATALIST|LABEL)$/.test(tag) || cl.contains('toolbar') || cl.contains('tabs')) continue;
+      if(tag==='TABLE'){
+        var head=[].map.call(c.querySelectorAll('thead th'),function(t){ return t.textContent; });
+        var rows=[].map.call(c.querySelectorAll('tbody tr'),function(r){ return [].map.call(r.children,function(t){ return t.textContent; }); });
+        if(rows.length===1 && rows[0].length===1 && head.length>1) rows=[]; out.push({ head:head, rows:rows }); continue;
+      }
+      if(cl.contains('stats')){ var st=[].map.call(c.querySelectorAll('.stat'),function(x){ var l=x.querySelector('.lbl'), b=x.querySelector('b'); return [l?l.textContent:'', b?b.textContent:'']; }); if(st.length) out.push({ stats:st }); [].forEach.call(c.querySelectorAll(':scope > p'),function(p){ out.push({ p:p.textContent }); }); continue; }
+      if(cl.contains('lbl') || /^H[1-4]$/.test(tag)){ out.push({ h:c.textContent }); continue; }
+      if(tag==='P' || cl.contains('small') && !c.children.length){ if(c.textContent.trim()) out.push({ p:c.textContent }); continue; }
+      walk(c);
+    }
+  })(root);
+  return out;
+}
+async function pdfShare(title, sub, secs, fname, landscape){
+  var blob; try{ blob=pdfBuild(title,sub,secs,landscape); }catch(e){ try{ console.warn('pdf',e); }catch(x){} toast('Could not make the PDF.'); return; }
+  var file=null; try{ file=new File([blob],fname,{ type:'application/pdf' }); }catch(e){}
+  if(file && navigator.canShare && navigator.canShare({ files:[file] })){
+    try{ await navigator.share({ files:[file], title:title }); return; }catch(e){ if(e && e.name==='AbortError') return; }
+  }
+  var a=document.createElement('a'), url=URL.createObjectURL(blob); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },1500);
+  toast('PDF saved. Open it from your downloads to share it.');
+}
+function pdfName(x){ return String(x||'report').replace(/[^A-Za-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+today()+'.pdf'; }
+function pdfBurn(){
+  var fm=farmById(BN.viewFarm), l=BN.log.filter(function(x){ return x.farm===BN.viewFarm; }).sort(function(a,b){ return b.burnedAt-a.burnedAt; });
+  if(!l.length){ toast('No burns saved for this farm yet.'); return; }
+  var rows=l.map(function(e){ var w=e.wx||{}, wd=w.windDir||(w.windDeg!==''&&w.windDeg!=null?bnCompass(Number(w.windDeg)):'');
+    return [bnWhen(e),(e.track?e.track+' / ':'')+(e.field||''),e.acres||'',e.catDay||'',w.tempF,w.rh,(wd?wd+' ':'')+(w.windDeg!==''&&w.windDeg!=null?'('+Math.round(w.windDeg)+' deg) ':'')+(w.windMph!==''&&w.windMph!=null?w.windMph+' mph':''),w.mixHt,w.transMph,w.station||'',e.notes||'']; });
+  pdfShare('Burn log',(fm&&fm.name)||'',[{ head:['Burned','Track / field','Acres','Cat. day','Temp F','RH %','Wind from','Mixing ft','Transport mph','Station','Notes'], rows:rows, num:false }],pdfName('burn-log-'+((fm&&fm.name)||'')),true);
+}
+function pdfSugar(){
+  var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
+  var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
+  if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
+  var scope=vw==='*'?'all':vw, sets=SG.log.filter(function(e){ return sgInScope(e,scope); }).sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:(a.savedAt||0)-(b.savedAt||0); });
+  if(sets.length){ var prev=null; secs.push({ h:'Saved sets (progress)' }); secs.push({ head:['Date','Tons','Tons/acre','Lb sugar/acre','Change'], rows:sets.map(function(e){ var r=sgRowsOf(e), t=r[r.length-1], lp=t[10]===''?null:Number(t[10]), df=(lp!=null&&prev!=null)?(lp-prev):null; if(lp!=null) prev=lp; return [e.date,t[5],t[9],lp==null?'':Math.round(lp).toLocaleString(),df==null?'':(df>0?'+':'')+Math.round(df).toLocaleString()]; }) }); }
+  pdfShare('Sugar per acre',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('sugar-per-acre-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
+}
+function pdfReport(which){
+  var root=$(which==='all'?'#allBody':'#reportBody'); if(!root || !root.children.length){ toast('Nothing to put in a PDF yet.'); return; }
+  var secs=pdfSections(root); if(!secs.length){ toast('Nothing to put in a PDF yet.'); return; }
+  var fm=farmById(S.farmId), wide=secs.some(function(x){ return x.head && x.head.length>7; });
+  pdfShare(which==='all'?'All farms report':'Harvest report',which==='all'?'All farms':((fm&&fm.name)||''),secs,pdfName(which==='all'?'all-farms-report':'harvest-report-'+((fm&&fm.name)||'')),wide);
+}
+document.addEventListener('click',function(e){
+  var el=e.target.closest ? e.target.closest('[data-pdf]') : null; if(!el) return;
+  var k=el.getAttribute('data-pdf');
+  if(k==='burn') pdfBurn(); else if(k==='sugar') pdfSugar(); else pdfReport(k);
+});
 /* ---- Burn log: field, date and time burned, weather from a National Weather Service station ---- */
 var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', smsg:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.place=d.place||''; BN.farm=d.farm||''; BN.grid=d.grid||''; BN.cwa=d.cwa||''; BN.fz=d.fz||''; } }catch(e){} })();
 function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, place:BN.place, farm:BN.farm, grid:BN.grid, cwa:BN.cwa, fz:BN.fz })); }
 function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())+':'+pad(d.getMinutes()) }; }
 function bnMs(){ var t=new Date(BN.date+'T'+(BN.time||'00:00')); return isNaN(t.getTime()) ? Date.now() : t.getTime(); }
+var BN_PTS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+var BN_PTN={N:'north',NNE:'north-northeast',NE:'northeast',ENE:'east-northeast',E:'east',ESE:'east-southeast',SE:'southeast',SSE:'south-southeast',S:'south',SSW:'south-southwest',SW:'southwest',WSW:'west-southwest',W:'west',WNW:'west-northwest',NW:'northwest',NNW:'north-northwest'};
 function bnCompass(deg){ if(deg==null||isNaN(deg)) return ''; var n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']; return n[Math.round(deg/22.5)%16]; }
 function bnR(v,d){ if(v==null||v===''||isNaN(v)) return ''; var k=Math.pow(10,d||0); return String(Math.round(Number(v)*k)/k); }
 function bnVal(q){ return q && q.value!=null ? Number(q.value) : null; }
@@ -1682,13 +1809,13 @@ function bnRender(){
     '<div class="lbl" style="margin-top:14px">Weather at the burn</div>'+
     '<div class="toolbar"><button class="btn" type="button" data-bn="fetch"'+(BN.loading?' disabled':'')+'>'+(BN.loading?'Working…':'Fetch weather')+'</button></div>'+
     '<p class="small" id="bnMsg">'+esc(BN.msg)+'</p>'+
-    '<div class="toolbar">'+BN_WX.map(function(w){ return '<label class="f">'+w[1]+'<input type="number" step="any" inputmode="decimal" data-bnw="'+w[0]+'" value="'+esc(wx[w[0]]==null?'':wx[w[0]])+'"></label>'; }).join('')+'</div>'+
+    '<div class="toolbar">'+BN_WX.map(function(w){ return '<label class="f">'+w[1]+'<input type="number" step="any" inputmode="decimal" data-bnw="'+w[0]+'" value="'+esc(wx[w[0]]==null?'':wx[w[0]])+'"></label>'+(w[0]==='windDeg'?'<label class="f">Wind from (compass)<select data-bnw="windDir"><option value="">–</option>'+BN_PTS.map(function(x){ return '<option value="'+x+'"'+((wx.windDir||(wx.windDeg!==''&&wx.windDeg!=null?bnCompass(Number(wx.windDeg)):''))===x?' selected':'')+'>'+x+' · '+BN_PTN[x]+'</option>'; }).join('')+'</select></label>':''); }).join('')+'</div>'+
     '<div class="toolbar"><label class="f">Sky or conditions<input type="text" data-bnw="sky" value="'+esc(wx.sky||'')+'" placeholder="e.g. Clear"></label></div>'+
     (wx.obsAt?'<p class="small">Reading from '+esc(wx.station||'')+' taken '+esc(new Date(wx.obsAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(wx.windDir?' · wind from the '+esc(wx.windDir):'')+'.</p>':'')+
     '<label class="f" style="margin-top:12px">Notes (optional)<textarea rows="2" data-bnf="notes">'+esc(BN.notes)+'</textarea></label>'+
     '<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-bn="save">'+(ed?'Update this burn':'Save burn')+'</button>'+(ed?'<button class="btn ghost" type="button" data-bn="saveNew">Save as new burn</button><button class="btn ghost" type="button" data-bn="cancel">Cancel edit</button>':'')+'</div></div>';
   var vf=BN.viewFarm && farmById(BN.viewFarm) ? BN.viewFarm : farm; BN.viewFarm=vf;
-  h+='<div class="card"><h2>Saved burns</h2><label class="f">Farm<select data-bnf="viewFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vf?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">Each farm has its own list and its own CSV.</p><div id="bnLog"></div><div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download this farm as CSV</button></div><p class="small" id="bnFoot"></p></div>';
+  h+='<div class="card"><h2>Saved burns</h2><label class="f">Farm<select data-bnf="viewFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vf?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">Each farm has its own list and its own CSV.</p><div id="bnLog"></div><div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download this farm as CSV</button><button class="btn sm" type="button" data-pdf="burn">Share PDF report</button></div><p class="small" id="bnFoot"></p></div>';
   root.innerHTML=h; bnLogRender();
 }
 function bnWhen(e){ return new Date(e.burnedAt).toLocaleString([],{weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
@@ -1698,7 +1825,7 @@ function bnLogRender(){
   var l=BN.log.filter(function(x){ return x.farm===BN.viewFarm; }).sort(function(a,b){ return b.burnedAt-a.burnedAt; });
   if(!l.length){ el.innerHTML='<p class="small">No burns saved for this farm yet.</p>'; return; }
   el.innerHTML=l.map(function(e){
-    var w=e.wx||{}, bits=[]; if(w.tempF!=='' && w.tempF!=null) bits.push(w.tempF+'°F'); if(w.rh!==''&&w.rh!=null) bits.push(w.rh+'% RH'); if(w.windMph!==''&&w.windMph!=null) bits.push((w.windDir?w.windDir+' ':'')+w.windMph+' mph');
+    var w=e.wx||{}, bits=[]; if(w.tempF!=='' && w.tempF!=null) bits.push(w.tempF+'°F'); if(w.rh!==''&&w.rh!=null) bits.push(w.rh+'% RH'); if(w.windMph!==''&&w.windMph!=null) bits.push('wind from '+(w.windDir||bnCompass(Number(w.windDeg))||'?')+(w.windDeg!==''&&w.windDeg!=null?' ('+Math.round(w.windDeg)+'°)':'')+' at '+w.windMph+' mph');
     if(e.catDay) bits.unshift('Category '+e.catDay); if(w.mixHt!==''&&w.mixHt!=null) bits.push('mixing '+Number(w.mixHt).toLocaleString()+' ft'); if(w.transMph!==''&&w.transMph!=null) bits.push('transport '+w.transMph+' mph');
     var k='del:'+e.id;
     return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="sec-head"><b>'+esc((e.track?e.track+' · ':'')+(e.field||'(no field)'))+'</b><span class="small">'+esc(e.farmName||'')+'</span></div>'+
@@ -1742,7 +1869,9 @@ function bnEntry(){
 document.addEventListener('input',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'), w=el&&el.getAttribute&&el.getAttribute('data-bnw');
   if(f){ if(f==='farm'||f==='viewFarm') return; BN[f]=el.value; if(f==='station'||f==='lat'||f==='lon'){ if(f==='station') BN.stationName=''; if(f==='lat'||f==='lon'){ BN.cwa=''; BN.fz=''; BN.grid=''; } bnSaveLocal(); } }
-  else if(w){ BN.wx=BN.wx||{}; BN.wx[w]=el.value; if(w==='windDeg'){ BN.wx.windDir=bnCompass(Number(el.value)); } BN.wx.src='manual'; }
+  else if(w){ BN.wx=BN.wx||{}; BN.wx[w]=el.value; BN.wx.src='manual';
+    if(w==='windDeg'){ BN.wx.windDir=el.value===''?'':bnCompass(Number(el.value)); var sel=$('[data-bnw=windDir]'); if(sel) sel.value=BN.wx.windDir; }
+    if(w==='windDir'){ var ix=BN_PTS.indexOf(el.value); BN.wx.windDeg=ix<0?'':String(Math.round(ix*22.5*10)/10); var di=$('[data-bnw=windDeg]'); if(di) di.value=BN.wx.windDeg; } }
 });
 document.addEventListener('change',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'); if(!f) return;
@@ -1785,6 +1914,7 @@ function sgFarm(id){
   if(!o){ o=SG.f[id]={ acres:'', rows:[] }; var fm=farmById(id); ((fm&&fm.mills)||[]).forEach(function(m){ o.rows.push({ mill:m, tons:'', trs:'', liq:'', src:'' }); }); }
   return o;
 }
+function sgView(){ if(SG.pick==='*') return '*'; if(SG.pick && farmById(SG.pick)) return SG.pick; return (S.farmId && farmById(S.farmId)) ? S.farmId : (S.farms[0]?S.farms[0].id:'*'); }
 function sgN(v){ var n=parseFloat(v); return isFinite(n)?n:null; }
 function sgPct(v){ var n=sgN(v); if(n==null||n<=0) return null; return n<=2 ? n*100 : n; }
 function sgNf(x){ return Math.round(x).toLocaleString(); }
@@ -1822,6 +1952,7 @@ function sgOut(){
     all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
     if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
   });
+  var br=$('#sgBreak'); if(br) br.innerHTML=sgBreakHtml();
   var el2=$('#sgAll'); if(!el2) return;
   var h=sgBoxes(all,0,sh);
   if(allAc && accTons>0){
@@ -1831,13 +1962,40 @@ function sgOut(){
   }
   el2.innerHTML=h;
 }
+/* per mill, per farm and combined, as rows (shared by the screen and the PDF) */
+function sgBreakData(farmsOnly){
+  var sh=sgN(SG.share), head=['Farm / mill','Acres','Tons','Tons/acre','Avg TRS','Liq %','Lb sugar','Lb sugar/acre'].concat(sh!=null?['Grower lb/acre']:[]), rows=[], bold=[];
+  var A={ t:0, sg:0, st:0, tw:0, ac:0, at:0, as:0, ast:0 }, n0=function(x){ return x==null?'–':sgNf(x); };
+  S.farms.forEach(function(f){
+    if(farmsOnly && f.id!==farmsOnly) return;
+    var o=sgFarm(f.id), c=sgCalc(o.rows), ac=sgN(o.acres), has=c.tons>0;
+    if(!has && !ac) return;
+    rows.push([f.name,'','','','','','','']);   bold.push(rows.length-1); if(sh!=null) rows[rows.length-1].push('');
+    o.rows.forEach(function(r,i){ var t=sgN(r.tons); if(!(t>0)) return; var trs=sgN(r.trs), lq=sgPct(r.liq); if(lq==null) lq=sgPct(SG.liq); if(lq==null) lq=100;
+      var row=['   '+(r.mill||'Mill'),'',f1(t),'',trs>0?trs.toFixed(1):'–',lq.toFixed(1).replace(/\.0$/,''),c.rows[i]!=null?sgNf(c.rows[i]):'–','']; if(sh!=null) row.push(''); rows.push(row); });
+    var per=c.sTons>0?c.sugar/c.sTons:null, tpa=ac&&has?c.tons/ac:null;
+    var fr=[f.name+' combined',ac?f1(ac):'',has?f1(c.tons):'',tpa!=null?tpa.toFixed(2):'',c.sTons>0?(c.trsW/c.sTons).toFixed(1):'','',c.sTons>0?sgNf(c.sugar):'–',(tpa!=null&&per!=null)?sgNf(tpa*per):'–']; if(sh!=null) fr.push((tpa!=null&&per!=null)?sgNf(tpa*per*sh/100):'–');
+    rows.push(fr); bold.push(rows.length-1);
+    A.t+=c.tons; A.sg+=c.sugar; A.st+=c.sTons; A.tw+=c.trsW; if(ac&&has){ A.ac+=ac; A.at+=c.tons; A.as+=c.sugar; A.ast+=c.sTons; }
+  });
+  if(!farmsOnly){
+    var per2=A.ast>0?A.as/A.ast:null, tpa2=A.ac?A.at/A.ac:null;
+    var tr=['All farms combined',A.ac?f1(A.ac):'',A.t>0?f1(A.t):'',tpa2!=null?tpa2.toFixed(2):'',A.st>0?(A.tw/A.st).toFixed(1):'','',A.st>0?sgNf(A.sg):'–',(tpa2!=null&&per2!=null)?sgNf(tpa2*per2):'–']; if(sh!=null) tr.push((tpa2!=null&&per2!=null)?sgNf(tpa2*per2*sh/100):'–');
+    rows.push(tr); bold.push(rows.length-1);
+  }
+  return { head:head, rows:rows, bold:bold };
+}
+function sgBreakHtml(){
+  var d=sgBreakData(); if(d.rows.length<2) return '<p class="small">Enter tons and TRS in each farm first. Pick a farm above to type its numbers.</p>';
+  return '<div class="tablewrap"><table><thead><tr>'+d.head.map(function(x,i){ return '<th'+(i?' class="n"':'')+'>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+d.rows.map(function(r,ri){ var b=d.bold.indexOf(ri)>=0; return '<tr'+(b?' style="font-weight:700"':'')+'>'+r.map(function(c,i){ return '<td'+(i?' class="n"':'')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>';
+}
 function sgRender(){
   var root=$('#sgRoot'); if(!root) return;
-  var fo='<option value="">All farms</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===SG.pick?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('');
+  var vw=sgView(), fo=S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vw?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+(S.farms.length>1?'<option value="*"'+(vw==='*'?' selected':'')+'>All farms combined</option>':'');
   var h='<div class="card"><h2>Sugar per acre</h2>'+
-    '<p class="small">Each mill: tons hauled × TRS × liquidation. The mills of a farm combine into that farm, and the farms combine into the total. Type the numbers, or fetch tons and TRS from the truck log (weighed loads from the start of harvest to today).</p>'+
-    '<div class="toolbar"><label class="f">Fetch from<select id="sgFarm">'+fo+'</select></label>'+
-    '<button class="btn" type="button" data-sg="fetch"'+(SG.loading?' disabled':'')+'>'+(SG.loading?'Fetching…':'Fetch tons and TRS')+'</button></div>'+
+    '<p class="small">Each mill: tons hauled × TRS × liquidation. The mills of a farm combine into that farm. Pick one farm to work on it, or All farms combined to see every farm broken down with the total. Type the numbers, or fetch tons and TRS from the truck log (weighed loads from the start of harvest to today).</p>'+
+    '<div class="toolbar"><label class="f">Farm<select id="sgFarm">'+fo+'</select></label>'+
+    '<button class="btn" type="button" data-sg="fetch"'+(SG.loading?' disabled':'')+'>'+(SG.loading?'Fetching…':(vw==='*'?'Fetch tons and TRS for all farms':'Fetch tons and TRS'))+'</button></div>'+
     '<p class="small" id="sgMsg">'+esc(SG.msg)+'</p>'+
     '<div class="toolbar"><label class="f">Liquidation % for every mill<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="defliq" value="'+esc(SG.liq)+'" placeholder="e.g. 96 (blank = 100)"></label>'+
     '<label class="f">Grower share % (optional)<input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-sgf="share" value="'+esc(SG.share)+'"></label></div>'+
@@ -1845,6 +2003,7 @@ function sgRender(){
     '<p class="small" id="sgFoot"></p></div>';
   if(!S.farms.length) h+='<div class="card"><p class="small">Add farms in Setup first.</p></div>';
   S.farms.forEach(function(f){
+    if(vw==='*' || f.id!==vw) return;
     var o=sgFarm(f.id);
     h+='<div class="card sgfarm"><h2>'+esc(f.name)+'</h2>'+
       '<label class="f">Acres<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="acres" data-fid="'+esc(f.id)+'" value="'+esc(o.acres)+'"></label>';
@@ -1859,11 +2018,12 @@ function sgRender(){
     h+='<div style="margin-top:12px"><button class="btn" type="button" data-sg="add" data-fid="'+esc(f.id)+'">+ Add a mill</button></div>'+
       '<h2 style="margin-top:16px">'+esc(f.name)+' combined</h2><div class="stats" id="sgO_'+esc(f.id)+'"></div>'+sgSaveBox(f.id,o.date)+'</div>';
   });
-  h+='<div class="card"><h2>All farms combined</h2><div class="stats" id="sgAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
+  if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2><div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined</h2><div class="stats" id="sgAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
+  h+='<div class="card"><div class="toolbar"><button class="btn" type="button" data-pdf="sugar">Share PDF report</button></div><p class="small">A PDF of the numbers on this screen, to send by text, email or print.</p></div>';
   root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender();
 }
 
-function sgSig(){ return JSON.stringify(S.farms.map(function(f){ return [f.id,f.name,f.mills||[]]; })); }
+function sgSig(){ return JSON.stringify([sgView(),S.farms.map(function(f){ return [f.id,f.name,f.mills||[]]; })]); }
 function sgFocused(){ var a=document.activeElement, r=$('#sgRoot'); return !!(a && r && r.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)); }
 /* draw once; draw again only if the farm list changes and nobody is typing */
 function sgShow(){
@@ -1956,7 +2116,7 @@ function sgLogRender(){
 function sgDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:sgCsv(list) }); }
 async function sgFetch(){
   if(!S.db){ toast('Sign in first.'); return; }
-  var farms=SG.pick ? S.farms.filter(function(f){ return f.id===SG.pick; }) : S.farms;
+  var vw0=sgView(), farms=vw0!=='*' ? S.farms.filter(function(f){ return f.id===vw0; }) : S.farms;
   if(!farms.length){ toast('No farms to read.'); return; }
   SG.loading=true; SG.msg=''; sgRender();
   var jobs=[], t=today();
@@ -1996,7 +2156,7 @@ document.addEventListener('input',function(e){
   else { var r=sgFarm(fid).rows[Number(i)]; if(!r) return; r[f]=v; if(f!=='mill' && r.src){ r.src=''; var t=$('#sgT_'+fid+'_'+i); if(t) t.textContent=''; } }
   sgSave(); sgOut();
 });
-document.addEventListener('change',function(e){ if(e.target && e.target.id==='sgFarm') SG.pick=e.target.value; var sd=e.target && e.target.getAttribute && e.target.getAttribute('data-sgdate'); if(sd){ if(sd==='all') SG.gdate=e.target.value; else sgFarm(sd).date=e.target.value; sgSave(); } });
+document.addEventListener('change',function(e){ if(e.target && e.target.id==='sgFarm'){ SG.pick=e.target.value; sgRender(); return; } var sd=e.target && e.target.getAttribute && e.target.getAttribute('data-sgdate'); if(sd){ if(sd==='all') SG.gdate=e.target.value; else sgFarm(sd).date=e.target.value; sgSave(); } });
 document.addEventListener('click',function(e){
   var el=e.target.closest ? e.target.closest('[data-sg]') : null; if(!el) return;
   var a=el.getAttribute('data-sg'), fid=el.getAttribute('data-fid');
