@@ -1600,8 +1600,8 @@ function pdfBurn(){
   var fm=farmById(BN.viewFarm), l=BN.log.filter(function(x){ return x.farm===BN.viewFarm; }).sort(function(a,b){ return b.burnedAt-a.burnedAt; });
   if(!l.length){ toast('No burns saved for this farm yet.'); return; }
   var rows=l.map(function(e){ var w=e.wx||{}, wd=w.windDir||(w.windDeg!==''&&w.windDeg!=null?bnCompass(Number(w.windDeg)):'');
-    return [bnWhen(e),(e.track?e.track+' / ':'')+(e.field||''),e.acres||'',e.catDay||'',w.tempF,w.rh,(wd?wd+' ':'')+(w.windDeg!==''&&w.windDeg!=null?'('+Math.round(w.windDeg)+' deg) ':'')+(w.windMph!==''&&w.windMph!=null?w.windMph+' mph':''),w.mixHt,w.transMph,w.station||'',e.notes||'']; });
-  pdfShare('Burn log',(fm&&fm.name)||'',[{ head:['Burned','Track / field','Acres','Cat. day','Temp F','RH %','Wind from','Mixing ft','Transport mph','Station','Notes'], rows:rows, num:false }],pdfName('burn-log-'+((fm&&fm.name)||'')),true);
+    return [bnWhen(e),(e.track?e.track+' / ':'')+(e.field||''),e.acres||'',e.catDay||'',bnBestShort(e.catDay),w.tempF,w.rh,(wd?wd+' ':'')+(w.windDeg!==''&&w.windDeg!=null?'('+Math.round(w.windDeg)+' deg) ':'')+(w.windMph!==''&&w.windMph!=null?w.windMph+' mph':''),w.mixHt,w.transMph,w.station||'',e.notes||'']; });
+  pdfShare('Burn log',(fm&&fm.name)||'',[{ head:['Burned','Track / field','Acres','Cat. day','Best time','Temp F','RH %','Wind from','Mixing ft','Transport mph','Station','Notes'], rows:rows, num:false }],pdfName('burn-log-'+((fm&&fm.name)||'')),true);
 }
 function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
@@ -1630,6 +1630,16 @@ function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())
 function bnMs(){ var t=new Date(BN.date+'T'+(BN.time||'00:00')); return isNaN(t.getTime()) ? Date.now() : t.getTime(); }
 var BN_PTS=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
 var BN_PTN={N:'north',NNE:'north-northeast',NE:'northeast',ENE:'east-northeast',E:'east',ESE:'east-southeast',SE:'southeast',SSE:'south-southeast',S:'south',SSW:'south-southwest',SW:'southwest',WSW:'west-southwest',W:'west',WNW:'west-northwest',NW:'northwest',NNW:'north-northwest'};
+var BN_BEST={ '1':'No burning today.', '2':'11 am until 4 pm, after the inversion lifts.', '3':'After the inversion lifts, usually mid-morning, until 4 pm.', '4':'Any time of day. Finish by 4 pm.', '5':'Midday, while the smoke is mixing well. Burn with caution, it is unstable and windy. Finish by 4 pm.' };
+function bnBest(c){ return BN_BEST[String(c)]||''; }
+function bnBestShort(c){ return ({ '1':'No burning','2':'11 am-4 pm','3':'After inversion lifts-4 pm','4':'Any time, done by 4 pm','5':'Midday, with caution, done by 4 pm' })[String(c)]||''; }
+function bnBestHtml(){
+  var c=BN.catDay; if(!c) return ''; var t=BN.time||'', w='';
+  if(c==='1') w='Category 1 is a no burn day.';
+  else if(t && t>='16:00') w='The burn time is after 4 pm. Burning should be finished by 4 pm.';
+  else if(c==='2' && t && t<'11:00') w='The burn time is before 11 am. On a category 2 day wait until 11 am.';
+  return '<b>Best time to burn:</b> '+esc(bnBest(c))+(w?' <span style="color:#a33;font-weight:700">'+esc(w)+'</span>':'');
+}
 function bnCompass(deg){ if(deg==null||isNaN(deg)) return ''; var n=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW']; return n[Math.round(deg/22.5)%16]; }
 function bnR(v,d){ if(v==null||v===''||isNaN(v)) return ''; var k=Math.pow(10,d||0); return String(Math.round(Number(v)*k)/k); }
 function bnVal(q){ return q && q.value!=null ? Number(q.value) : null; }
@@ -1756,7 +1766,7 @@ async function bnFetchWx(){
     try{ var j=await bnJson('https://api.weather.gov/stations/'+encodeURIComponent(st)+'/observations?start='+encodeURIComponent(a)+'&end='+encodeURIComponent(z)+'&limit=60'); scan(j.features||[]); }catch(e2){}
     if(!best && Math.abs(Date.now()-when)<3*3600000){ var l=await bnJson('https://api.weather.gov/stations/'+encodeURIComponent(st)+'/observations/latest'); scan([l]); }
     if(!best || bd>3*3600000) throw new Error('none');
-    BN.wx=Object.assign(BN.wx,{ station:st, src:'NWS', obsAt:best.obsAt, tempF:bnR(best.tempF,0), dewF:bnR(best.dewF,0), rh:bnR(best.rh,0), windMph:bnR(best.windMph,0), windDir:best.windDir, windDeg:bnR(best.windDeg,0), pressInHg:bnR(best.pressInHg,2), visMi:bnR(best.visMi,1), sky:best.sky });
+    BN.wx=Object.assign(BN.wx,{ station:st, src:'NWS', obsAt:best.obsAt, tempF:bnR(best.tempF,0), dewF:bnR(best.dewF,0), rh:bnR(best.rh,0), windMph:bnR(best.windMph,0), gustMph:bnR(best.gustMph,0), windDir:best.windDir, windDeg:bnR(best.windDeg,0), pressInHg:bnR(best.pressInHg,2), visMi:bnR(best.visMi,1), sky:best.sky });
     bits.push('weather from '+st+' at '+new Date(best.obsAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}));
   }catch(e){ miss.push('the station reading (it keeps about a week)'); }
   /* 2. the fire weather forecast: category day, mixing height, transport wind */
@@ -1782,7 +1792,7 @@ async function bnFetchWx(){
 }
 function bnSMsg(){ var e=$('#bnSMsg'); if(e) e.textContent=BN.smsg||''; }
 function bnMsg(){ var e=$('#bnMsg'); if(e) e.textContent=BN.msg; }
-var BN_WX=[['tempF','Temp °F'],['dewF','Dew point °F'],['rh','Humidity %'],['windMph','Wind mph'],['windDeg','Wind from (deg)'],['pressInHg','Pressure inHg'],['visMi','Visibility mi'],['mixHt','Mixing height ft'],['transMph','Transport wind mph']];
+var BN_WX=[['tempF','Temp °F'],['dewF','Dew point °F'],['rh','Humidity %'],['windMph','Wind mph'],['gustMph','Wind gust mph'],['windDeg','Wind from (deg)'],['pressInHg','Pressure inHg'],['visMi','Visibility mi'],['mixHt','Mixing height ft'],['transMph','Transport wind mph']];
 function bnRender(){
   var root=$('#bnRoot'); if(!root) return;
   if(!BN.date){ var n=bnNow(); BN.date=n.date; BN.time=n.time; }
@@ -1805,6 +1815,7 @@ function bnRender(){
     '<label class="f">Acres (optional)<input type="number" step="0.01" min="0" inputmode="decimal" data-bnf="acres" value="'+esc(BN.acres)+'"></label></div>'+
     '<div class="toolbar"><button class="btn ghost sm" type="button" data-bn="now">Use the date and time now</button></div>'+
     '<label class="f" style="margin-top:12px">Category day<select data-bnf="catDay"><option value="">Not set</option>'+[['1','1 · No burning'],['2','2 · After 11 am, once the inversion lifts'],['3','3 · After the inversion lifts'],['4','4 · Any time of day'],['5','5 · Unstable and windy, burn with caution']].map(function(o){ return '<option value="'+o[0]+'"'+(String(BN.catDay)===o[0]?' selected':'')+'>'+o[1]+'</option>'; }).join('')+'</select></label>'+
+    '<p class="small" id="bnBest">'+bnBestHtml()+'</p>'+
     '<p class="small">Fetch weather also fills in the category day, mixing height and transport wind from the National Weather Service fire weather forecast for your zone. If it cannot find them, pick the category day from the forecast and type the rest in.</p>'+
     '<div class="lbl" style="margin-top:14px">Weather at the burn</div>'+
     '<div class="toolbar"><button class="btn" type="button" data-bn="fetch"'+(BN.loading?' disabled':'')+'>'+(BN.loading?'Working…':'Fetch weather')+'</button></div>'+
@@ -1825,8 +1836,8 @@ function bnLogRender(){
   var l=BN.log.filter(function(x){ return x.farm===BN.viewFarm; }).sort(function(a,b){ return b.burnedAt-a.burnedAt; });
   if(!l.length){ el.innerHTML='<p class="small">No burns saved for this farm yet.</p>'; return; }
   el.innerHTML=l.map(function(e){
-    var w=e.wx||{}, bits=[]; if(w.tempF!=='' && w.tempF!=null) bits.push(w.tempF+'°F'); if(w.rh!==''&&w.rh!=null) bits.push(w.rh+'% RH'); if(w.windMph!==''&&w.windMph!=null) bits.push('wind from '+(w.windDir||bnCompass(Number(w.windDeg))||'?')+(w.windDeg!==''&&w.windDeg!=null?' ('+Math.round(w.windDeg)+'°)':'')+' at '+w.windMph+' mph');
-    if(e.catDay) bits.unshift('Category '+e.catDay); if(w.mixHt!==''&&w.mixHt!=null) bits.push('mixing '+Number(w.mixHt).toLocaleString()+' ft'); if(w.transMph!==''&&w.transMph!=null) bits.push('transport '+w.transMph+' mph');
+    var w=e.wx||{}, bits=[]; if(w.tempF!=='' && w.tempF!=null) bits.push(w.tempF+'°F'); if(w.rh!==''&&w.rh!=null) bits.push(w.rh+'% RH'); if(w.windMph!==''&&w.windMph!=null) bits.push((function(){ var dn=w.windDir||(w.windDeg!==''&&w.windDeg!=null?bnCompass(Number(w.windDeg)):''); return dn?'wind from '+dn+(w.windDeg!==''&&w.windDeg!=null?' ('+Math.round(w.windDeg)+'°)':'')+' at ':'wind '; })()+w.windMph+' mph'+(w.gustMph!==''&&w.gustMph!=null?', gusts '+w.gustMph:''));
+    if(e.catDay) bits.unshift('Category '+e.catDay+' (best: '+bnBestShort(e.catDay)+')'); if(w.mixHt!==''&&w.mixHt!=null) bits.push('mixing '+Number(w.mixHt).toLocaleString()+' ft'); if(w.transMph!==''&&w.transMph!=null) bits.push('transport '+w.transMph+' mph');
     var k='del:'+e.id;
     return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:10px;padding-top:10px"><div class="sec-head"><b>'+esc((e.track?e.track+' · ':'')+(e.field||'(no field)'))+'</b><span class="small">'+esc(e.farmName||'')+'</span></div>'+
       '<div class="small">'+esc(bnWhen(e))+(e.acres?' · '+esc(e.acres)+' ac':'')+'</div>'+
@@ -1836,10 +1847,10 @@ function bnLogRender(){
       '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button><button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
   }).join('');
 }
-var BN_HEAD=['logged_at','farm','track','field','burn_date','burn_time','acres','category_day','temp_f','dew_point_f','humidity_pct','wind_mph','wind_from','wind_from_deg','pressure_inhg','visibility_mi','mixing_height_ft','transport_wind_mph','ventilation_rate','conditions','station','observed_at','source','notes','logged_by'];
+var BN_HEAD=['logged_at','farm','track','field','burn_date','burn_time','acres','category_day','best_time_to_burn','temp_f','dew_point_f','humidity_pct','wind_mph','wind_from','wind_from_deg','pressure_inhg','visibility_mi','mixing_height_ft','transport_wind_mph','ventilation_rate','conditions','station','observed_at','source','notes','logged_by'];
 function bnCsv(list){
   var L=[BN_HEAD.join(',')]; list.slice().sort(function(a,b){ return a.burnedAt-b.burnedAt; }).forEach(function(e){ var w=e.wx||{};
-    L.push([new Date(e.loggedAt).toISOString(),e.farmName,e.track,e.field,e.date,e.time,e.acres,e.catDay,w.tempF,w.dewF,w.rh,w.windMph,w.windDir,w.windDeg,w.pressInHg,w.visMi,w.mixHt,w.transMph,(Number(w.mixHt)>0&&Number(w.transMph)>0?Math.round(Number(w.mixHt)*Number(w.transMph)):''),w.sky,w.station,w.obsAt?new Date(w.obsAt).toISOString():'',w.src||'',e.notes,e.by].map(csvCell).join(',')); });
+    L.push([new Date(e.loggedAt).toISOString(),e.farmName,e.track,e.field,e.date,e.time,e.acres,e.catDay,bnBestShort(e.catDay),w.tempF,w.dewF,w.rh,w.windMph,w.windDir,w.windDeg,w.pressInHg,w.visMi,w.mixHt,w.transMph,(Number(w.mixHt)>0&&Number(w.transMph)>0?Math.round(Number(w.mixHt)*Number(w.transMph)):''),w.sky,w.station,w.obsAt?new Date(w.obsAt).toISOString():'',w.src||'',e.notes,e.by].map(csvCell).join(',')); });
   return L.join('\n');
 }
 function bnDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:bnCsv(list) }); }
@@ -1877,7 +1888,8 @@ document.addEventListener('change',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'); if(!f) return;
   if(f==='farm'){ BN.farm=el.value; BN.track=''; BN.field=''; BN.viewFarm=el.value; bnSaveLocal(); bnRender(); }
   if(f==='station'){ BN.station=el.value.trim().toUpperCase(); bnSaveLocal(); bnPersist(); }
-  if(f==='catDay') BN.catDay=el.value;
+  if(f==='catDay'){ BN.catDay=el.value; var bb=$('#bnBest'); if(bb) bb.innerHTML=bnBestHtml(); }
+  if(f==='time'){ var bb2=$('#bnBest'); if(bb2) bb2.innerHTML=bnBestHtml(); }
   if(f==='viewFarm'){ BN.viewFarm=el.value; bnLogRender(); }
 });
 document.addEventListener('keydown',function(e){ if(e.key==='Enter' && e.target && e.target.getAttribute && e.target.getAttribute('data-bnf')==='place'){ e.preventDefault(); BN.place=e.target.value; bnFindPlace(); } });
@@ -2620,12 +2632,16 @@ function renderAccess(){
 
 /* ---------- combined report (administrators only; each farm still has its own Report) ---------- */
 var C={ range:7, cache:{}, loading:false, fails:0, sel:'' };
-function combDays(){ var t=today(), o=[]; for(var i=0;i<C.range;i++) o.push(addDays(t,-i)); return o; }
+function combDays(){
+  var t=today(), o=[];
+  if(C.range==='season'){ var st=null; S.farms.forEach(function(f){ var h=harvestStartFor(f); if(h && (!st || h<st)) st=h; }); for(var k=0;k<200;k++){ var d=addDays(t,-k); if(st && d<st) break; o.push(d); } return o.length?o:[t]; }
+  for(var i=0;i<C.range;i++) o.push(addDays(t,-i)); return o;
+}
 function combRows(fid,d){ return (C.cache[fid+'|'+d]||[]).filter(function(x){ return x.loadedAt; }); }
 async function loadComb(){
   if(!S.db || !(S.isAdmin || S.isMill)) return;
   var jobs=[], days=combDays();
-  S.farms.forEach(function(f){ days.forEach(function(d){ jobs.push([f.id,d]); }); });
+  S.farms.forEach(function(f){ var st=C.range==='season'?harvestStartFor(f):''; days.forEach(function(d){ if(!st || d>=st) jobs.push([f.id,d]); }); });
   C.loading=true; C.fails=0; last.comb=''; schedule();
   var i=0;
   async function w(){
@@ -2649,16 +2665,20 @@ function renderAll_(){
   last.comb=sig;
   var sel=C.sel, tot={}, max=0;
   days.forEach(function(d){ var n=0; farms.forEach(function(f){ n+=combRows(f.id,d).length; }); tot[d]=n; if(n>max) max=n; });
-  var per=farms.map(function(f){ var s=dayStats(combRows(f.id,sel)); s.f=f; return s; });
+  var season=C.range==='season', sLbl=season?'Harvest to date':dayLabel(sel);
+  var rowsOf=function(f){ if(!season) return combRows(f.id,sel); var o=[]; days.forEach(function(d){ o=o.concat(combRows(f.id,d)); }); return o; };
+  var per=farms.map(function(f){ var s=dayStats(rowsOf(f)); s.f=f; s.nd=season?days.filter(function(d){ return combRows(f.id,d).length; }).length:0; return s; });
   var all=[]; per.forEach(function(s){ all=all.concat(s.rows); });
+  var seasonDays=season?days.filter(function(d){ return farms.some(function(f){ return combRows(f.id,d).length; }); }).length:0, allTons=sumTons(all);
   var times=all.map(function(x){ return x.loadedAt; });
   var html='<div class="toolbar">'+
-    '<label class="f">Days to show<select id="cRange">'+[7,14,30].map(function(n){ return '<option value="'+n+'"'+(n===C.range?' selected':'')+'>Last '+n+' days</option>'; }).join('')+'</select></label>'+
+    '<label class="f">Days to show<select id="cRange">'+[7,14,30].map(function(n){ return '<option value="'+n+'"'+(n===C.range?' selected':'')+'>Last '+n+' days</option>'; }).join('')+'<option value="season"'+(C.range==='season'?' selected':'')+'>Harvest to date</option></select></label>'+
     '<button class="btn refresh" type="button" data-act="refreshAll">'+(C.loading?'Loading…':'Refresh')+'</button>'+
     (S.dl?'<button class="btn" type="button" data-act="csvAll">Save as CSV</button>':'')+
   '</div>';
   html+= S.isMill ? '<p class="small rnote">Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.</p>' : '<p class="small rnote">All farms together, for administrators. Each farm’s own Report stays separate. This view loads when you open it, so tap Refresh for the latest.</p>';
-  html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(dayLabel(sel))+' loaded</span><b>'+all.length+'</b></div>'+
+  html+='<div class="stats"><div class="stat"><span class="lbl">'+esc(sLbl)+' loaded</span><b>'+all.length+'</b></div>'+
+    (season?'<div class="stat"><span class="lbl">Days harvested</span><b>'+seasonDays+'</b></div><div class="stat"><span class="lbl">Loads per day</span><b>'+(seasonDays?f1(all.length/seasonDays):'–')+'</b></div>'+(weighedOf(all)?'<div class="stat"><span class="lbl">Tons to date</span><b>'+f1(allTons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(all)+'</b></div>'+(avgTrs(all)?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(avgTrs(all))+'</b></div>':''):''):'')+
     '<div class="stat"><span class="lbl">Farms loading</span><b>'+per.filter(function(s){ return s.loaded; }).length+'</b></div>'+
     '<div class="stat"><span class="lbl">First loaded</span><b>'+(times.length?esc(timeOf(Math.min.apply(null,times))):'–')+'</b></div>'+
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(times.length?esc(timeOf(Math.max.apply(null,times))):'–')+'</b></div></div>';
@@ -2669,14 +2689,14 @@ function renderAll_(){
         ['<span class="bar" style="--w:'+(max?Math.round(tot[d]/max*60):0)+'px"></span><b>'+tot[d]+'</b>']);
   }));
   if(C.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
-  html+='<div class="lbl">'+esc(dayLabel(sel))+' by farm</div>'+tbl(['Farm','Loaded','Trucks','First loaded','Last loaded'].concat(per.some(function(s){ return s.weighed; })?['Tons','Avg t/load']:[]).concat(S.isMill?[]:['Avg between','Loads/hr']), per.map(function(s){
-    var cy=S.isMill?[]:cyclesOf(s.rows), rt=S.isMill?0:ratePerHour([s.rows]);
-    return [esc(s.f.name), s.loaded, s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–']:[]).concat(S.isMill?[]:[cy.length?fmtDur(avgOf(cy)):'–', rt>0?f1(rt):'–']);
+  html+='<div class="lbl">'+esc(sLbl)+' by farm</div>'+tbl(['Farm','Loaded'].concat(season?['Days']:[],['Trucks'],season?[]:['First loaded','Last loaded']).concat(per.some(function(s){ return s.weighed; })?['Tons','Avg t/load']:[]).concat(S.isMill?[]:['Avg between','Loads/hr']), per.map(function(s){
+    var cy=S.isMill?[]:cyclesOf(s.rows), rt=S.isMill?0:ratePerHour(season?days.map(function(d){ return combRows(s.f.id,d); }):[s.rows]);
+    return [esc(s.f.name), s.loaded].concat(season?[s.nd]:[],[s.trucks],season?[]:[s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–']).concat(per.some(function(q){ return q.weighed; })?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–']:[]).concat(S.isMill?[]:[cy.length?fmtDur(avgOf(cy)):'–', rt>0?f1(rt):'–']);
   }));
   var mk={};
   per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
   var mrows=Object.keys(mk).sort().map(function(k){ return [esc(k),mk[k]]; });
-  if(mrows.length) html+='<div class="lbl">'+esc(dayLabel(sel))+' by mill</div>'+tbl(['Farm · Mill','Loaded'],mrows);
+  if(mrows.length) html+='<div class="lbl">'+esc(sLbl)+' by mill</div>'+tbl(['Farm · Mill','Loaded'],mrows);
   body.innerHTML=html;
 }
 async function exportCombCsv(){
@@ -3014,7 +3034,7 @@ document.addEventListener('change', function(e){
   else if(id==='pFarm'){ /* nothing else depends on it */ }
   else if(id==='rStart'){ var sv=e.target.value; if(/^\d{4}-\d{2}-\d{2}$/.test(sv) && S.farmId && isLead()){ var sf=farmById(S.farmId); if(sf) sf.harvestStart=sv; last.report=''; schedule(); dref('farms/'+S.farmId).update({ harvestStart:sv }).catch(fail); loadReport(true); } }
   else if(id==='rRange'){ S.report.range=Number(e.target.value); last.report=''; loadReport(); }
-  else if(id==='cRange'){ C.range=Number(e.target.value); last.comb=''; loadComb(); }
+  else if(id==='cRange'){ C.range=e.target.value==='season'?'season':Number(e.target.value); last.comb=''; loadComb(); }
   else if(id==='rMill'){ S.report.mill=e.target.value; last.report=''; schedule(); }
   else if(id==='rTrack'){ S.report.track=e.target.value; last.report=''; schedule(); }
   else if(id==='rField'){ S.report.field=e.target.value; last.report=''; schedule(); }
