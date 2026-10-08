@@ -784,7 +784,7 @@ async function logLoad(t){
   try{
     await ref.set({ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd });
     markUsed(t,wd);
-    toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:''), loadsPath(t.farm,wd)+'/'+ref.id);
+    toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':''), loadsPath(t.farm,wd)+'/'+ref.id);
   }catch(e){ S.lastTap[t.id]=0; fail(e); }
 }
 
@@ -2595,7 +2595,8 @@ function renderReport(){
         cells=[fmtDur(act/mine.length), Math.round(exp/act*100)+'%'];
       } else cells=['–','–'];
     }
-    return [season?esc(r.k):newNoChip(no,sel,esc(r.k)),r.n].concat((season?WS:W)?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it only with other trucks hauling to the same mill from the same track, since each mill is a different distance: 100% is average for that mill, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
+    var ids=[]; scopeRows.forEach(function(x){ if(String(x.no)===String(no)){ var m=millTruckNo(x.no,x.mill,S.farmId); if(m && ids.indexOf(m)<0) ids.push(m); } });
+    return [(season?esc(r.k):newNoChip(no,sel,esc(r.k)))+(ids.length?' <span class="small">'+esc(ids.join(', '))+'</span>':''),r.n].concat((season?WS:W)?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it only with other trucks hauling to the same mill from the same track, since each mill is a different distance: 100% is average for that mill, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
   var log=season?[]:ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
   if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
     return [newNoChip(x.no,sel,'<b>'+esc(x.no)+'</b>')+(millTruckNo(x.no,x.mill,S.farmId)?' <span class="small">'+esc(millTruckNo(x.no,x.mill,S.farmId))+'</span>':''), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
