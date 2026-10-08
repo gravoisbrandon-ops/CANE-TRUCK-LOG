@@ -278,6 +278,10 @@ td.n,th.n{text-align:right}
           </div>
         </div>
         <label class="f" id="lNameWrap" hidden>Your name<input type="text" id="lName" maxlength="40" autocomplete="name" placeholder="First name and last initial"></label>
+        <div id="lPortalWrap" hidden>
+          <label class="f">Your portal name<input type="text" id="lPortal" maxlength="60" autocomplete="organization" placeholder="e.g. Smith Farms"></label>
+          <p class="small">Starting your own portal for your farms? Type a name for it. Were you invited? Leave this blank and use your invite link.</p>
+        </div>
         <label class="f">Email<input type="email" id="lEmail" autocomplete="email" inputmode="email"></label>
         <label class="f">Password<input type="password" id="lPass" autocomplete="current-password" minlength="6"></label>
         <p class="small" id="loginErr" role="alert" style="color:var(--danger)"></p>
@@ -289,9 +293,11 @@ td.n,th.n{text-align:right}
     <section id="view-pending" hidden aria-label="Waiting for approval">
       <div class="card empty">
         <h2>Waiting for approval</h2>
-        <p>Your account is made. Ask your crew manager for your farm's invite link, or wait for an administrator to put you on a farm. This page checks on its own.</p>
+        <p>Your account is made. To join a farm, paste the invite code or link your crew manager or farm owner sent you. Or start your own portal for your own farms.</p>
         <label class="f">Have an invite code or link?<input type="text" id="joinCode" maxlength="200" placeholder="Paste it here" autocomplete="off"></label>
         <button class="btn" type="button" data-act="joinCode">Join my farm</button>
+        <label class="f" style="margin-top:14px">Or start your own portal<input type="text" id="newPortal" maxlength="60" placeholder="Name it, e.g. Smith Farms" autocomplete="off"></label>
+        <button class="btn" type="button" data-act="startPortal">Start my own portal</button>
         <button class="btn ghost" type="button" data-act="checkStatus">Check again</button>
         <button class="btn ghost" type="button" data-act="signOut">Sign out</button>
       </div>
@@ -414,6 +420,15 @@ td.n,th.n{text-align:right}
     </section>
 
     <section id="view-me" hidden aria-label="Your details">
+      <div class="card" id="portalCard" hidden>
+        <div class="lbl">Your portal</div>
+        <p style="font-weight:700;font-size:18px;margin:4px 0" id="portalNameTxt"></p>
+        <div id="portalRen" hidden>
+          <label class="f">Rename your portal<input type="text" id="portalName" maxlength="60"></label>
+          <button class="btn sm" type="button" data-act="portalRename" style="margin-top:8px">Save the name</button>
+        </div>
+        <p class="small">Your farms, crew and tools are private to this portal. Other growers using the site cannot see them.</p>
+      </div>
       <form class="card" id="meForm" autocomplete="off">
         <h2 id="meTitle">Who is logging?</h2>
         <p id="meIntro">Your name goes on every truck you log.</p>
@@ -833,7 +848,7 @@ function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile
 function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok';
-  S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
+  S.portal = w.portal||''; S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
@@ -844,7 +859,9 @@ async function enter(nm){
   var w=await rpc('whoami',{});
   if(w.status==='unregistered'){
     var jc=JOIN||lsGet('cane-truck-log:join')||'';
-    w=await rpc('register',{ p_name:nm||'', p_join:jc||null });
+    var pn=jc ? '' : (lsGet('cane-truck-log:portal')||'');
+    w=await rpc('register',{ p_name:nm||'', p_join:jc||null, p_portal:pn||null });
+    try{ localStorage.removeItem('cane-truck-log:portal'); }catch(e){}
     if(jc){ JOIN=''; try{ localStorage.removeItem('cane-truck-log:join'); }catch(e){} if(w.invite_ok===false) setTimeout(function(){ toast('That invite link did not work. Ask for a new one.'); },600); }
   }
   applyWho(w,nm);
@@ -1897,6 +1914,7 @@ function renderMe(){
   var p=S.profile||{};
   var locked = !S.isAdmin;                      /* crew stay on the farm their code opens */
   $('#meTitle').textContent = 'Your details';
+  $('#portalCard').hidden=!S.portal; $('#portalNameTxt').textContent=S.portal||''; $('#portalRen').hidden=!(S.isAdmin&&S.isOwner); if(S.isAdmin&&S.isOwner && document.activeElement!==$('#portalName')) $('#portalName').value=S.portal||'';
   $('#meIntro').textContent = S.isMill ? ('You are a mill field manager. You see the loads going to '+(S.mill||'your mill')+' on every farm that delivers to it. You cannot change anything.') : S.isAdmin
     ? 'You are an administrator. You can open any farm and switch between them. Pick a usual farm if you like to stay on one.'
     : 'Your name goes on every truck you log. Your code opens one farm, and only an administrator can give you another.';
@@ -2628,12 +2646,20 @@ document.addEventListener('click', function(e){
     case 'signOut': signOut(); break;
     case 'toggleReg':
       S.regMode=!S.regMode; $('#loginErr').textContent='';
-      $('#lLangWrap').hidden=!S.regMode; $('#lNameWrap').hidden=!S.regMode; $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
-      $('#loginIntro').textContent=S.regMode?'Make an account with your email. An invite link puts you on your farm, or an administrator does.':'Use the email and password you signed up with.';
+      $('#lLangWrap').hidden=!S.regMode; $('#lNameWrap').hidden=!S.regMode; $('#lPortalWrap').hidden=!S.regMode || !!(JOIN||lsGet('cane-truck-log:join')); $('#loginTitle').textContent=S.regMode?'Create your account':'Sign in';
+      $('#loginIntro').textContent=S.regMode?'Make an account with your email. Start your own portal for your farms, or use an invite link to join a farm.':'Use the email and password you signed up with.';
       $('#loginBtn').textContent=S.regMode?'Create account':'Sign in';
       $('#regToggle').textContent=S.regMode?'Already have an account? Sign in':'New here? Create an account';
       $('#lPass').setAttribute('autocomplete',S.regMode?'new-password':'current-password'); break;
     case 'checkStatus': checkStatus(); break;
+    case 'startPortal':
+      var pnn=($('#newPortal').value||'').trim(); if(!pnn){ toast('Type a name for your portal first.'); break; }
+      rpc('portal_create',{ p_name:pnn }).then(function(w){ applyWho(w); if(!S.pending){ S.tab='setup'; toast('Your portal is ready. Add your first farm in Setup.'); } else toast('Could not start the portal.'); }).catch(function(er){ toast((er&&er.code==='denied')?'Signed out. Sign in again.':'Could not start the portal.'); });
+      break;
+    case 'portalRename':
+      var rn=($('#portalName').value||'').trim(); if(!rn){ toast('Type a name first.'); break; }
+      rpc('portal_rename',{ p_name:rn }).then(function(){ S.portal=rn; toast('Portal renamed.'); last.me=''; renderMe(); }).catch(function(){ toast('Could not rename it.'); });
+      break;
     case 'joinCode':
       var jc=($('#joinCode').value||'').trim(); if(!jc){ toast('Type the code first.'); break; }
       rpc('join_farm',{ p_code:jc.replace(/^.*join=/i,'') }).then(function(w){ applyWho(w); if(!S.pending){ S.tab='board'; toast('You are in. Welcome.'); } else toast('That code did not work.'); }).catch(function(er){ toast((er&&er.code==='denied')?'Signed out. Sign in again.':'That code did not work.'); });
@@ -2730,6 +2756,7 @@ document.addEventListener('submit', function(e){
     if(!em || !pw){ $('#loginErr').textContent='Enter your email and password.'; return; }
     if(S.regMode && !nm){ $('#loginErr').textContent='Enter your name.'; return; }
     if(S.regMode && pw.length<6){ $('#loginErr').textContent='Use at least 6 characters for the password.'; return; }
+    if(S.regMode){ var pnv=($('#lPortal').value||'').trim(); if(pnv) lsSet('cane-truck-log:portal',pnv); else { try{ localStorage.removeItem('cane-truck-log:portal'); }catch(e){} } }
     $('#loginErr').textContent=''; $('#loginBtn').disabled=true;
     var go = S.regMode
       ? authCall('signup',{ email:em, password:pw, data:{ name:nm } }).then(function(j){
@@ -2761,7 +2788,7 @@ document.addEventListener('submit', function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- 'Sugar per acre':'Azúcar por acre','Fetch tons and TRS':'Traer toneladas y TRS','Total tons hauled':'Total de toneladas acarreadas','Total lb sugar':'Total lb de azúcar','Tons per acre':'Toneladas por acre','Lb sugar per acre':'Lb de azúcar por acre','+ Add a mill':'+ Agregar un ingenio','Total acres':'Acres totales','Mill name':'Nombre del ingenio','Tons hauled':'Toneladas acarreadas','Liquidation %':'Liquidación %','+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ 'Sugar per acre':'Azúcar por acre','Fetch tons and TRS':'Traer toneladas y TRS','Total tons hauled':'Total de toneladas acarreadas','Total lb sugar':'Total lb de azúcar','Tons per acre':'Toneladas por acre','Lb sugar per acre':'Lb de azúcar por acre','+ Add a mill':'+ Agregar un ingenio','Total acres':'Acres totales','Mill name':'Nombre del ingenio','Tons hauled':'Toneladas acarreadas','Liquidation %':'Liquidación %','Your account is made. To join a farm, paste the invite code or link your crew manager or farm owner sent you. Or start your own portal for your own farms.':'Su cuenta está hecha. Para unirse a una finca, pegue el código o enlace de invitación que le mandó su jefe de cuadrilla o el dueño de la finca. O empiece su propio portal para sus propias fincas.','Or start your own portal':'O empiece su propio portal','Name it, e.g. Smith Farms':'Póngale nombre, por ejemplo Fincas Smith','Start my own portal':'Empezar mi propio portal','Your portal name':'El nombre de su portal','Starting your own portal for your farms? Type a name for it. Were you invited? Leave this blank and use your invite link.':'¿Empieza su propio portal para sus fincas? Escriba un nombre. ¿Lo invitaron? Deje esto en blanco y use su enlace de invitación.','Your portal':'Su portal','Rename your portal':'Cambiar el nombre del portal','Save the name':'Guardar el nombre','Your farms, crew and tools are private to this portal. Other growers using the site cannot see them.':'Sus fincas, personal y herramientas son privados en este portal. Otros productores que usan la página no pueden verlos.','Make an account with your email. Start your own portal for your farms, or use an invite link to join a farm.':'Cree una cuenta con su correo. Empiece su propio portal para sus fincas, o use un enlace de invitación para unirse a una finca.','+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
