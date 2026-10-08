@@ -99,6 +99,38 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .l2{font-size:13px;color:var(--ink2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ago{font-size:12px;color:var(--ink2);white-space:nowrap}
 .newno{display:inline-block;color:#0E1511;border-radius:6px;padding:0 8px;font-weight:700}
+.tm{display:flex;flex-direction:column;gap:14px}
+#tmRoot{display:flex;flex-direction:column;gap:14px;min-width:0}
+.tm input[type=number],.tm textarea,#tmSheet textarea,#tmSheet input[type=text]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:0}
+.tm textarea,#tmSheet textarea{min-height:90px;resize:vertical;font-family:inherit}
+#tmSheet textarea.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.5}
+.tmgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tmlist{display:flex;flex-direction:column;gap:8px}
+.tmrow{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer}
+.tmrow .info,.tmitem .info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tmrow .l1,.tmitem .l1,.tmprod .l1{font-weight:700;font-size:17px;overflow:hidden;text-overflow:ellipsis}
+.tmrow .l2,.tmitem .l2{font-size:13px;color:var(--ink2)}
+.tmhead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.tmprice{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tmprice input[type=number]{width:92px;min-height:40px;padding:6px 8px}
+.tmprice select{width:auto;min-height:40px;padding:6px 8px}
+.tmprice input.old{border-color:var(--danger);color:var(--danger)}
+.tmline{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.tmline .tmr{display:flex;flex-direction:column;align-items:flex-end;gap:2px;text-align:right}
+.tmtotal{border-bottom:0;border-top:2px solid var(--line);font-weight:700}
+.tmbig{font:700 22px/1 var(--font-display);letter-spacing:.02em}
+.tmbtns{display:flex;flex-wrap:wrap;gap:10px}
+.tmbtns .btn{flex:1;min-width:140px}
+.tmitems{display:flex;flex-direction:column;gap:12px}
+.tmcat{display:flex;flex-direction:column;gap:10px}
+.tmck{display:flex;align-items:center;gap:10px;min-width:0}
+.tmck input[type=checkbox]{width:22px;height:22px;flex:none}
+.tmpick{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.tmpick .btn{justify-content:flex-start;text-align:left}
+.tmmsg{min-height:1.2em}
+.small.bad,.tmmsg.bad{color:var(--danger)}
+#tmOv .scrim{z-index:22}#tmOv .sheet{z-index:23}
+label.btn{cursor:pointer}
 .nbadge{display:inline-block;min-width:20px;padding:1px 6px;border-radius:10px;background:#C62828;color:#fff;font-size:13px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
 .on-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#2E9E5B;margin-right:6px}
 .edited{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-left:6px}
@@ -224,6 +256,7 @@ td.n,th.n{text-align:right}
       <button class="tab" role="tab" data-act="tab" data-tab="board" id="tab-board" aria-selected="true" type="button">Board</button>
       <button class="tab" role="tab" data-act="tab" data-tab="report" id="tab-report" aria-selected="false" type="button">Report</button>
       <button class="tab" role="tab" data-act="tab" data-tab="all" id="tab-all" aria-selected="false" type="button" hidden>All farms</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="tools" id="tab-tools" aria-selected="false" type="button" hidden>Tools</button>
       <button class="tab" role="tab" data-act="tab" data-tab="setup" id="tab-setup" aria-selected="false" type="button" hidden>Setup</button>
     </nav>
   </header>
@@ -319,6 +352,28 @@ td.n,th.n{text-align:right}
       <div id="allBody" class="rep" style="display:flex;flex-direction:column;gap:16px"></div>
     </section>
 
+    <section id="view-tools" hidden aria-label="Cane tools" style="display:flex;flex-direction:column;gap:16px">
+      <div class="card">
+        <h2>Cane tools</h2>
+        <div class="fchips" id="toolPick" role="group" aria-label="Pick a tool">
+          <button type="button" class="fchip" data-act="toolPick" data-tool="tank" aria-pressed="true">Tank mix</button>
+          <button type="button" class="fchip" data-act="toolPick" data-tool="sugar" aria-pressed="false">Sugar per acre</button>
+        </div>
+      </div>
+      <div id="toolTank" class="tm"><div id="tmRoot"></div></div>
+      <div class="card" id="toolSugar" hidden>
+        <h2>Sugar per acre</h2>
+        <p class="small">Enter tons of cane per acre and TRS. Acres and the grower share are optional.</p>
+        <div class="toolbar">
+          <label class="f">Tons cane per acre<input type="number" id="tlTpa" step="0.01" min="0" inputmode="decimal"></label>
+          <label class="f">TRS (lb sugar per ton)<input type="number" id="tlTrs" step="0.01" min="0" inputmode="decimal"></label>
+          <label class="f">Acres (optional)<input type="number" id="tlAcres" step="0.01" min="0" inputmode="decimal"></label>
+          <label class="f">Grower share % (optional)<input type="number" id="tlShare" step="0.1" min="0" max="100" inputmode="decimal"></label>
+        </div>
+        <div class="stats" id="tlOut"></div>
+      </div>
+    </section>
+
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
       <div class="card" id="farmsCard">
         <h2>Farms</h2>
@@ -386,6 +441,10 @@ td.n,th.n{text-align:right}
 <div id="sheetWrap" hidden>
   <div class="scrim" data-act="closeSheet"></div>
   <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div>
+</div>
+<div id="tmOv" hidden>
+  <div class="scrim" data-tm="ovClose"></div>
+  <div class="sheet" id="tmSheet" role="dialog" aria-modal="true"></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
@@ -836,7 +895,7 @@ function renderAll(){
   document.querySelector('.tabs').hidden=gate||wait;
   $('#meBtn').hidden=gate||wait;
   if(gate||wait){
-    ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden=true; });
+    ['board','report','all','tools','setup','me'].forEach(function(v){ $('#view-'+v).hidden=true; });
     $('#adminBar').hidden=true; renderBanner(); return;
   }
   if(resolveFarm()) onFarmChange();
@@ -851,15 +910,18 @@ function renderAll(){
   $('#tab-setup').innerHTML = (isOffice() ? 'Setup' : 'Trucks') + (npend?' <span class="nbadge">'+npend+'</span>':'');
   try{ var bt=document.title.replace(/^\(\d+\) /,''); document.title = npend ? '('+npend+') '+bt : bt; }catch(e){}
   $('#tab-all').hidden = !(isOffice() || S.isMill);
+  $('#tab-tools').hidden = !isOffice();
+  if(S.tab==='tools' && !isOffice()) S.tab='board';
   $('#tab-board').hidden = $('#tab-report').hidden = $('#tab-setup').hidden = !!S.isMill;
   $('#tab-all').textContent = S.isMill ? 'Report' : 'All farms';
   if(S.isMill && S.tab!=='all' && S.tab!=='me'){ S.tab='all'; last.comb=''; loadComb(); }
   if(S.tab==='all' && !(isOffice() || S.isMill)) S.tab='board';
-  ['board','report','all','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
+  ['board','report','all','tools','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
   ['board','report','all','setup'].forEach(function(v){ $('#tab-'+v).setAttribute('aria-selected', S.tab===v ? 'true':'false'); });
   renderBanner();
   if(S.tab==='board') renderBoard();
   if(S.tab==='report') renderReport();
+  if(S.tab==='tools') toolsShow();
   if(S.tab==='all') renderAll_();
   if(S.tab==='setup'){ renderSetup(); if(isLead()){ renderAccess(); renderScale(); } }
   if(S.tab==='me') renderMe();
@@ -1011,6 +1073,432 @@ function renderBoard(){
 }
 
 /* ---------- me ---------- */
+/* ---------- tank mix calculator (Tools) ---------- */
+var TM_DEFAULT_CATS=["Herbicide","Pre-emerge","Insecticides","Protection","Adjuvants","Fungicides","Growth Regulators","Chemicals","Other"];
+var TM_NAMES=[["2,4-D AMINE","Herbicide"],["2,4-D LV6","Herbicide"],["AIM EC","Herbicide"],["AMINE 4 DEFY","Herbicide"],["ARMEZON","Herbicide"],["ASULAM","Herbicide"],["ASULAM 3.3","Herbicide"],["ASULOX 3.3","Herbicide"],["ATRAZINE 4L","Herbicide"],["ATRAZINE 90DF","Herbicide"],["AZOXYSTROBIN SC DREXEL","Herbicide"],["CALLISTO","Herbicide"],["CALLISTO XTRA","Herbicide"],["CHARGER MAX","Herbicide"],["CLASSIC","Herbicide"],["COMMAND 3ME","Herbicide"],["CORNERSTONE 5 PLUS","Herbicide"],["CORNERSTONE PLUS","Herbicide"],["DEFY LV6","Herbicide"],["DEVRINOL 50 DF-XT AG","Herbicide"],["DIMETRIC EXT","Herbicide"],["DIMETRIC LIQUID","Herbicide"],["ENVOKE","Herbicide"],["FRAMEWORK","Herbicide"],["GRAMOXONE SL 3.0","Herbicide"],["HELMQUAT 3SL","Herbicide"],["HERBIVORE","Herbicide"],["HI-DEP","Herbicide"],["INCINERATE","Herbicide"],["KARMEX DF","Herbicide"],["LIBERTY 280SL","Herbicide"],["LIBERTY ULTRA","Herbicide"],["MEDAL II EC","Herbicide"],["MOCCASIN","Herbicide"],["MOCCASIN II PLUS","Herbicide"],["MSM 60DF TURF","Herbicide"],["MSMA 6 PLUS (DREXEL)","Herbicide"],["NOVENTA ULTRA","Herbicide"],["PARAQUAT REDEAGLE","Herbicide"],["POAST","Herbicide"],["PROWL H2O","Herbicide"],["REMEDY","Herbicide"],["ROUNDUP POWERMAX 3","Herbicide"],["ROUNDUP POWERMAX II","Herbicide"],["SATELLITE HYDROCAP","Herbicide"],["SECTION THREE","Herbicide"],["SHARPEN","Herbicide"],["SIMAZINE 4L WF","Herbicide"],["SPARTAN","Herbicide"],["SPARTAN 4F","Herbicide"],["SPLINTER 4F","Herbicide"],["STERLING BLUE","Herbicide"],["STERLING BLUE 4.0","Herbicide"],["STERLING BLUE DGA","Herbicide"],["TREFLAN HFP","Herbicide"],["TRUST","Herbicide"],["TRUST 4EC","Herbicide"],["TRUST HERB DXL","Herbicide"],["VALOR SX","Herbicide"],["VISOR S-MOC II HERBICIDE","Herbicide"],["ZIDUA SC","Herbicide"],["ACEPHATE 97 WDG","Insecticides"],["ADVISE FOUR","Insecticides"],["ARCTIC 3.2 EC 36.8PCT","Insecticides"],["BELAY","Insecticides"],["BIFEN 2 AG GOLD","Insecticides"],["BLACKHAWK","Insecticides"],["BRACKET 97","Insecticides"],["BUG, SLUG AND SNAIL BAIT","Insecticides"],["CHLORPYRIFOS SPC 4","Insecticides"],["CONFIRM GOWAN","Insecticides"],["DIMILIN 2L","Insecticides"],["DIPEL DF","Insecticides"],["GRIZZLY TOO CS","Insecticides"],["LEVERAGE 360","Insecticides"],["NURIZMA INSECTICIDE","Insecticides"],["PREVATHON","Insecticides"],["SEVIN LIQUID","Insecticides"],["TUNDRA","Insecticides"],["VANTACOR","Insecticides"],["VERTENTO","Insecticides"],["YUMA 4EC","Insecticides"],["CELSIUS XTRA","Protection"],["DRIVE XLR8","Protection"],["FREEHAND","Protection"],["GARLON 3A","Protection"],["MOJAVE 70EG","Protection"],["OUST XP","Protection"],["PIN-DEE 3.3 EC","Protection"],["QUALI-PRO T/I","Protection"],["QUINCLORAC 1.5L","Protection"],["QUINCLORAC 75DF","Protection"],["ROMETSOL 60DF 8 OZ- TURF LABEL - MSM","Protection"],["ROUNDUP CUSTOM","Protection"],["ROUNDUP QUIKPRO","Protection"],["SFM 75","Protection"],["SFM EXTRA","Protection"],["STRELIUS II","Protection"],["STRIKE THREE","Protection"],["TRANSFIX","Protection"],["TRIAD SELECT","Protection"],["TRICLOPYR 3SL","Protection"],["TRICLOPYR 4","Protection"],["TURF-GRO BLUE COVER GALLON","Protection"],["AMMONIUM SULFATE SPRAYABLE","Adjuvants"],["CLASS ACT NG","Adjuvants"],["INTERLOCK","Adjuvants"],["MASTERLOCK","Adjuvants"],["POWERLOCK","Adjuvants"],["PREFERENCE","Adjuvants"],["STRIKELOCK","Adjuvants"],["SUPERB HC","Adjuvants"],["TOP SURF","Adjuvants"],["ULTRALOCK","Adjuvants"],["VALCHECK 80/20","Adjuvants"],["ADASTRIO","Fungicides"],["AFRAME PLUS","Fungicides"],["AZOXYSTAR","Fungicides"],["COVER XL","Fungicides"],["DOMARK 230 ME (GOWAN)","Fungicides"],["EVERLON","Fungicides"],["LUCENTO","Fungicides"],["PRIAXOR","Fungicides"],["QUADRIS","Fungicides"],["REVYLOK","Fungicides"],["TETRABAN","Fungicides"],["TOPAZ","Fungicides"],["TOPGUARD","Fungicides"],["ASCEND SL PGR","Growth Regulators"],["MODDUS","Growth Regulators"],["BRASH","Chemicals"],["BRASH POLY","Chemicals"],["BRASH POLY-C","Chemicals"],["CIMARRON PLUS 10 OZ BAYER","Chemicals"],["REMEDY ULTRA","Chemicals"],["VELPAR L (NOVA CROP LABEL)","Chemicals"]];
+var TM_UNITS=["oz","gal","lb","pt","qt"], TM_LIQ=["oz","gal","qt","pt"], TM_DRY=["oz","lb"];
+var TM_OZ={ oz:1, gal:128, qt:32, pt:16 }, TM_LB=16;
+var TM={ loaded:false, loading:false, lib:[], cats:[], mixes:[], view:'list', active:null, yearF:'all', roundUp:false, sel:{}, open:{}, names:{}, confirm:'', shared:true, copyOpen:false, saveT:0, msg:'', err:'', pick:'', pickCustom:false, mSearch:'', bulk:'' };
+function tmUid(){ return Math.random().toString(36).slice(2,10); }
+function tmYear(){ return new Date().getFullYear(); }
+function tmRound(n,d){ d=d==null?2:d; if(!isFinite(n)) return 0; var f=Math.pow(10,d); return Math.round(n*f)/f; }
+function tmFamily(u){ return u==='lb'?'dry':(u==='gal'||u==='qt'||u==='pt')?'liquid':null; }
+function tmUnitOpts(other){ var f=tmFamily(other); return f==='dry'?TM_DRY:f==='liquid'?TM_LIQ:TM_UNITS; }
+function tmUnitLabel(u,opts){ return (u==='oz' && opts===TM_DRY) ? 'oz (dry)' : u; }
+function tmFactor(u,fam){ if(fam==='dry'){ return u==='oz'?1:u==='lb'?TM_LB:null; } return TM_OZ[u]||null; }
+function tmBreak(total,unit,roundUp,dry){
+  var isDry = unit==='lb' || (unit==='oz' && dry);
+  if(isDry){
+    var toz = unit==='lb' ? total*TM_LB : total;
+    if(roundUp) return { whole:Math.ceil(toz/TM_LB-1e-9), rem:0, uw:'lb', ur:'oz', small:tmRound(toz,1), rounded:true };
+    var wl=Math.floor(toz/TM_LB); return { whole:wl, rem:tmRound(toz-wl*TM_LB,1), uw:'lb', ur:'oz', small:tmRound(toz,1) };
+  }
+  var per=TM_OZ[unit]; if(!per) return null;
+  var oz=total*per;
+  if(roundUp) return { whole:Math.ceil(oz/128-1e-9), rem:0, uw:'gal', ur:'oz', small:tmRound(oz,1), rounded:true };
+  var g=Math.floor(oz/128); return { whole:g, rem:tmRound(oz-g*128,1), uw:'gal', ur:'oz', small:tmRound(oz,1) };
+}
+function tmTotal(it,acres,gpa){
+  var a=Number(acres)||0;
+  if(it.mode==='percent') return { value:tmRound((Number(gpa)||0)*a*((Number(it.pct)||0)/100),2), unit:'gal' };
+  return { value:tmRound((Number(it.rate)||0)*a,2), unit:it.unit };
+}
+function tmCost(it,gpa){
+  var price=Number(it.price)||0; if(price<=0) return 0;
+  var amount, au;
+  if(it.mode==='percent'){ amount=(Number(gpa)||0)*((Number(it.pct)||0)/100); au='gal'; }
+  else { amount=Number(it.rate)||0; au=it.unit; }
+  var pu=it.priceUnit||au||'gal', fam=(au==='lb'||pu==='lb')?'dry':'liquid', af=tmFactor(au,fam), pf=tmFactor(pu,fam);
+  if(af && pf) return amount*af*(price/pf);
+  return amount*price;
+}
+function tmMoney(n){ var v=isFinite(n)?n:0; return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function tmHist(p){
+  if(Array.isArray(p.priceHistory) && p.priceHistory.length) return p.priceHistory;
+  if(!(Number(p.price)>0)) return [];
+  return [{ year:p.priceYear||tmYear(), price:p.price||0, priceUnit:p.priceUnit||'gal' }];
+}
+function tmUpsertPrice(p,year,price,unit){
+  var y=parseInt(year,10)||tmYear(), pr=Number(price)||0, u=unit||p.priceUnit||'gal';
+  var h=tmHist(p).slice(), i=-1; h.forEach(function(x,k){ if(x.year===y) i=k; });
+  if(i>=0) h[i]={ year:y, price:pr, priceUnit:u }; else h.push({ year:y, price:pr, priceUnit:u });
+  h.sort(function(a,b){ return a.year-b.year; });
+  var l=h[h.length-1];
+  return Object.assign({},p,{ priceHistory:h, price:l.price, priceUnit:l.priceUnit, priceYear:l.year });
+}
+function tmBdText(bd,t){
+  if(!bd) return t.value.toLocaleString(undefined,{maximumFractionDigits:2})+' '+t.unit;
+  if(bd.rounded) return bd.whole+' '+bd.uw;
+  return bd.whole>0 ? bd.whole+' '+bd.uw+(bd.rem>0?' '+bd.rem+' '+bd.ur:'') : bd.small+' '+bd.ur;
+}
+function tmReport(mix,acres,gpa,roundUp,title,sub){
+  var L=[(mix.name||'Tank Mix')+' - '+title, sub];
+  TM.cats.forEach(function(cat){
+    var items=mix.items.filter(function(it){ return it.category===cat; }); if(!items.length) return;
+    L.push(''); L.push(cat.toUpperCase());
+    items.forEach(function(it){ var t=tmTotal(it,acres,gpa), bd=tmBreak(t.value,t.unit,roundUp,it.priceUnit==='lb'); L.push('  '+it.name+': '+tmBdText(bd,t)); });
+  });
+  return L.join('\n').trim();
+}
+function tmMix(){ for(var i=0;i<TM.mixes.length;i++){ if(TM.mixes[i].id===TM.active) return TM.mixes[i]; } return null; }
+function tmProd(id){ for(var i=0;i<TM.lib.length;i++){ if(TM.lib[i].id===id) return TM.lib[i]; } return null; }
+function tmSeed(){
+  TM.cats=TM_DEFAULT_CATS.slice();
+  TM.lib=TM_NAMES.map(function(n,i){ return { id:'p'+i, name:n[0], category:n[1], unit:'oz', price:0, priceUnit:'gal', priceYear:tmYear() }; });
+  TM.mixes=[];
+}
+/* ---- saving and loading: a shared copy for administrators, and a copy on this device ---- */
+function tmData(){ return { library:TM.lib, mixes:TM.mixes, categories:TM.cats }; }
+function tmApply(d){
+  if(!d) return false;
+  if(Array.isArray(d.library) && d.library.length) TM.lib=d.library;
+  if(Array.isArray(d.categories) && d.categories.length) TM.cats=d.categories;
+  if(Array.isArray(d.mixes)) TM.mixes=d.mixes;
+  return true;
+}
+function tmFlush(){ if(!TM.saveT) return; clearTimeout(TM.saveT); TM.saveT=0; try{ lsSet('cane-truck-log:tankmix', JSON.stringify(tmData())); }catch(e){} }
+window.addEventListener('pagehide',function(){ try{ tmFlush(); }catch(e){} });
+function tmSave(){
+  clearTimeout(TM.saveT);
+  TM.saveT=setTimeout(function(){
+    var d=tmData();
+    lsSet('cane-truck-log:tankmix', JSON.stringify(d));
+    dref('tools/tankmix').set(d).then(function(){ if(!TM.shared){ TM.shared=true; tmFoot(); } }).catch(function(){ if(TM.shared){ TM.shared=false; tmFoot(); } });
+  },700);
+}
+async function tmLoad(){
+  if(TM.loaded || TM.loading) return;
+  TM.loading=true; tmSeed();
+  var local=null; try{ local=JSON.parse(lsGet('cane-truck-log:tankmix')||'null'); }catch(e){}
+  var got=false;
+  try{
+    var rows=await col('tools').get(); var r=docs(rows).filter(function(x){ return x.id==='tankmix'; })[0];
+    if(r){ got=tmApply(r); }
+    else if(local){ tmApply(local); tmSave(); got=true; }
+  }catch(e){ TM.shared=false; if(local){ tmApply(local); got=true; } }
+  TM.loaded=true; TM.loading=false; tmRender();
+}
+function tmFoot(){ var f=$('#tmFoot'); if(f) f.textContent = TM.shared ? 'Saved automatically and shared with the other administrators.' : 'Saved on this device only. Run the latest schema.sql in Supabase to share it.'; }
+function tmMsg(m,err){ TM.msg=err?'':m; TM.err=err?m:''; var e=$('#tmMsg'); if(e){ e.textContent=TM.err||TM.msg; e.className='small tmmsg'+(TM.err?' bad':''); } if(m) setTimeout(function(){ if((TM.err||TM.msg)===m){ TM.msg=''; TM.err=''; var e2=$('#tmMsg'); if(e2) e2.textContent=''; } },3500); }
+/* ---- views ---- */
+function tmInput(label,attrs,val){ return '<label class="f">'+label+'<input type="number" inputmode="decimal" min="0" step="0.1" value="'+esc(val)+'" '+attrs+'></label>'; }
+function tmRender(){
+  var root=$('#tmRoot'); if(!root) return;
+  if(!TM.loaded){ root.innerHTML='<p class="small">Loading…</p>'; tmLoad(); return; }
+  var h='';
+  if(TM.view==='list') h=tmListHtml(); else if(TM.view==='manage') h=tmManageHtml(); else h=tmEditHtml();
+  root.innerHTML=h+'<p class="small tmmsg" id="tmMsg">'+esc(TM.err||TM.msg)+'</p><p class="small" id="tmFoot"></p>';
+  tmFoot();
+  if(TM.view==='edit') tmOut();
+  if(TM.view==='manage') tmManageList();
+}
+function tmListHtml(){
+  var years={}; TM.mixes.forEach(function(m){ years[m.usedYear]=1; });
+  var ys=Object.keys(years).sort(function(a,b){ return b-a; });
+  var list=TM.mixes.filter(function(m){ return TM.yearF==='all' || String(m.usedYear)===String(TM.yearF); }).sort(function(a,b){ return b.usedYear-a.usedYear || b.createdYear-a.createdYear; });
+  var h='<div class="lbl">Tank mixes</div><p class="small">Save a mix per field or pass, filter by season, and copy one forward to a new year.</p>'+
+    '<div class="toolbar"><label class="f">Year used<select data-tmf="year"><option value="all">All years</option>'+ys.map(function(y){ return '<option value="'+y+'"'+(String(y)===String(TM.yearF)?' selected':'')+'>'+y+'</option>'; }).join('')+'</select></label>'+
+    '<button class="btn" type="button" data-tm="newMix">+ New tank mix</button></div>'+
+    '<div><button class="btn ghost sm" type="button" data-tm="manage">Manage product list and prices</button></div>';
+  if(!list.length) h+='<div class="card empty"><p>No tank mixes for this year yet.</p></div>';
+  else h+='<div class="tmlist">'+list.map(function(m){
+    var k='delMix:'+m.id;
+    return '<div class="tmrow" role="button" tabindex="0" data-tm="open" data-id="'+esc(m.id)+'"><div class="info"><span class="l1">'+esc(m.name||'Untitled tank mix')+'</span><span class="l2">Used '+m.usedYear+' · Created '+m.createdYear+' · '+esc(m.acres)+' ac · '+m.items.length+(m.items.length===1?' product':' products')+'</span></div>'+
+      '<button class="btn warn sm" type="button" data-tm="delMix" data-id="'+esc(m.id)+'" aria-label="Delete '+esc(m.name)+'">'+(TM.confirm===k?'Sure?':'Delete')+'</button></div>'; }).join('')+'</div>';
+  return h;
+}
+function tmEditHtml(){
+  var m=tmMix(); if(!m) return '';
+  return '<div><button class="btn ghost sm" type="button" data-tm="back">&larr; All tank mixes</button></div>'+
+    '<div class="card"><label class="f">Tank mix name<input type="text" data-tmf="mname" value="'+esc(m.name)+'" placeholder="Tank mix name"></label>'+
+    '<div class="tmgrid">'+tmInput('Acres per tank','data-tmf="acres"',m.acres)+tmInput('Year used','data-tmf="usedYear" step="1"',m.usedYear)+tmInput('Total acres to apply','data-tmf="totalAcres"',m.totalAcres)+tmInput('Carrier volume (gal/ac)','data-tmf="gpa"',m.gpa)+'</div>'+
+    '<p class="small">Created '+m.createdYear+'. Carrier volume is the total spray solution per acre, used to figure % v/v adjuvants.</p></div>'+
+    '<div class="sec-head"><h2>Products</h2><button class="btn sm" type="button" data-tm="addProduct">+ Add product</button></div>'+
+    '<div id="tmItems" class="tmitems"></div><div id="tmOut"></div>'+
+    '<div class="tmbtns"><button class="btn primary" type="button" data-tm="back">Save tank mix</button>'+
+    (TM.copyOpen ? '<div class="toolbar"><label class="f">Copy to year<input type="number" id="tmCopyYear" value="'+tmYear()+'"></label><button class="btn" type="button" data-tm="copyYear">Copy</button><button class="btn ghost" type="button" data-tm="copyCancel">Cancel</button></div>' : '<button class="btn ghost" type="button" data-tm="copyOpen">Copy this mix to a new year</button>')+'</div>';
+}
+function tmItemsHtml(){
+  var m=tmMix(); if(!m) return '';
+  if(!m.items.length) return '<div class="card empty"><p>No products yet. Tap + Add product to pick one.</p></div>';
+  return m.items.map(function(it){
+    var adj=it.category==='Adjuvants', pct=adj && it.mode==='percent';
+    var ropts=tmUnitOpts(it.priceUnit), popts=tmUnitOpts(it.unit);
+    var old=(it.priceYear||tmYear())<tmYear();
+    return '<div class="card tmitem" data-item="'+esc(it.id)+'"><div class="tmhead"><div class="info"><span class="l1">'+esc(it.name)+'</span><span class="l2">'+esc(it.category)+'</span></div><button class="btn warn sm" type="button" data-tm="rmItem" data-item="'+esc(it.id)+'" aria-label="Remove '+esc(it.name)+'">Remove</button></div>'+
+      (adj?'<div class="fchips" role="group"><button type="button" class="fchip" data-tm="mode" data-item="'+esc(it.id)+'" data-v="rate" aria-pressed="'+(!pct)+'">Rate per acre</button><button type="button" class="fchip" data-tm="mode" data-item="'+esc(it.id)+'" data-v="percent" aria-pressed="'+pct+'">% v/v</button></div>':'')+
+      (pct ? '<label class="f">% of spray volume<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="e.g. 0.25" data-tmf="pct" data-item="'+esc(it.id)+'" value="'+esc(it.pct)+'"></label>'
+           : '<div class="tmgrid"><input type="number" inputmode="decimal" min="0" step="0.01" aria-label="Rate" data-tmf="rate" data-item="'+esc(it.id)+'" value="'+esc(it.rate)+'"><select data-tmf="unit" data-item="'+esc(it.id)+'" aria-label="Rate unit">'+ropts.map(function(u){ return '<option value="'+u+'"'+(u===it.unit?' selected':'')+'>'+tmUnitLabel(u,ropts)+'/acre</option>'; }).join('')+'</select></div>')+
+      '<div class="tmprice"><span class="small">Price $</span><input type="number" inputmode="decimal" min="0" step="0.01" data-tmf="price" data-item="'+esc(it.id)+'" value="'+esc(it.price||0)+'" aria-label="Price"><span class="small">per</span><select data-tmf="priceUnit" data-item="'+esc(it.id)+'" aria-label="Price unit">'+popts.map(function(u){ return '<option value="'+u+'"'+(u===(it.priceUnit||'gal')?' selected':'')+'>'+tmUnitLabel(u,popts)+'</option>'; }).join('')+'</select><span class="small">as of</span><input type="number" step="1" data-tmf="priceYear" data-item="'+esc(it.id)+'" value="'+esc(it.priceYear||tmYear())+'" aria-label="Price year"'+(old?' class="old"':'')+'></div>'+
+      '<div id="tmT_'+esc(it.id)+'">'+tmItemTot(it,m)+'</div></div>';
+  }).join('');
+}
+function tmItemTot(it,m){
+  var t=tmTotal(it,m.acres,m.gpa), miss=it.mode==='percent' && !(Number(m.gpa)>0);
+  return (miss?'<p class="small bad">Set the carrier volume above to calculate.</p>':'')+
+    '<div class="tmline"><span class="small">Total for tank</span><b class="tmbig">'+t.value.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.unit)+'</b></div>'+
+    (Number(it.price)>0?'<p class="small">Cost per acre '+tmMoney(tmCost(it,m.gpa))+'</p>':'');
+}
+function tmOut(){
+  var m=tmMix(), el=$('#tmOut'); if(!m || !el) return;
+  var items=$('#tmItems'); if(items && !items.getAttribute('data-ok')){ items.innerHTML=tmItemsHtml(); items.setAttribute('data-ok','1'); }
+  m.items.forEach(function(it){ var t=document.getElementById('tmT_'+it.id); if(t) t.innerHTML=tmItemTot(it,m); });
+  if(!m.items.length){ el.innerHTML=""; el.removeAttribute("data-h"); return; }
+  var acres=Number(m.acres)||0, tot=Number(m.totalAcres)||0;
+  var cpa=0; m.items.forEach(function(it){ cpa+=tmCost(it,m.gpa); });
+  var sec=function(accTitle,send,acres2,round,showCost){
+    var h='';
+    TM.cats.forEach(function(cat){
+      var its=m.items.filter(function(it){ return it.category===cat; }); if(!its.length) return;
+      h+='<div class="lbl">'+esc(cat)+'</div>'+its.map(function(it){
+        var t=tmTotal(it,acres2,m.gpa), bd=tmBreak(t.value,t.unit,round,it.priceUnit==='lb');
+        var c=showCost==='acre'?tmCost(it,m.gpa):tmCost(it,m.gpa)*acres2;
+        return '<div class="tmline"><span>'+esc(it.name)+'</span><span class="tmr"><b>'+esc(tmBdText(bd,t))+'</b>'+(c>0?'<span class="small">'+(showCost==='acre'?'Cost per acre ':'')+tmMoney(c)+'</span>':'')+'</span></div>';
+      }).join('');
+    });
+    return h;
+  };
+  var h='<div class="card"><div class="sec-head"><h2>Tank mix rate · '+acres+' ac</h2><button class="btn sm" type="button" data-tm="sendTank">Send</button></div><p class="small">Prices are for your eyes only. They are never included when you tap Send.</p>'+sec('',0,acres,false,'acre')+
+    (cpa>0?'<div class="tmline tmtotal"><span>Total cost per acre</span><b>'+tmMoney(cpa)+'</b></div>':'')+'</div>';
+  var app=cpa*tot;
+  h+='<div class="card"><div class="sec-head"><h2>Application summary · '+tot+' ac</h2><button class="btn sm" type="button" data-tm="sendApp">Send</button></div><p class="small">How much of each product to have on hand for the whole job. Prices are never included when you tap Send.</p>'+
+    '<div><button type="button" class="fchip" data-tm="roundUp" aria-pressed="'+TM.roundUp+'">Round up to nearest lb / gallon</button></div>'+sec('',0,tot,TM.roundUp,'total')+
+    (app>0?'<div class="tmline tmtotal"><span>Total cost · '+tot+' ac</span><b>'+tmMoney(app)+'</b></div>':'')+'</div>';
+  if(el.getAttribute("data-h")!==h){ el.innerHTML=h; el.setAttribute("data-h",h); }
+}
+function tmManageHtml(){
+  var h='<div><button class="btn ghost sm" type="button" data-tm="back">&larr; All tank mixes</button></div>'+
+    '<div class="lbl">Product list, categories and prices</div><p class="small">Add or delete products and categories here. Removing a product only affects new mixes. It does not change mixes you have already saved.</p>'+
+    '<div class="card"><h2>Upload prices</h2><p class="small">Upload a price sheet (a CSV file) and the prices fill in by product name. Columns: product, price, per (oz, gal, lb, pt or qt), year. A category column is optional and is used for any product that is new. In Excel, choose Save As, then CSV.</p>'+
+    '<div class="tmbtns"><label class="btn" for="tmFile">Choose price file</label><input type="file" id="tmFile" accept=".csv,text/csv,text/plain" hidden><button class="btn ghost" type="button" data-tm="paste">Paste prices instead</button><button class="btn ghost" type="button" data-tm="sheet">Download price sheet</button></div>'+
+    (TM.pasteOpen?'<label class="f">Paste rows (product, price, per, year)<textarea id="tmPaste" rows="6" class="tmta" placeholder="ATRAZINE 4L, 11.41, gal, 2026"></textarea></label><div class="tmbtns"><button class="btn" type="button" data-tm="applyPaste">Apply prices</button><button class="btn ghost" type="button" data-tm="pasteCancel">Cancel</button></div>':'')+
+    '<p class="small tmmsg" id="tmUpMsg">'+esc(TM.upMsg||'')+'</p></div>'+
+    '<label class="f">Search products<input type="text" id="tmMSearch" placeholder="Search products" value="'+esc(TM.mSearch)+'"></label>'+
+    '<div id="tmMList"></div>'+
+    '<div class="card"><h2>Add a category</h2><div class="toolbar"><label class="f">Name<input type="text" id="tmNewCat" placeholder="e.g. Pre-emerge"></label><button class="btn" type="button" data-tm="addCat">Add</button></div></div>';
+  return h;
+}
+function tmManageList(){
+  var el=$('#tmMList'); if(!el) return;
+  var q=TM.mSearch.trim().toLowerCase(), h='';
+  var bulk=Object.keys(TM.sel).filter(function(k){ return TM.sel[k]; });
+  if(bulk.length) h+='<div class="card tmbulk"><b>'+bulk.length+' selected</b><div class="toolbar"><label class="f">Move to<select data-tmf="bulk"><option value="">Move to…</option>'+TM.cats.map(function(c){ return '<option value="'+esc(c)+'"'+(c===TM.bulk?' selected':'')+'>'+esc(c)+'</option>'; }).join('')+'</select></label><button class="btn" type="button" data-tm="bulkMove"'+(TM.bulk?'':' disabled')+'>Move</button><button class="btn warn" type="button" data-tm="bulkDel">Delete</button><button class="btn ghost" type="button" data-tm="bulkClear">Clear</button></div></div>';
+  TM.cats.forEach(function(cat){
+    var items=TM.lib.filter(function(p){ return p.category===cat && (!q || p.name.toLowerCase().indexOf(q)>=0); }).sort(function(a,b){ return a.name.localeCompare(b.name); });
+    var allSel=items.length && items.every(function(p){ return TM.sel[p.id]; });
+    h+='<div class="tmcat"><div class="sec-head"><label class="tmck">'+(items.length?'<input type="checkbox" data-tm="selCat" data-cat="'+esc(cat)+'"'+(allSel?' checked':'')+' aria-label="Select all in '+esc(cat)+'">':'')+'<span class="lbl">'+esc(cat)+' ('+items.length+')</span></label><button class="btn ghost sm" type="button" data-tm="delCat" data-cat="'+esc(cat)+'">Delete category</button></div>';
+    if(!items.length && !q) h+='<p class="small">No products in this category yet.</p>';
+    items.forEach(function(p){
+      var hist=tmHist(p), old=(p.priceYear||tmYear())<tmYear() && Number(p.price)>0;
+      h+='<div class="card tmprod"><div class="tmhead"><label class="tmck"><input type="checkbox" data-tm="sel" data-id="'+esc(p.id)+'"'+(TM.sel[p.id]?' checked':'')+' aria-label="Select '+esc(p.name)+'"><span class="l1">'+esc(p.name)+'</span></label><button class="btn warn sm" type="button" data-tm="delProd" data-id="'+esc(p.id)+'" aria-label="Remove '+esc(p.name)+'">Remove</button></div>'+
+        '<select data-tmf="pcat" data-id="'+esc(p.id)+'" aria-label="Category">'+TM.cats.map(function(c){ return '<option value="'+esc(c)+'"'+(c===p.category?' selected':'')+'>'+esc(c)+'</option>'; }).join('')+'</select>'+
+        '<div class="tmprice"><span class="small">Price $</span><input type="number" inputmode="decimal" min="0" step="0.01" data-tmf="mprice" data-id="'+esc(p.id)+'" value="'+(Number(p.price)>0?esc(p.price):'')+'" placeholder="0.00" aria-label="Price"><span class="small">per</span><select data-tmf="mpunit" data-id="'+esc(p.id)+'" aria-label="Price unit">'+TM_UNITS.map(function(u){ return '<option value="'+u+'"'+(u===(p.priceUnit||'gal')?' selected':'')+'>'+u+'</option>'; }).join('')+'</select><span class="small">as of</span><input type="number" step="1" data-tmf="myear" data-id="'+esc(p.id)+'" value="'+esc(p.priceYear||tmYear())+'" aria-label="Price year"'+(old?' class="old"':'')+'></div>'+
+        (hist.length>1?'<p class="small">History: '+hist.map(function(x){ return x.year+' '+tmMoney(x.price)+'/'+x.priceUnit; }).join(' · ')+'</p>':'')+'</div>';
+    });
+    if(!TM.open[cat]) h+='<div><button class="btn ghost sm" type="button" data-tm="openAdd" data-cat="'+esc(cat)+'">+ Add to '+esc(cat)+'</button></div>';
+    else h+='<div class="card"><label class="f">One product per line, or separated by commas<textarea class="tmta" rows="4" data-tmf="names" data-cat="'+esc(cat)+'" placeholder="Atrazine&#10;Dimetric&#10;Brash">'+esc(TM.names[cat]||'')+'</textarea></label><div class="tmbtns"><button class="btn" type="button" data-tm="addNames" data-cat="'+esc(cat)+'">Add</button><button class="btn ghost" type="button" data-tm="closeAdd" data-cat="'+esc(cat)+'">Cancel</button></div></div>';
+    h+='</div>';
+  });
+  el.innerHTML=h;
+}
+/* ---- overlays: report and product picker ---- */
+function tmOverlay(html){ var o=$('#tmOv'); o.hidden=false; $('#tmSheet').innerHTML=html; }
+function tmOverlayClose(){ $('#tmOv').hidden=true; $('#tmSheet').innerHTML=''; TM.pickCustom=false; TM.pick=''; }
+function tmReportSheet(title,text){
+  tmOverlay('<div class="sheet-head"><h2>'+esc(title)+'</h2><button class="close" type="button" data-tm="ovClose" aria-label="Close">&times;</button></div>'+
+    '<p class="small">Copy this, then paste it into Messages, Email or WhatsApp. Tap the box to select it all.</p>'+
+    '<textarea id="tmRepText" class="tmta mono" rows="12" readonly>'+esc(text)+'</textarea><button class="btn primary" type="button" data-tm="repCopy">Copy to clipboard</button>');
+  var t=$('#tmRepText'); if(t){ t.focus(); t.select(); }
+}
+function tmPickerSheet(){
+  tmOverlay('<div class="sheet-head"><h2>Add a product</h2><button class="close" type="button" data-tm="ovClose" aria-label="Close">&times;</button></div>'+
+    '<label class="f">Search products<input type="text" id="tmPickSearch" placeholder="Search products" value="'+esc(TM.pick)+'"></label><div id="tmPickList"></div><div id="tmPickCustom"></div>');
+  tmPickList();
+}
+function tmPickList(){
+  var q=TM.pick.trim().toLowerCase(), h='';
+  TM.cats.forEach(function(cat){
+    var its=TM.lib.filter(function(p){ return p.category===cat && (!q || p.name.toLowerCase().indexOf(q)>=0); }); if(!its.length) return;
+    h+='<div class="lbl">'+esc(cat)+'</div><div class="tmpick">'+its.map(function(p){ return '<button type="button" class="btn ghost" data-tm="pick" data-id="'+esc(p.id)+'">'+esc(p.name)+'</button>'; }).join('')+'</div>';
+  });
+  if(!h) h='<p class="small">'+(q?'No product named "'+esc(TM.pick.trim())+'" yet.':'No products yet.')+'</p>';
+  $('#tmPickList').innerHTML=h;
+  $('#tmPickCustom').innerHTML = !TM.pickCustom
+    ? '<button class="btn" type="button" data-tm="customOpen">'+(TM.pick.trim()?'+ Add "'+esc(TM.pick.trim())+'" as a new product':'+ Add a new product')+'</button>'
+    : '<div class="card"><label class="f">Product name<input type="text" id="tmCName" value="'+esc(TM.pick.trim())+'"></label><label class="f">Category<select id="tmCCat">'+TM.cats.map(function(c){ return '<option>'+esc(c)+'</option>'; }).join('')+'</select></label><div class="tmbtns"><button class="btn" type="button" data-tm="customAdd">Add to mix</button><button class="btn ghost" type="button" data-tm="customCancel">Cancel</button></div></div>';
+}
+/* ---- price upload ---- */
+function tmCsv(text){
+  var rows=[], row=[], cur='', q=false;
+  text=String(text).replace(/^﻿/,'');
+  for(var i=0;i<text.length;i++){
+    var c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=c; }
+    else if(c==='"') q=true;
+    else if(c===',' || c==='\t' || c===';'){ row.push(cur); cur=''; }
+    else if(c==='\n' || c==='\r'){ if(c==='\r' && text[i+1]==='\n') i++; row.push(cur); cur=''; if(row.some(function(x){ return x.trim()!==''; })) rows.push(row); row=[]; }
+    else cur+=c;
+  }
+  row.push(cur); if(row.some(function(x){ return x.trim()!==''; })) rows.push(row);
+  return rows;
+}
+function tmUnitName(u){
+  u=String(u||'').trim().toLowerCase().replace(/\./g,'');
+  var m={ oz:'oz', ounce:'oz', ounces:'oz', floz:'oz', gal:'gal', gallon:'gal', gallons:'gal', lb:'lb', lbs:'lb', pound:'lb', pounds:'lb', pt:'pt', pint:'pt', pints:'pt', qt:'qt', quart:'qt', quarts:'qt' };
+  return m[u]||'';
+}
+function tmApplyPrices(text){
+  var rows=tmCsv(text); if(!rows.length){ TM.upMsg='Nothing to read in that file.'; return; }
+  var hd=rows[0].map(function(x){ return x.trim().toLowerCase(); });
+  var hasHead=hd.some(function(x){ return /product|name|price|cost/.test(x); }) && !/^\$?[\d.]+$/.test(hd[1]||'');
+  var col={ name:0, price:1, unit:2, year:3, cat:4 };
+  if(hasHead){
+    var find=function(re,d){ for(var i=0;i<hd.length;i++){ if(re.test(hd[i])) return i; } return d; };
+    col={ name:find(/product|name|chemical|item/,0), price:find(/price|cost|\$/,1), unit:find(/^per|unit/,2), year:find(/year|season|as of/,3), cat:find(/categ|type|group/,-1) };
+    rows=rows.slice(1);
+  }
+  var upd=0, add=0, skip=0, byName={}; TM.lib.forEach(function(p){ byName[p.name.toLowerCase()]=p; });
+  var out=TM.lib.slice();
+  rows.forEach(function(r){
+    var nm=(r[col.name]||'').trim(); if(!nm) return;
+    var pr=parseFloat(String(r[col.price]||'').replace(/[$,\s]/g,'')); if(isNaN(pr)){ skip++; return; }
+    var un=tmUnitName(r[col.unit]), yr=parseInt(r[col.year],10)||tmYear();
+    var p=byName[nm.toLowerCase()];
+    if(p){
+      var i=out.indexOf(p); var np=tmUpsertPrice(p,yr,pr,un||p.priceUnit||'gal'); out[i]=np; byName[nm.toLowerCase()]=np; upd++;
+    } else {
+      var cat=col.cat>=0 ? (r[col.cat]||'').trim() : '';
+      if(cat && TM.cats.map(function(c){ return c.toLowerCase(); }).indexOf(cat.toLowerCase())<0) TM.cats.push(cat);
+      var cc=TM.cats.filter(function(c){ return c.toLowerCase()===cat.toLowerCase(); })[0]||'Other';
+      var np2=tmUpsertPrice({ id:tmUid(), name:nm, category:cc, unit:'oz', price:0, priceUnit:'gal', priceYear:yr },yr,pr,un||'gal'); out.push(np2); byName[nm.toLowerCase()]=np2; add++;
+    }
+  });
+  TM.lib=out; tmSave();
+  TM.upMsg='Prices loaded: '+upd+' updated'+(add?', '+add+' new product'+(add===1?'':'s')+' added':'')+(skip?', '+skip+' row'+(skip===1?'':'s')+' skipped (no price)':'')+'.';
+  TM.pasteOpen=false; tmRender();
+}
+function tmSheetCsv(){
+  var L=['product,price,per,year,category'];
+  TM.lib.slice().sort(function(a,b){ return a.category.localeCompare(b.category)||a.name.localeCompare(b.name); }).forEach(function(p){
+    L.push([p.name,Number(p.price)>0?p.price:'',Number(p.price)>0?(p.priceUnit||'gal'):'',Number(p.price)>0?(p.priceYear||''):'',p.category].map(csvCell).join(','));
+  });
+  return L.join('\n');
+}
+/* ---- events ---- */
+function tmField(e){
+  var el=e.target; if(!el || !el.getAttribute) return;
+  var f=el.getAttribute('data-tmf'); if(!f) return;
+  var isChange = e.type==='change', v=el.value, m=tmMix(), iid=el.getAttribute('data-item'), it=null;
+  if(iid && m) it=m.items.filter(function(x){ return x.id===iid; })[0];
+  if(f==='year'){ TM.yearF=v; tmRender(); return; }
+  if(f==='bulk'){ TM.bulk=v; tmManageList(); return; }
+  if(f==='names'){ TM.names[el.getAttribute('data-cat')]=v; return; }
+  if(f==='pcat' && isChange){ var pp=tmProd(el.getAttribute('data-id')); if(pp){ pp.category=v; tmSave(); tmManageList(); } return; }
+  if((f==='mprice'||f==='mpunit'||f==='myear') && isChange){
+    var p=tmProd(el.getAttribute('data-id')); if(!p) return;
+    var row=el.closest('.tmprod'), pr=row.querySelector('[data-tmf=mprice]').value, un=row.querySelector('[data-tmf=mpunit]').value, yr=row.querySelector('[data-tmf=myear]').value;
+    var np=tmUpsertPrice(p,yr,pr,un); TM.lib=TM.lib.map(function(x){ return x.id===p.id?np:x; }); tmSave(); tmManageList(); return;
+  }
+  if(!m) return;
+  if(['mname','acres','usedYear','totalAcres','gpa'].indexOf(f)>=0){
+    if(f==='mname') m.name=v; else if(f==='usedYear') m.usedYear=parseInt(v,10)||m.usedYear; else m[f]=v;
+    tmSave(); if(f!=='mname') tmOut(); return;
+  }
+  if(!it) return;
+  if(f==='rate'||f==='pct'){ it[f]=v; tmSave(); tmOut(); return; }
+  if(f==='price'||f==='priceYear'){
+    it[f]=(f==='priceYear'?(parseInt(v,10)||tmYear()):v);
+    var prod=tmProd(it.productId); if(prod){ var np2=tmUpsertPrice(prod,it.priceYear||tmYear(),it.price||0,it.priceUnit||'gal'); TM.lib=TM.lib.map(function(x){ return x.id===prod.id?np2:x; }); }
+    tmSave(); tmOut(); return;
+  }
+  if(f==='unit' && isChange){
+    it.unit=v; var nf=tmFamily(v), pf=tmFamily(it.priceUnit); if(nf && pf && nf!==pf) it.priceUnit='oz';
+    $('#tmItems').removeAttribute('data-ok'); tmSave(); tmOut(); return;
+  }
+  if(f==='priceUnit' && isChange){
+    it.priceUnit=v; var nf2=tmFamily(v), rf=tmFamily(it.unit); if(nf2 && rf && nf2!==rf) it.unit='oz';
+    var prod2=tmProd(it.productId); if(prod2){ var np3=tmUpsertPrice(prod2,it.priceYear||tmYear(),it.price||0,v); TM.lib=TM.lib.map(function(x){ return x.id===prod2.id?np3:x; }); }
+    $('#tmItems').removeAttribute('data-ok'); tmSave(); tmOut(); return;
+  }
+}
+function tmClick(e){
+  var el=e.target.closest ? e.target.closest('[data-tm]') : null; if(!el) return;
+  var a=el.getAttribute('data-tm'), id=el.getAttribute('data-id'), m=tmMix();
+  if(a==='open' && e.target.closest('[data-tm=delMix]')) return;
+  switch(a){
+    case 'newMix':{ var y=tmYear(); var nm={ id:tmUid(), name:'Tank mix '+(TM.mixes.length+1), createdYear:y, usedYear:y, acres:25, totalAcres:25, gpa:10, items:[] }; TM.mixes.push(nm); TM.active=nm.id; TM.view='edit'; TM.copyOpen=false; tmSave(); tmRender(); window.scrollTo(0,0); break; }
+    case 'open': TM.active=id; TM.view='edit'; TM.copyOpen=false; tmRender(); window.scrollTo(0,0); break;
+    case 'delMix':{ e.stopPropagation(); var k='delMix:'+id; if(TM.confirm===k){ TM.confirm=''; TM.mixes=TM.mixes.filter(function(x){ return x.id!==id; }); tmSave(); } else { TM.confirm=k; setTimeout(function(){ if(TM.confirm===k){ TM.confirm=''; if(TM.view==='list') tmRender(); } },4000); } tmRender(); break; }
+    case 'back': TM.view='list'; TM.sel={}; tmRender(); window.scrollTo(0,0); break;
+    case 'manage': TM.view='manage'; TM.mSearch=''; tmRender(); window.scrollTo(0,0); break;
+    case 'addProduct': TM.pick=''; TM.pickCustom=false; tmPickerSheet(); break;
+    case 'ovClose': tmOverlayClose(); break;
+    case 'pick':{ var p=tmProd(id); if(p && m){ m.items.push({ id:tmUid(), productId:p.id, name:p.name, category:p.category, unit:p.unit||'oz', rate:0, mode:'rate', pct:0, price:p.price||0, priceUnit:p.priceUnit||'gal', priceYear:p.priceYear||tmYear() }); tmSave(); } tmOverlayClose(); TM.view='edit'; tmRender(); break; }
+    case 'customOpen': TM.pickCustom=true; tmPickList(); break;
+    case 'customCancel': TM.pickCustom=false; tmPickList(); break;
+    case 'customAdd':{ var n=($('#tmCName').value||'').trim(); if(!n){ toast('Enter a product name first.'); break; } var cat=$('#tmCCat').value; var np={ id:tmUid(), name:n, category:cat, unit:'oz', price:0, priceUnit:'gal', priceYear:tmYear() }; TM.lib.push(np);
+      if(m){ m.items.push({ id:tmUid(), productId:np.id, name:np.name, category:np.category, unit:'oz', rate:0, mode:'rate', pct:0, price:0, priceUnit:'gal', priceYear:tmYear() }); } tmSave(); tmOverlayClose(); tmRender(); break; }
+    case 'rmItem':{ if(m){ m.items=m.items.filter(function(x){ return x.id!==el.getAttribute('data-item'); }); tmSave(); var itz=$('#tmItems'); if(itz) itz.removeAttribute('data-ok'); tmOut(); } break; }
+    case 'mode':{ if(m){ var it=m.items.filter(function(x){ return x.id===el.getAttribute('data-item'); })[0]; if(it){ it.mode=el.getAttribute('data-v'); tmSave(); $('#tmItems').removeAttribute('data-ok'); tmOut(); } } break; }
+    case 'roundUp': TM.roundUp=!TM.roundUp; tmOut(); break;
+    case 'sendTank': if(m) tmReportSheet(m.name+' - Tank Mix Rate', tmReport(m,m.acres,m.gpa,false,'Tank Mix Rate',(Number(m.acres)||0)+' acres per tank · Carrier '+(Number(m.gpa)||0)+' gal/ac')); break;
+    case 'sendApp': if(m) tmReportSheet(m.name+' - Application Summary', tmReport(m,m.totalAcres,m.gpa,TM.roundUp,'Application Summary',(Number(m.totalAcres)||0)+' total acres'+(TM.roundUp?' · rounded up to nearest lb/gallon':''))); break;
+    case 'repCopy':{ var t=$('#tmRepText'); if(t) copyText(t.value,'Copied to clipboard'); break; }
+    case 'copyOpen': TM.copyOpen=true; tmRender(); break;
+    case 'copyCancel': TM.copyOpen=false; tmRender(); break;
+    case 'copyYear':{ var yy=parseInt($('#tmCopyYear').value,10); if(!yy||yy<2000||yy>2100){ toast('Enter a valid year.'); break; } if(m){ var cp={ id:tmUid(), name:m.name+' ('+yy+')', createdYear:tmYear(), usedYear:yy, acres:m.acres, totalAcres:m.totalAcres, gpa:m.gpa, items:m.items.map(function(x){ return Object.assign({},x,{ id:tmUid() }); }) }; TM.mixes.push(cp); TM.active=cp.id; TM.copyOpen=false; tmSave(); tmRender(); window.scrollTo(0,0); } break; }
+    case 'sel': TM.sel[id]=el.checked; tmManageList(); break;
+    case 'selCat':{ var cat2=el.getAttribute('data-cat'); TM.lib.filter(function(p){ return p.category===cat2; }).forEach(function(p){ TM.sel[p.id]=el.checked; }); tmManageList(); break; }
+    case 'delProd': TM.lib=TM.lib.filter(function(p){ return p.id!==id; }); delete TM.sel[id]; tmSave(); tmManageList(); break;
+    case 'bulkMove':{ if(TM.bulk){ var n2=0; TM.lib.forEach(function(p){ if(TM.sel[p.id]){ p.category=TM.bulk; n2++; } }); TM.sel={}; tmSave(); tmMsg('Moved '+n2+' product'+(n2===1?'':'s')+' to '+TM.bulk); tmManageList(); } break; }
+    case 'bulkDel': TM.lib=TM.lib.filter(function(p){ return !TM.sel[p.id]; }); TM.sel={}; tmSave(); tmManageList(); break;
+    case 'bulkClear': TM.sel={}; tmManageList(); break;
+    case 'openAdd': TM.open[el.getAttribute('data-cat')]=true; tmManageList(); break;
+    case 'closeAdd': TM.open[el.getAttribute('data-cat')]=false; tmManageList(); break;
+    case 'addNames':{ var c3=el.getAttribute('data-cat'), raw=TM.names[c3]||''; var seen={}; TM.lib.forEach(function(p){ seen[p.name.toLowerCase()]=1; });
+      var list=raw.split(/[\n,]/).map(function(s){ return s.trim(); }).filter(Boolean), add=[], dup=0;
+      list.forEach(function(s){ if(seen[s.toLowerCase()]){ dup++; return; } seen[s.toLowerCase()]=1; add.push({ id:tmUid(), name:s, category:c3, unit:'oz', price:0, priceUnit:'gal', priceYear:tmYear() }); });
+      if(!add.length){ tmMsg(list.length?'Every name entered is already in the list.':'Enter at least one product name.',true); break; }
+      TM.lib=TM.lib.concat(add); TM.names[c3]=''; TM.open[c3]=false; tmSave(); tmMsg('Added '+add.length+' product'+(add.length===1?'':'s')+(dup?' · skipped '+dup+' already in the list':'')); tmManageList(); break; }
+    case 'delCat':{ var c4=el.getAttribute('data-cat'); if(TM.lib.some(function(p){ return p.category===c4; })){ tmMsg('Move or delete every product in "'+c4+'" first.',true); break; } TM.cats=TM.cats.filter(function(c){ return c!==c4; }); tmSave(); tmManageList(); break; }
+    case 'addCat':{ var nc=($('#tmNewCat').value||'').trim(); if(!nc){ tmMsg('Enter a category name first.',true); break; } if(TM.cats.some(function(c){ return c.toLowerCase()===nc.toLowerCase(); })){ tmMsg('"'+nc+'" already exists.',true); break; } TM.cats.push(nc); $('#tmNewCat').value=''; tmSave(); tmManageList(); break; }
+    case 'paste': TM.pasteOpen=true; tmRender(); break;
+    case 'pasteCancel': TM.pasteOpen=false; tmRender(); break;
+    case 'applyPaste': tmApplyPrices($('#tmPaste').value); break;
+    case 'sheet': if(S.dl){ S.dl.save({ filename:'tank-mix-price-sheet.csv', data:tmSheetCsv() }).then(function(){ toast('Price sheet ready'); }).catch(function(er){ if(!er || er.code!=='declined') toast('Could not save the file here.'); }); } else copyText(tmSheetCsv(),'Price sheet copied. Paste it into a spreadsheet.'); break;
+  }
+}
+document.addEventListener('click',function(e){ if(e.target.closest && (e.target.closest('#toolTank') || e.target.closest('#tmOv'))) tmClick(e); });
+document.addEventListener('keydown',function(e){ if(e.key==='Enter' && e.target && e.target.classList && e.target.classList.contains('tmrow')) tmClick(e); });
+document.addEventListener('input',function(e){
+  if(e.target.id==='tmMSearch'){ TM.mSearch=e.target.value; tmManageList(); return; }
+  if(e.target.id==='tmPickSearch'){ TM.pick=e.target.value; tmPickList(); return; }
+  tmField(e);
+});
+document.addEventListener('change',function(e){
+  if(e.target.id==='tmFile'){ var f=e.target.files&&e.target.files[0]; if(!f) return; var r=new FileReader(); r.onload=function(){ tmApplyPrices(r.result); }; r.onerror=function(){ TM.upMsg='Could not read that file.'; tmRender(); }; r.readAsText(f); e.target.value=''; return; }
+  tmField(e);
+});
+
+function toolsShow(){
+  var t=S.tool||'tank';
+  $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar');
+  var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
+  if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
+}
+function calcTools(){
+  var n=function(id){ var v=parseFloat($(id).value); return isNaN(v)?null:v; };
+  var tpa=n('#tlTpa'), trs=n('#tlTrs'), ac=n('#tlAcres'), sh=n('#tlShare'), h='';
+  var box=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; };
+  var nf=function(x){ return Math.round(x).toLocaleString(); };
+  if(tpa!=null && trs!=null){
+    var per=tpa*trs; h+=box('Lb sugar per acre',nf(per));
+    if(sh!=null) h+=box('Grower lb per acre',nf(per*sh/100));
+    if(ac!=null){ h+=box('Total lb sugar',nf(per*ac)); h+=box('Total tons cane',f1(tpa*ac)); if(sh!=null) h+=box('Grower total lb',nf(per*ac*sh/100)); }
+  }
+  $('#tlOut').innerHTML=h;
+}
+document.addEventListener('input',function(e){ if(e.target && e.target.id && /^tl(Tpa|Trs|Acres|Share)$/.test(e.target.id)) calcTools(); });
 function renderMe(){
   var p=S.profile||{};
   var locked = !S.isAdmin;                      /* crew stay on the farm their code opens */
@@ -1690,6 +2178,7 @@ document.addEventListener('click', function(e){
       if(S.tab==='report') loadReport();
       if(S.tab==='all'){ last.comb=''; loadComb(); }
       window.scrollTo(0,0); break;
+    case 'toolPick': S.tool=el.getAttribute('data-tool'); toolsShow(); break;
     case 'refreshAll': loadComb(); break;
     case 'csvAll': exportCombCsv(); break;
     case 'pickAllDay': C.sel=el.getAttribute('data-day'); last.comb=''; schedule(); break;
@@ -1968,7 +2457,7 @@ var ES = {
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
  'Key copied.':'Llave copiada.','Scale connection turned off':'Conexión con la báscula apagada','Quota':'Cuota','Quota reached':'Cuota cumplida','Copy this:':'Copie esto:',
- 'waiting':'esperando','Harvest to date':'Cosecha a la fecha','Harvest to date loads':'Cargas a la fecha','Days harvested':'Días cosechados','Loads per day':'Cargas por día','Tons to date':'Toneladas a la fecha','Tons per day':'Toneladas por día','Begin harvest':'Inicio de cosecha','Total loads':'Cargas acumuladas','Total tons':'Toneladas acumuladas','Avg between loads':'Prom. entre cargas','Loads per hour':'Cargas por hora','Avg between':'Prom. entre','Loads/hr':'Cargas/h','Efficiency':'Eficiencia','Avg between is the time from a truck\'s load to its next load. Efficiency compares it with the average for the track the truck left from: 100% is average, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.':'Prom. entre es el tiempo desde la carga de un camión hasta su siguiente carga. La eficiencia lo compara con el promedio de la pista de la que salió el camión: 100% es el promedio, más es más rápido. No se cuentan intervalos menores de 10 minutos ni mayores de 4 horas.','new':'nuevo','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
+ 'waiting':'esperando','Tank mix':'Mezcla de tanque','Tank mixes':'Mezclas de tanque','Save a mix per field or pass, filter by season, and copy one forward to a new year.':'Guarde una mezcla por campo o pasada, filtre por temporada y copie una al año nuevo.','Year used':'Año de uso','All years':'Todos los años','+ New tank mix':'+ Nueva mezcla de tanque','Manage product list and prices':'Administrar lista de productos y precios','No tank mixes for this year yet.':'Todavía no hay mezclas de tanque para este año.','Delete':'Eliminar','Tank mix name':'Nombre de la mezcla','Acres per tank':'Acres por tanque','Total acres to apply':'Total de acres a aplicar','Carrier volume (gal/ac)':'Volumen de agua (gal/ac)','Products':'Productos','+ Add product':'+ Agregar producto','No products yet. Tap + Add product to pick one.':'Aún no hay productos. Toque + Agregar producto para elegir uno.','Save tank mix':'Guardar mezcla','Copy this mix to a new year':'Copiar esta mezcla a un año nuevo','Copy to year':'Copiar al año','Copy':'Copiar','Rate per acre':'Dosis por acre','% v/v':'% v/v','% of spray volume':'% del volumen de aspersión','Total for tank':'Total para el tanque','Send':'Enviar','Round up to nearest lb / gallon':'Redondear a la libra / galón más cercano','Total cost per acre':'Costo total por acre','Upload prices':'Subir precios','Choose price file':'Elegir archivo de precios','Paste prices instead':'Pegar precios','Download price sheet':'Descargar hoja de precios','Apply prices':'Aplicar precios','Search products':'Buscar productos','Add a category':'Agregar una categoría','Delete category':'Eliminar categoría','Add a product':'Agregar un producto','Copy to clipboard':'Copiar al portapapeles','Product list, categories and prices':'Lista de productos, categorías y precios','+ Add a new product':'+ Agregar un producto nuevo','Add to mix':'Agregar a la mezcla','Product name':'Nombre del producto','Category':'Categoría','Remove':'Quitar','Name':'Nombre','Add':'Agregar','Move':'Mover','Clear':'Borrar','Sure?':'¿Seguro?','Prices are for your eyes only. They are never included when you tap Send.':'Los precios son solo para usted. Nunca se incluyen al tocar Enviar.','Saved automatically and shared with the other administrators.':'Se guarda automáticamente y se comparte con los otros administradores.','Pick a tool':'Elegir una herramienta','Tools':'Herramientas','Cane tools':'Herramientas de caña','Tools and metrics for the cane. Each tool is its own card below.':'Herramientas y métricas para la caña. Cada herramienta es una tarjeta abajo.','Sugar per acre':'Azúcar por acre','Enter tons of cane per acre and TRS. Acres and the grower share are optional.':'Ingrese toneladas de caña por acre y TRS. Los acres y la parte del productor son opcionales.','Tons cane per acre':'Toneladas de caña por acre','TRS (lb sugar per ton)':'TRS (lb de azúcar por tonelada)','Acres (optional)':'Acres (opcional)','Grower share % (optional)':'Parte del productor % (opcional)','Lb sugar per acre':'Lb de azúcar por acre','Grower lb per acre':'Lb del productor por acre','Total lb sugar':'Total lb de azúcar','Total tons cane':'Total toneladas de caña','Grower total lb':'Total lb del productor','More tools go here.':'Más herramientas aquí.','Harvest to date':'Cosecha a la fecha','Harvest to date loads':'Cargas a la fecha','Days harvested':'Días cosechados','Loads per day':'Cargas por día','Tons to date':'Toneladas a la fecha','Tons per day':'Toneladas por día','Begin harvest':'Inicio de cosecha','Total loads':'Cargas acumuladas','Total tons':'Toneladas acumuladas','Avg between loads':'Prom. entre cargas','Loads per hour':'Cargas por hora','Avg between':'Prom. entre','Loads/hr':'Cargas/h','Efficiency':'Eficiencia','Avg between is the time from a truck\'s load to its next load. Efficiency compares it with the average for the track the truck left from: 100% is average, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.':'Prom. entre es el tiempo desde la carga de un camión hasta su siguiente carga. La eficiencia lo compara con el promedio de la pista de la que salió el camión: 100% es el promedio, más es más rápido. No se cuentan intervalos menores de 10 minutos ni mayores de 4 horas.','new':'nuevo','Everyone with access':'Todos con acceso','No farm yet':'Sin finca todavía','= logged on right now':'= conectado ahora','No one is assigned to this farm yet.':'Nadie está asignado a esta finca todavía.','Only loads going to your mill, from every farm that delivers to it. This view loads when you open it, so tap Refresh for the latest.':'Solo las cargas que van a su ingenio, de cada finca que entrega allí. Esta vista carga al abrirla; toque Actualizar para lo más reciente.','Mill field manager':'Gerente de campo del ingenio','Pick a mill':'Elija un ingenio','Administrators and mill managers':'Administradores y gerentes de ingenio','Now pick the mill for them.':'Ahora elija el ingenio.','main administrator':'administrador principal','Waiting to join':'Esperando para unirse','Logged on now':'Conectados ahora','Crew by farm':'Cuadrilla por finca','No one is waiting.':'Nadie está esperando.','No one else is logged on right now.':'Nadie más está conectado ahora.','Administrators':'Administradores','edited':'editado','just now':'ahora mismo','Report type':'Tipo de reporte',
  'you cannot remove yourself':'no se puede quitar a sí mismo','you cannot remove your own admin access':'no se puede quitar su propio acceso de administrador'
 };
 var ES_RULES = [
