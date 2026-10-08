@@ -1500,6 +1500,14 @@ function toolsShow(){
   if(t==='burn') bnShow();
 }
 
+
+/* Setup: the hauler number and the mills that use it as part of the truck ID (admins) */
+document.addEventListener('change',function(e){
+  var el=e.target; if(!el||!el.getAttribute||!isOffice()) return;
+  var hc=el.getAttribute('data-hc'), hm=el.getAttribute('data-hm');
+  if(hc){ var f=farmById(hc); if(!f) return; var v=el.value.replace(/[^0-9A-Za-z]/g,'').slice(0,6); f.haulerCode=v; last.farms=''; last.report=''; schedule(); dref('farms/'+hc).update({ haulerCode:v }).catch(fail); }
+  if(hm){ var g=farmById(hm); if(!g) return; var cur=(g.haulerMills||[]).slice(), m=el.getAttribute('data-v'), i=cur.indexOf(m); if(el.checked && i<0) cur.push(m); if(!el.checked && i>=0) cur.splice(i,1); g.haulerMills=cur; last.report=''; schedule(); dref('farms/'+hm).update({ haulerMills:cur }).catch(fail); }
+});
 /* ---- Shareable PDF reports: a small built-in PDF writer (Helvetica, no outside files, works offline) ---- */
 var PDF_W=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
 var PDF_WB=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
@@ -2334,6 +2342,9 @@ function renderSetup(){
         (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
         '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>':'')+
         (lead?'<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="wcolor" data-farm="'+esc(f.id)+'" value="'+weighedColor(f.id)+'" aria-label="Weighed number color"><span>Weighed number color <span class="small">(the truck keeps its mill color, and its number turns this color once its weight comes in)</span></span></label><label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="ncolor" data-farm="'+esc(f.id)+'" value="'+newColor(f.id)+'" aria-label="New truck number color"><span>New truck number color <span class="small">(a truck that is new for the day gets its number highlighted in this color)</span></span></label>':'')+
+        (adm?'<div class="lbl">Truck ID at the mill</div><p class="small">Some mills (for example Lula Westfield and Lafourche) know a truck by the hauler number and the truck number, like 54-154. Enter the hauler number and tick those mills. The Board keeps the 3 digit number. The load log and the CSV also show 54-154 for loads going to the ticked mills.</p>'+
+          '<label class="f">Hauler number<input type="text" maxlength="6" inputmode="numeric" data-hc="'+esc(f.id)+'" value="'+esc(f.haulerCode||'')+'" placeholder="e.g. 54"></label>'+
+          '<div class="chips">'+((f.mills||[]).map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-hm="'+esc(f.id)+'" data-v="'+esc(m)+'"'+((f.haulerMills||[]).indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'; }).join('')||'<span class="small">Add the mills first.</span>')+'</div>':'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         '<div class="lbl">Fields</div><div class="chips">'+chips(f.fields,'Field','None yet. Fields are optional.')+'</div>'+
@@ -2464,6 +2475,8 @@ function tally(rows, keyFn){
   return Object.keys(o).map(function(k){ return {k:k,n:o[k],t:t[k]||0,u:u[k]||0}; }).sort(function(a,b){ return b.n-a.n || a.k.localeCompare(b.k,undefined,{numeric:true}); });
 }
 /* a truck added on this day keeps its new-truck mark in the reports, weighed or not */
+/* the number the mill knows a truck by: hauler number + truck number, for the mills ticked on the farm */
+function millTruckNo(no, mill, farmId){ var f=farmById(farmId||S.farmId); if(!f || !f.haulerCode || !mill) return ''; return (f.haulerMills||[]).indexOf(mill)>=0 ? f.haulerCode+'-'+no : ''; }
 function newNoChip(no, day, label){
   var t=null; for(var i=0;i<S.trucks.length;i++){ if(S.trucks[i].farm===S.farmId && String(S.trucks[i].no)===String(no)){ t=S.trucks[i]; break; } }
   if(!t || t.addedDay!==day) return label;
@@ -2584,7 +2597,7 @@ function renderReport(){
     return [season?esc(r.k):newNoChip(no,sel,esc(r.k)),r.n].concat((season?WS:W)?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it only with other trucks hauling to the same mill from the same track, since each mill is a different distance: 100% is average for that mill, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
   var log=season?[]:ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
   if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
-    return [newNoChip(x.no,sel,'<b>'+esc(x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
+    return [newNoChip(x.no,sel,'<b>'+esc(x.no)+'</b>')+(millTruckNo(x.no,x.mill,S.farmId)?' <span class="small">'+esc(millTruckNo(x.no,x.mill,S.farmId))+'</span>':''), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
   }));
   var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill' || document.activeElement.id==='rTrack' || document.activeElement.id==='rField') ? document.activeElement.id : '';
   $('#reportBody').innerHTML=html;
@@ -2594,10 +2607,10 @@ function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.rep
 async function exportCsv(){
   if(!S.dl || !S.farmId) return;
   var days=(S.report.mode!=='range' && S.report.mode!=='season' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
-  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
   days.forEach(function(d){
     repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-      lines.push([d,fn,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
+      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
     });
   });
   var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
@@ -2796,11 +2809,11 @@ function renderAll_(){
 async function exportCombCsv(){
   if(!S.dl) return;
   var days=combDays().slice().reverse();
-  var lines=[['Date','Farm','Mill','Truck','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
   days.forEach(function(d){
     S.farms.forEach(function(f){
       combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-        lines.push([d,f.name,x.mill,x.no,x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
+        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
       });
     });
   });
