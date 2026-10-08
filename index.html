@@ -361,17 +361,7 @@ td.n,th.n{text-align:right}
         </div>
       </div>
       <div id="toolTank" class="tm"><div id="tmRoot"></div></div>
-      <div class="card" id="toolSugar" hidden>
-        <h2>Sugar per acre</h2>
-        <p class="small">Enter tons of cane per acre and TRS. Acres and the grower share are optional.</p>
-        <div class="toolbar">
-          <label class="f">Tons cane per acre<input type="number" id="tlTpa" step="0.01" min="0" inputmode="decimal"></label>
-          <label class="f">TRS (lb sugar per ton)<input type="number" id="tlTrs" step="0.01" min="0" inputmode="decimal"></label>
-          <label class="f">Acres (optional)<input type="number" id="tlAcres" step="0.01" min="0" inputmode="decimal"></label>
-          <label class="f">Grower share % (optional)<input type="number" id="tlShare" step="0.1" min="0" max="100" inputmode="decimal"></label>
-        </div>
-        <div class="stats" id="tlOut"></div>
-      </div>
+      <div id="toolSugar" class="tm" hidden><div id="sgRoot"></div></div>
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
@@ -1485,20 +1475,144 @@ function toolsShow(){
   $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar');
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
   if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
+  if(t==='sugar'){ sgRender(); }
 }
-function calcTools(){
-  var n=function(id){ var v=parseFloat($(id).value); return isNaN(v)?null:v; };
-  var tpa=n('#tlTpa'), trs=n('#tlTrs'), ac=n('#tlAcres'), sh=n('#tlShare'), h='';
-  var box=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; };
-  var nf=function(x){ return Math.round(x).toLocaleString(); };
-  if(tpa!=null && trs!=null){
-    var per=tpa*trs; h+=box('Lb sugar per acre',nf(per));
-    if(sh!=null) h+=box('Grower lb per acre',nf(per*sh/100));
-    if(ac!=null){ h+=box('Total lb sugar',nf(per*ac)); h+=box('Total tons cane',f1(tpa*ac)); if(sh!=null) h+=box('Grower total lb',nf(per*ac*sh/100)); }
+/* ---- Sugar per acre: per mill, then combined per farm and for all farms ---- */
+var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'' };
+(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; SG.liq=d.liq||''; SG.share=d.share||''; } }catch(e){} })();
+function sgSave(){ lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share })); }
+function sgFarm(id){
+  var o=SG.f[id];
+  if(!o){ o=SG.f[id]={ acres:'', rows:[] }; var fm=farmById(id); ((fm&&fm.mills)||[]).forEach(function(m){ o.rows.push({ mill:m, tons:'', trs:'', liq:'', src:'' }); }); }
+  return o;
+}
+function sgN(v){ var n=parseFloat(v); return isFinite(n)?n:null; }
+function sgPct(v){ var n=sgN(v); if(n==null||n<=0) return null; return n<=2 ? n*100 : n; }
+function sgNf(x){ return Math.round(x).toLocaleString(); }
+function sgCalc(rows){
+  var tons=0, sugar=0, sTons=0, trsW=0, miss=[], out=[];
+  rows.forEach(function(r){
+    var t=sgN(r.tons), trs=sgN(r.trs), lq=sgPct(r.liq); if(lq==null) lq=sgPct(SG.liq); if(lq==null) lq=100;
+    var sg=null;
+    if(t!=null && t>0){ tons+=t; if(trs!=null && trs>0){ sg=t*trs*lq/100; sugar+=sg; sTons+=t; trsW+=t*trs; } else miss.push(r.mill||'a mill'); }
+    out.push(sg);
+  });
+  return { tons:tons, sugar:sugar, sTons:sTons, trsW:trsW, miss:miss, rows:out };
+}
+function sgBoxes(c,ac,sh){
+  var box=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; }, h='';
+  if(c.tons>0){
+    h+=box('Total tons hauled',f1(c.tons));
+    if(ac) h+=box('Tons per acre',(c.tons/ac).toFixed(2));
+    if(c.sTons>0){
+      var per=c.sugar/c.sTons;
+      h+=box('Avg TRS (all mills)',(c.trsW/c.sTons).toFixed(1))+box('Avg lb sugar per ton',per.toFixed(1))+box('Total lb sugar',sgNf(c.sugar));
+      if(ac) h+=box('Lb sugar per acre',sgNf((c.tons/ac)*per));
+      if(sh!=null){ if(ac) h+=box('Grower lb per acre',sgNf((c.tons/ac)*per*sh/100)); h+=box('Grower total lb',sgNf(c.sugar*sh/100)); }
+    }
   }
-  $('#tlOut').innerHTML=h;
+  if(c.miss.length) h+='<p class="small" style="grid-column:1/-1">No TRS yet for '+esc(c.miss.join(', '))+', so it is left out of the sugar numbers.</p>';
+  return h || '<p class="small" style="grid-column:1/-1">Enter tons and TRS for at least one mill.</p>';
 }
-document.addEventListener('input',function(e){ if(e.target && e.target.id && /^tl(Tpa|Trs|Acres|Share)$/.test(e.target.id)) calcTools(); });
+function sgOut(){
+  var sh=sgN(SG.share), all={ tons:0, sugar:0, sTons:0, trsW:0, miss:[] }, allAc=0, accTons=0, accSugar=0, accSt=0;
+  S.farms.forEach(function(f){
+    var o=sgFarm(f.id), c=sgCalc(o.rows), ac=sgN(o.acres);
+    o.rows.forEach(function(r,i){ var e=$('#sgL_'+f.id+'_'+i); if(e) e.textContent=c.rows[i]!=null ? sgNf(c.rows[i])+' lb sugar' : ''; });
+    var el=$('#sgO_'+f.id); if(el) el.innerHTML=sgBoxes(c,ac,sh);
+    all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
+    if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
+  });
+  var el2=$('#sgAll'); if(!el2) return;
+  var h=sgBoxes(all,0,sh);
+  if(allAc && accTons>0){
+    var b=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; };
+    h=sgBoxes(all,0,sh)+b('Total acres',f1(allAc))+b('Tons per acre',(accTons/allAc).toFixed(2));
+    if(accSt>0){ var per=accSugar/accSt; h+=b('Lb sugar per acre',sgNf((accTons/allAc)*per)); if(sh!=null) h+=b('Grower lb per acre',sgNf((accTons/allAc)*per*sh/100)); }
+  }
+  el2.innerHTML=h;
+}
+function sgRender(){
+  var root=$('#sgRoot'); if(!root) return;
+  var fo='<option value="">All farms</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===SG.pick?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('');
+  var h='<div class="card"><h2>Sugar per acre</h2>'+
+    '<p class="small">Each mill: tons hauled × TRS × liquidation. The mills of a farm combine into that farm, and the farms combine into the total. Type the numbers, or fetch tons and TRS from the truck log (weighed loads from the start of harvest to today).</p>'+
+    '<div class="toolbar"><label class="f">Fetch from<select id="sgFarm">'+fo+'</select></label>'+
+    '<button class="btn" type="button" data-sg="fetch"'+(SG.loading?' disabled':'')+'>'+(SG.loading?'Fetching…':'Fetch tons and TRS')+'</button></div>'+
+    '<p class="small" id="sgMsg">'+esc(SG.msg)+'</p>'+
+    '<div class="toolbar"><label class="f">Liquidation % for every mill<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="defliq" value="'+esc(SG.liq)+'" placeholder="e.g. 96 (blank = 100)"></label>'+
+    '<label class="f">Grower share % (optional)<input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-sgf="share" value="'+esc(SG.share)+'"></label></div>'+
+    '<p class="small">A mill\'s own liquidation % wins over the one for every mill. 96 and 0.96 both mean 96%.</p></div>';
+  if(!S.farms.length) h+='<div class="card"><p class="small">Add farms in Setup first.</p></div>';
+  S.farms.forEach(function(f){
+    var o=sgFarm(f.id);
+    h+='<div class="card sgfarm"><h2>'+esc(f.name)+'</h2>'+
+      '<label class="f">Acres<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="acres" data-fid="'+esc(f.id)+'" value="'+esc(o.acres)+'"></label>';
+    o.rows.forEach(function(r,i){
+      h+='<div class="sgrow" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px"><div class="sec-head"><label class="f" style="flex:1">Mill<input type="text" data-sgf="mill" data-fid="'+esc(f.id)+'" data-i="'+i+'" value="'+esc(r.mill)+'" placeholder="Mill name"></label><span class="edited" id="sgT_'+esc(f.id)+'_'+i+'">'+(r.src==='fetched'?'fetched':'')+'</span><button class="btn ghost sm" type="button" data-sg="rm" data-fid="'+esc(f.id)+'" data-i="'+i+'">Remove</button></div>'+
+        '<div class="toolbar">'+
+        '<label class="f">Tons hauled<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="tons" data-fid="'+esc(f.id)+'" data-i="'+i+'" value="'+esc(r.tons)+'"></label>'+
+        '<label class="f">TRS (lb/ton)<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="trs" data-fid="'+esc(f.id)+'" data-i="'+i+'" value="'+esc(r.trs)+'"></label>'+
+        '<label class="f">Liquidation %<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="liq" data-fid="'+esc(f.id)+'" data-i="'+i+'" value="'+esc(r.liq)+'" placeholder="default"></label></div>'+
+        '<div class="small" id="sgL_'+esc(f.id)+'_'+i+'"></div></div>';
+    });
+    h+='<div style="margin-top:12px"><button class="btn" type="button" data-sg="add" data-fid="'+esc(f.id)+'">+ Add a mill</button></div>'+
+      '<h2 style="margin-top:16px">'+esc(f.name)+' combined</h2><div class="stats" id="sgO_'+esc(f.id)+'"></div></div>';
+  });
+  h+='<div class="card"><h2>All farms combined</h2><div class="stats" id="sgAll"></div></div>';
+  root.innerHTML=h; sgOut();
+}
+async function sgFetch(){
+  if(!S.db){ toast('Sign in first.'); return; }
+  var farms=SG.pick ? S.farms.filter(function(f){ return f.id===SG.pick; }) : S.farms;
+  if(!farms.length){ toast('No farms to read.'); return; }
+  SG.loading=true; SG.msg=''; sgRender();
+  var jobs=[], t=today();
+  farms.forEach(function(f){ var st=harvestStartFor(f); for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; jobs.push([f.id,d]); } });
+  var agg={}, nLoads=0, nOpen=0, fails=0, i=0;
+  async function w(){
+    while(i<jobs.length){
+      var j=jobs[i++];
+      try{
+        var rows=docs(await col(loadsPath(j[0],j[1])).limit(1000).get());
+        rows.forEach(function(x){
+          var n=tonsOf(x); if(n==null){ nOpen++; return; }
+          var fa=agg[j[0]]||(agg[j[0]]={}), k=x.mill||'No mill', a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 }); a.tons+=n; nLoads++;
+          var r=Number(x.trs); if(x.trs!=null && isFinite(r) && r>0){ a.tw+=n*r; a.tt+=n; }
+        });
+      }catch(e){ fails++; }
+    }
+  }
+  await Promise.all([w(),w(),w(),w()]);
+  Object.keys(agg).forEach(function(fid){
+    var o=sgFarm(fid);
+    Object.keys(agg[fid]).forEach(function(k){
+      var a=agg[fid][k], row=null; o.rows.forEach(function(r){ if(!row && String(r.mill).trim().toLowerCase()===k.toLowerCase()) row=r; });
+      if(!row){ row={ mill:k, tons:'', trs:'', liq:'', src:'' }; o.rows.push(row); }
+      row.tons=String(Math.round(a.tons*100)/100); if(a.tt>0) row.trs=String(Math.round(a.tw/a.tt*100)/100); row.src='fetched';
+    });
+  });
+  SG.loading=false;
+  SG.msg=nLoads ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
+  sgSave(); sgRender();
+}
+document.addEventListener('input',function(e){
+  var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-sgf'); if(!f) return;
+  var fid=el.getAttribute('data-fid'), i=el.getAttribute('data-i'), v=el.value;
+  if(f==='defliq') SG.liq=v; else if(f==='share') SG.share=v;
+  else if(f==='acres') sgFarm(fid).acres=v;
+  else { var r=sgFarm(fid).rows[Number(i)]; if(!r) return; r[f]=v; if(f!=='mill' && r.src){ r.src=''; var t=$('#sgT_'+fid+'_'+i); if(t) t.textContent=''; } }
+  sgSave(); sgOut();
+});
+document.addEventListener('change',function(e){ if(e.target && e.target.id==='sgFarm') SG.pick=e.target.value; });
+document.addEventListener('click',function(e){
+  var el=e.target.closest ? e.target.closest('[data-sg]') : null; if(!el) return;
+  var a=el.getAttribute('data-sg'), fid=el.getAttribute('data-fid');
+  if(a==='fetch') sgFetch();
+  else if(a==='add'){ sgFarm(fid).rows.push({ mill:'', tons:'', trs:'', liq:'', src:'' }); sgSave(); sgRender(); }
+  else if(a==='rm'){ sgFarm(fid).rows.splice(Number(el.getAttribute('data-i')),1); sgSave(); sgRender(); }
+});
+
 function renderMe(){
   var p=S.profile||{};
   var locked = !S.isAdmin;                      /* crew stay on the farm their code opens */
@@ -1586,11 +1700,12 @@ function syncTruckForm(){
 
 /* ---------- report (one farm at a time) ---------- */
 /* the day the harvest began for this farm (set by a lead), otherwise September 1 */
-function harvestStart(){
-  var f=farmById(S.farmId), v=f&&f.harvestStart;
+function harvestStartFor(f){
+  var v=f&&f.harvestStart;
   if(v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
   var t=today(), y=Number(t.slice(0,4)); var d=y+'-09-01'; return d>t ? (y-1)+'-09-01' : d;
 }
+function harvestStart(){ return harvestStartFor(farmById(S.farmId)); }
 function reportDays(){
   var t=S.loadsDay||today(), out=[];
   if(S.report.mode==='season'){ var hs=harvestStart(); for(var k=0;k<200;k++){ var dd=addDays(t,-k); if(dd<hs) break; out.push(dd); } return out.length?out:[t]; }
@@ -2366,7 +2481,7 @@ document.addEventListener('submit', function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- '+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
+ 'Sugar per acre':'Azúcar por acre','Fetch tons and TRS':'Traer toneladas y TRS','Total tons hauled':'Total de toneladas acarreadas','Total lb sugar':'Total lb de azúcar','Tons per acre':'Toneladas por acre','Lb sugar per acre':'Lb de azúcar por acre','+ Add a mill':'+ Agregar un ingenio','Total acres':'Acres totales','Mill name':'Nombre del ingenio','Tons hauled':'Toneladas acarreadas','Liquidation %':'Liquidación %','+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
  'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
