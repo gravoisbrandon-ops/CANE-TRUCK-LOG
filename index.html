@@ -1607,8 +1607,8 @@ function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
   var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
-  var scope=vw==='*'?'all':vw, sets=SG.log.filter(function(e){ return sgInScope(e,scope); }).sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:(a.savedAt||0)-(b.savedAt||0); });
-  if(sets.length){ var prev=null; secs.push({ h:'Saved sets (progress)' }); secs.push({ head:['Date','Tons','Tons/acre','Lb sugar/acre','Change'], rows:sets.map(function(e){ var r=sgRowsOf(e), t=r[r.length-1], lp=t[10]===''?null:Number(t[10]), df=(lp!=null&&prev!=null)?(lp-prev):null; if(lp!=null) prev=lp; return [e.date,t[5],t[9],lp==null?'':Math.round(lp).toLocaleString(),df==null?'':(df>0?'+':'')+Math.round(df).toLocaleString()]; }) }); }
+  var scope=vw==='*'?'all':vw, ck=sgCheck(scope,false);
+  if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint' }); secs.push({ head:ck.runHead, rows:ck.run }); secs.push({ h:'Checkpoint to checkpoint' }); secs.push({ head:ck.segHead, rows:ck.seg }); }
   pdfShare('Sugar per acre',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('sugar-per-acre-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
 }
 function pdfReport(which){
@@ -2052,7 +2052,7 @@ function sgSaveBox(scope,date){
     '<button class="btn" type="button" data-sg="update" data-scope="'+esc(scope)+'" hidden>Update this set</button>'+
     '<button class="btn ghost" type="button" data-sg="cancel" data-scope="'+esc(scope)+'" hidden>Cancel edit</button></div>'+
     '<p class="small" data-sgmode="'+esc(scope)+'"></p>'+
-    '<div class="lbl" style="margin-top:12px">Compare two dates</div><div data-sgcmp="'+esc(scope)+'"></div>'+
+    '<div class="lbl" style="margin-top:12px">Checkpoints</div><div data-sgcmp="'+esc(scope)+'"></div>'+
     '<div class="lbl" style="margin-top:12px">Progress</div><div data-sgprog="'+esc(scope)+'"></div>'+
     '<div class="lbl" style="margin-top:12px">Saved log</div><div data-sglog="'+esc(scope)+'"></div>'+
     '<div class="toolbar"><button class="btn ghost sm" type="button" data-sg="csvAll" data-scope="'+esc(scope)+'">Download all as CSV</button></div></div>';
@@ -2134,40 +2134,35 @@ function sgLogRender(){
 SG.cmp={};
 function sgSetsOf(scope){ return SG.log.filter(function(e){ return sgInScope(e,scope); }).sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:(a.savedAt||0)-(b.savedAt||0); }); }
 function sgDays(a,b){ var x=Date.parse(a+'T12:00:00'), y=Date.parse(b+'T12:00:00'); return isFinite(x)&&isFinite(y)?Math.round((y-x)/86400000):null; }
-function sgTot(e){ var r=sgRowsOf(e), t=r[r.length-1], n=function(v){ return v===''||v==null?null:Number(v); }; return { date:e.date, ac:n(t[4]), tons:n(t[5]), trs:n(t[6]), sugar:n(t[8]), tpa:n(t[9]), lpa:n(t[10]), per:n(t[11]) }; }
-function sgCmpOut(scope){
-  var sets=sgSetsOf(scope), c=SG.cmp[scope]||{}, pick=function(id){ if(id==='cur') return sgSnapshot(scope); return sets.filter(function(x){ return x.id===id; })[0]; };
-  var A=pick(c.a), B=pick(c.b); if(!A||!B||A===B) return '<p class="small">Pick two dates to see the difference.</p>';
-  if(A.date>B.date){ var tmp=A; A=B; B=tmp; }
-  var a=sgTot(A), b=sgTot(B), d=sgDays(a.date,b.date), fmt=function(v,dp){ return v==null?'–':(dp?Number(v).toFixed(dp):Math.round(v).toLocaleString()); };
-  var rows=[['Tons',a.tons,b.tons,0],['Tons per acre',a.tpa,b.tpa,2],['Avg TRS',a.trs,b.trs,1],['Total lb sugar',a.sugar,b.sugar,0],['Lb sugar per acre',a.lpa,b.lpa,0],['Avg lb sugar per ton',a.per,b.per,1]];
-  var head='<p class="small"><b>'+esc(a.date)+'</b> to <b>'+esc(b.date)+'</b>'+(d!=null?' · '+d+' day'+(d===1?'':'s'):'')+'</p>';
-  return head+'<div class="tablewrap"><table><thead><tr><th>Measure</th><th class="n">'+esc(a.date)+'</th><th class="n">'+esc(b.date)+'</th><th class="n">Change</th>'+(d>0?'<th class="n">Per day</th>':'')+'</tr></thead><tbody>'+rows.map(function(r){
-    var df=(r[1]!=null&&r[2]!=null)?r[2]-r[1]:null, pd=(df!=null&&d>0)?df/d:null, dp=r[3];
-    return '<tr><td>'+r[0]+'</td><td class="n">'+fmt(r[1],dp)+'</td><td class="n">'+fmt(r[2],dp)+'</td><td class="n"><b>'+(df==null?'–':(df>0?'+':'')+fmt(df,dp))+'</b></td>'+(d>0?'<td class="n">'+(pd==null?'–':(pd>0?'+':'')+(dp?pd.toFixed(dp+1):Math.round(pd).toLocaleString()))+'</td>':'')+'</tr>'; }).join('')+'</tbody></table></div>'+sgPeriodHtml(a,b,d);
+function sgZeroDate(scope){ if(scope!=='all'){ var f=farmById(scope); return harvestStartFor(f); } var m=''; S.farms.forEach(function(f){ var h=harvestStartFor(f); if(!m||h<m) m=h; }); return m||today(); }
+function sgTot(e){ if(e.zero) return { date:e.date, ac:null, tons:0, trs:null, sugar:0, tpa:0, lpa:0, per:null }; var r=sgRowsOf(e), t=r[r.length-1], n=function(v){ return v===''||v==null?null:Number(v); }; return { date:e.date, ac:n(t[4]), tons:n(t[5]), trs:n(t[6]), sugar:n(t[8]), tpa:n(t[9]), lpa:n(t[10]), per:n(t[11]) }; }
+/* checkpoints: each saved set is an end-of-day running total. Start -> first checkpoint -> next ... */
+function sgCheck(scope, withCur){
+  var sets=sgSetsOf(scope).map(function(e){ return sgTot(e); });
+  if(withCur){ var cur=sgSnapshot(scope), ct=sgTot(cur); if(ct.tons>0 && (!sets.length || ct.date>=sets[sets.length-1].date)) { ct.cur=true; sets.push(ct); } }
+  var z0=sgZeroDate(scope), prev={ date:z0, ac:null, tons:0, trs:null, sugar:0 }, n1=function(v,d){ return v==null||!isFinite(v)?'–':(d?Number(v).toFixed(d):Math.round(v).toLocaleString()); };
+  var run=[], seg=[];
+  sets.forEach(function(b,k){
+    var label=b.date+(b.cur?' (on screen, not saved)':''), d=sgDays(z0,b.date);
+    run.push([label,d==null?'':d,n1(b.tons,1),n1(b.tpa,2),n1(b.trs,1),n1(b.per,1),n1(b.sugar),n1(b.lpa)]);
+    var dt=b.tons-prev.tons, ds=(b.sugar!=null&&prev.sugar!=null)?b.sugar-prev.sugar:null, ac=b.ac||prev.ac, dd=sgDays(prev.date,b.date);
+    var tr=dt>0?(prev.tons===0?b.trs:((prev.trs!=null&&b.trs!=null)?(b.trs*b.tons-prev.trs*prev.tons)/dt:null)):null;
+    seg.push([(k===0?'Start':prev.date)+' to '+b.date+(b.cur?' (screen)':''),dd==null?'':dd,dt>0?n1(dt,1):'–',(dt>0&&ac)?n1(dt/ac,2):'–',n1(tr,1),(dt>0&&ds!=null)?n1(ds/dt,1):'–',(ds!=null&&dt>0)?n1(ds):'–',(ds!=null&&ac&&dt>0)?n1(ds/ac):'–']);
+    prev=b;
+  });
+  return { run:run, seg:seg, runHead:['Checkpoint (end of day)','Days since start','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'], segHead:['Between checkpoints','Days','Tons','Tons/acre','Avg TRS','Lb sugar/ton','Lb sugar','Lb sugar/acre'] };
 }
-/* what happened between the two dates alone (the sets are running totals, so this is the difference) */
-function sgPeriodHtml(a,b,d){
-  var dt=(a.tons!=null&&b.tons!=null)?b.tons-a.tons:null; if(dt==null||dt<=0) return '<p class="small">No new tons between these dates.</p>';
-  var ac=b.ac||a.ac, ds=(a.sugar!=null&&b.sugar!=null)?b.sugar-a.sugar:null, tr=(a.trs!=null&&b.trs!=null)?(b.trs*b.tons-a.trs*a.tons)/dt:null;
-  var row=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; }, n0=function(x){ return Math.round(x).toLocaleString(); };
-  return '<div class="lbl" style="margin-top:12px">During this time frame'+(d!=null?' ('+d+' day'+(d===1?'':'s')+')':'')+'</div><div class="stats">'+
-    row('Tons hauled',dt.toFixed(1))+(ac?row('Tons per acre',(dt/ac).toFixed(2)):'')+(tr!=null?row('Avg TRS',tr.toFixed(1)):'')+
-    (ds!=null?row('Lb sugar',n0(ds))+row('Avg lb sugar per ton',(ds/dt).toFixed(1))+(ac?row('Avg lb sugar per acre',n0(ds/ac)):''):'')+
-    (d>0?row('Tons per day',(dt/d).toFixed(1))+(ds!=null&&ac?row('Lb sugar per acre per day',(ds/ac/d).toFixed(1)):''):'')+'</div>';
+function sgCmpOut(scope){
+  var c=sgCheck(scope,true); if(!c.run.length) return '<p class="small">Save a set at the end of a day to make the first checkpoint. Numbers typed on screen show here as the next checkpoint.</p>';
+  var T=function(head,rows){ return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+rows.map(function(r){ return '<tr>'+r.map(function(x,i){ return '<td'+(i?' class="n"':'')+'>'+esc(x)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>'; };
+  return '<p class="small">Each saved set is an end-of-day checkpoint. The first one is measured from the start of harvest ('+esc(sgZeroDate(scope))+').</p>'+
+    '<div class="lbl" style="margin-top:8px">Running average, start to each checkpoint</div>'+T(c.runHead,c.run)+
+    '<div class="lbl" style="margin-top:12px">Checkpoint to checkpoint</div>'+T(c.segHead,c.seg)+
+    '<p class="small">The second table is only what happened between the two checkpoints: the tons hauled, their average TRS and their lb sugar per ton and per acre.</p>';
 }
 function sgCmpRender(){
   var els=document.querySelectorAll('[data-sgcmp]');
-  for(var q=0;q<els.length;q++){
-    var el=els[q], scope=el.getAttribute('data-sgcmp'), sets=sgSetsOf(scope);
-    if(!sets.length){ el.innerHTML='<p class="small">Save a set to compare dates. The numbers on screen can be compared with any saved date.</p>'; continue; }
-    var c=SG.cmp[scope]||(SG.cmp[scope]={});
-    if(!c.a || (c.a!=='cur' && !sets.some(function(x){ return x.id===c.a; }))) c.a=sets[sets.length-1].id;
-    if(!c.b || (c.b!=='cur' && !sets.some(function(x){ return x.id===c.b; }))) c.b='cur';
-    var opt=function(sel){ return sets.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===sel?' selected':'')+'>'+esc(x.date)+(x.savedAt?' '+esc(new Date(x.savedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})):'')+'</option>'; }).join('')+'<option value="cur"'+(sel==='cur'?' selected':'')+'>Numbers on screen</option>'; };
-    el.innerHTML='<div class="toolbar"><label class="f">From<select data-sgcs="a" data-scope="'+esc(scope)+'">'+opt(c.a)+'</select></label><label class="f">To<select data-sgcs="b" data-scope="'+esc(scope)+'">'+opt(c.b)+'</select></label></div><div data-sgcmpout="'+esc(scope)+'"></div>';
-    sgCmpOutRender(scope);
-  }
+  for(var q=0;q<els.length;q++){ var scope=els[q].getAttribute('data-sgcmp'); if(!els[q].querySelector('[data-sgcmpout]')) els[q].innerHTML='<div data-sgcmpout="'+esc(scope)+'"></div>'; sgCmpOutRender(scope); }
 }
 function sgCmpOutRender(scope){ var o=document.querySelector('[data-sgcmpout="'+scope+'"]'); if(o) o.innerHTML=sgCmpOut(scope); }
 document.addEventListener('change',function(e){ var el=e.target, k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; sgCmpOutRender(sc); });
