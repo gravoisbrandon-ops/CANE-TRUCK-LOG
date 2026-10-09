@@ -308,6 +308,7 @@ td.n,th.n{text-align:right}
         <label class="f" id="millSwitch" hidden>Loading to mill<select id="selMill"></select></label>
         <label class="f" id="trackSwitch" hidden>Active track (optional)<select id="selTrack"></select></label>
         <label class="f" id="fieldSwitch" hidden>Active field (optional)<select id="selField"></select></label>
+        <label class="f" id="varietySwitch" hidden>Cane variety (optional)<select id="selVariety"></select></label>
       </div>
       <div class="row" id="boardTools" style="margin-bottom:16px" hidden>
         <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
@@ -550,6 +551,7 @@ function markUsed(t,day){ if(t.lastUsed!==day){ t.lastUsed=day; dref('trucks/'+t
 function millsOf(id){ var f=farmById(id); return (f&&f.mills)||[]; }
 function tracksOf(id){ var f=farmById(id); return (f&&f.tracks)||[]; }
 function fieldsOf(id){ var f=farmById(id); return (f&&f.fields)||[]; }
+function varietiesOf(id){ var f=farmById(id); return (f&&f.varieties)||[]; }
 function loadsPath(farm,day){ return 'farms/'+farm+'/days/'+day+'/loads'; }
 function destMill(){ var m=millsOf(S.farmId); return m.length===1 ? m[0] : (S.dest.mill||''); }
 /* mills this truck may go to (none checked = any mill on its farm) */
@@ -729,11 +731,11 @@ function subLoads(){
   S.loadsKey=key; S.loads=[]; S.loadsDay=today(); last.board=''; last.report='';
   if(S.unsubActive){ S.unsubActive(); S.unsubActive=null; }
   if(S.unsubQuota){ S.unsubQuota(); S.unsubQuota=null; }
-  S.active={ track:'', field:'' }; S.quota=null; S.pendingW=[];
+  S.active={ track:'', field:'', variety:'' }; S.quota=null; S.pendingW=[];
   if(!key) return;
   S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
     var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
-    S.active = a ? { track:a.track||'', field:a.field||'' } : { track:'', field:'' };
+    S.active = a ? { track:a.track||'', field:a.field||'', variety:a.variety||'' } : { track:'', field:'', variety:'' };
     last.board=''; schedule();
   }, function(e){ S.err = e && e.code; schedule(); });
   S.unsubQuota = col('farms/'+S.farmId+'/quota').onSnapshot(function(snap){
@@ -752,7 +754,7 @@ function loadDest(){
 /* the active track and field are shared: whoever changes them, everyone's loads get stamped with them */
 function saveActive(){
   if(!S.farmId) return;
-  dref('farms/'+S.farmId+'/active/now').set({ track:S.active.track||'', field:S.active.field||'', by:byName(), at:Date.now() }).catch(fail);
+  dref('farms/'+S.farmId+'/active/now').set({ track:S.active.track||'', field:S.active.field||'', variety:S.active.variety||'', by:byName(), at:Date.now() }).catch(fail);
 }
 function saveDest(){ lsSet('cane-truck-log:dest:'+S.farmId, JSON.stringify(S.dest)); }
 function onFarmChange(){
@@ -782,7 +784,7 @@ async function logLoad(t){
   S.lastTap[t.id]=now;
   var wd=today(), ref=col(loadsPath(t.farm,wd)).doc();
   try{
-    await ref.set({ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd });
+    await ref.set({ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', variety:S.active.variety||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd });
     markUsed(t,wd);
     toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':''), loadsPath(t.farm,wd)+'/'+ref.id);
   }catch(e){ S.lastTap[t.id]=0; fail(e); }
@@ -792,7 +794,7 @@ async function logLoad(t){
 function openEdit(id){
   var l=null; for(var i=0;i<S.loads.length;i++){ if(S.loads[i].id===id) l=S.loads[i]; }
   if(!l) return;
-  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs), brix:(l.brix==null?'':l.brix), fin:!!l.trsFinal };
+  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', variety:l.variety||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs), brix:(l.brix==null?'':l.brix), fin:!!l.trsFinal };
   $('#sheetWrap').hidden=false;
   renderEdit(true);
   var s=document.querySelector('#sheet .close'); if(s) s.focus();
@@ -803,8 +805,8 @@ function renderEdit(force){
   var exists=S.loads.some(function(l){ return l.id===S.edit.id; });
   if(!exists){ closeEdit(); return; }
   if(!force && $('#sheet').innerHTML) return;      /* do not rebuild while someone is typing */
-  var e=S.edit, trucks=farmTrucks(), mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId);
-  var cur=$('#eTruck') ? { track:$('#eTrack')?$('#eTrack').value:e.track, truck:$('#eTruck').value, time:$('#eTime').value, mill:$('#eMill')?$('#eMill').value:e.mill, field:$('#eField')?$('#eField').value:e.field } : { truck:e.truck, time:e.orig, mill:e.mill, track:e.track, field:e.field };
+  var e=S.edit, trucks=farmTrucks(), mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId), varts=varietiesOf(S.farmId);
+  var cur=$('#eTruck') ? { track:$('#eTrack')?$('#eTrack').value:e.track, truck:$('#eTruck').value, time:$('#eTime').value, mill:$('#eMill')?$('#eMill').value:e.mill, field:$('#eField')?$('#eField').value:e.field, variety:$('#eVariety')?$('#eVariety').value:e.variety } : { truck:e.truck, time:e.orig, mill:e.mill, track:e.track, field:e.field, variety:e.variety };
   var opts=trucks.map(function(t){ return '<option value="'+esc(t.id)+'"'+(t.id===cur.truck?' selected':'')+'>Truck '+esc(t.no)+'</option>'; }).join('');
   if(!trucks.some(function(t){ return t.id===e.truck; })) opts='<option value="'+esc(e.truck)+'" selected>Truck '+esc(e.no)+' (not on roster)</option>'+opts;
   var key='delLoad:'+e.id;
@@ -815,6 +817,7 @@ function renderEdit(force){
     (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (tracks.length||cur.track?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+(cur.track&&tracks.indexOf(cur.track)<0?tracks.concat([cur.track]):tracks).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (fields.length||cur.field?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+(cur.field&&fields.indexOf(cur.field)<0?fields.concat([cur.field]):fields).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (varts.length||cur.variety?'<label class="f">Cane variety<select id="eVariety"><option value="">Not set</option>'+(cur.variety&&varts.indexOf(cur.variety)<0?varts.concat([cur.variety]):varts).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.variety?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (isLead()?'<label class="f">Tons (net)<input type="number" id="eTons" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTons')?$('#eTons').value:e.tons)+'"></label><label class="f">TRS (lb sugar per ton)<input type="number" id="eTrs" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTrs')?$('#eTrs').value:e.trs)+'"></label><label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="eFin"'+(($('#eFin')?$('#eFin').checked:e.fin)?' checked':'')+'><span>TRS is final from the mill</span></label><label class="f">Brix<input type="number" id="eBrix" step="0.01" min="0" max="40" inputmode="decimal" value="'+esc($('#eBrix')?$('#eBrix').value:e.brix)+'"></label>':'')+
     '<div data-st="full"><button class="btn primary" type="button" data-act="saveEdit"'+(S.canWrite?'':' disabled')+'>Save changes</button></div>'+
     '<button class="btn warn" type="button" data-act="deleteLoad"'+(S.canWrite?'':' disabled')+'>'+(confirmKey===key?'Tap again to delete this load':'Delete this load')+'</button>'+
@@ -830,6 +833,7 @@ async function saveEdit(){
   if($('#eMill')) patch.mill=$('#eMill').value;
   if($('#eTrack')) patch.track=$('#eTrack').value;
   if($('#eField')) patch.field=$('#eField').value;
+  if($('#eVariety')) patch.variety=$('#eVariety').value;
   if($('#eTons')){ var tv=$('#eTons').value.trim(), rv=$('#eTrs').value.trim(); patch.tons=tv===''?null:Number(tv); patch.trs=rv===''?null:Number(rv); var bv=$('#eBrix').value.trim(); patch.brix=bv===''?null:Number(bv); patch.trsFinal=$('#eFin').checked; }
   try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).update(patch); toast('Load fixed'); closeEdit(); }
   catch(err){ fail(err); }
@@ -954,16 +958,18 @@ function emptyCard(title, text, btn){
 }
 
 function renderDest(){
-  var mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId);
+  var mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId), vars=varietiesOf(S.farmId);
   if(S.dest.mill && mills.indexOf(S.dest.mill)<0) S.dest.mill='';
-  var ms=$('#millSwitch'), fs=$('#fieldSwitch'), ts=$('#trackSwitch');
+  var ms=$('#millSwitch'), fs=$('#fieldSwitch'), ts=$('#trackSwitch'), vs=$('#varietySwitch');
   ms.hidden = mills.length<2;
   ts.hidden = !(tracks.length || S.canWrite);
   fs.hidden = !(fields.length || S.canWrite);
+  vs.hidden = !(vars.length || S.canWrite);
   if(!ms.hidden) setOptions($('#selMill'), [['','Pick the mill']].concat(mills.map(function(m){ return [m,m]; })), S.dest.mill);
   if(!ts.hidden) setOptions($('#selTrack'), [['','None']].concat(tracks.map(function(m){ return [m,m]; }),[['__edit','+ Add or edit…']]), tracks.indexOf(S.active.track)>=0?S.active.track:'');
   if(!fs.hidden) setOptions($('#selField'), [['','None']].concat(fields.map(function(m){ return [m,m]; }),[['__edit','+ Add or edit…']]), fields.indexOf(S.active.field)>=0?S.active.field:'');
-  $('#destRow').hidden = ms.hidden && fs.hidden && ts.hidden;
+  if(!vs.hidden) setOptions($('#selVariety'), [['','None']].concat(vars.map(function(m){ return [m,m]; }),[['__edit','+ Add or edit…']]), vars.indexOf(S.active.variety)>=0?S.active.variety:'');
+  $('#destRow').hidden = ms.hidden && fs.hidden && ts.hidden && vs.hidden;
 }
 
 function quotaHtml(all){
@@ -2354,6 +2360,8 @@ function renderSetup(){
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         (lead?'<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="addEdgardTracts" data-farm="'+esc(f.id)+'">Add the Edgard tracts</button></div>':'')+
+        '<div class="lbl">Cane varieties</div><div class="chips">'+chips(f.varieties,'Variety','None yet. Varieties are optional.')+'</div>'+
+        '<form class="addrow" data-form="addVariety" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Variety, like L 01-299" aria-label="New variety for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         '<div class="lbl">Fields</div><div class="chips">'+chips(f.fields,'Field','None yet. Fields are optional.')+'</div>'+
         '<form class="addrow" data-form="addField" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Field name or number" aria-label="New field for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
       '</article>';
@@ -2589,6 +2597,7 @@ function renderReport(){
   if(season) ss=Object.assign({},ss,{ rows:scopeRows });
   var byField=tally(scopeRows,function(x){ return x.field||'No field set'; });
   var byTrack=tally(scopeRows,function(x){ return x.track||'No track set'; });
+  var byVariety=tally(scopeRows,function(x){ return x.variety||'No variety set'; });
   var byTruck=tally(season?scopeRows:ss.rows,function(x){ return 'Truck '+x.no; });
   if(mills.length){
     var byMill=tally(scopeRows,function(x){ return x.mill||'No mill set'; });
@@ -2598,6 +2607,7 @@ function renderReport(){
     var tk=r.k==='No track set'?'':r.k, cc=cycAll.filter(function(c){ return c.track===tk; });
     var rt=ratePerHour(scopeDays.map(function(d){ return repLoads(d).filter(function(x){ return (x.track||'')===tk; }); }));
     return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]).concat(cycAll.length?[cc.length?fmtDur(avgOf(cc)):'–', rt>0?f1(rt):'–']:[]); }));
+  if(scopeRows.some(function(x){ return x.variety; })) html+='<div class="lbl">'+esc(scopeLbl)+' by cane variety</div>'+tbl(['Variety','Loaded'].concat(WS?['Tons','Avg t/load','Avg TRS']:[]),byVariety.map(function(r){ var vr=scopeRows.filter(function(x){ return (x.variety||'No variety set')===r.k; }), tv=avgTrs(vr); return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–',tv?Math.round(tv):'–']:[]); }));
   html+='<div class="lbl">'+esc(scopeLbl)+' by field</div>'+tbl(['Field','Loaded'].concat(WS?['Tons','Avg t/load']:[]),byField.map(function(r){ return [esc(r.k),r.n].concat(WS?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
   html+='<div class="lbl">'+esc(season?scopeLbl:dayLabel(sel))+' by truck</div>'+tbl(['Truck','Loaded'].concat((season?WS:W)?['Tons']:[]).concat(cycSel.length?['Avg between','Efficiency']:[]),byTruck.map(function(r){
     var no=r.k.replace(/^Truck /,''), mine=cycSel.filter(function(c){ return String(c.no)===String(no); }), cells=[];
@@ -2622,10 +2632,10 @@ function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.rep
 async function exportCsv(){
   if(!S.dl || !S.farmId) return;
   var days=(S.report.mode!=='range' && S.report.mode!=='season' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
   days.forEach(function(d){
     repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
+      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
     });
   });
   var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
@@ -2857,11 +2867,11 @@ function renderAll_(){
 async function exportCombCsv(){
   if(!S.dl) return;
   var days=combDays().slice().reverse();
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
   days.forEach(function(d){
     S.farms.forEach(function(f){
       combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
+        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
       });
     });
   });
@@ -2975,7 +2985,7 @@ function openLists(inReport){
 }
 function renderLists(){
   var f=farmById(S.farmId); if(!f) return;
-  var sig=JSON.stringify([f.id,f.fields,f.tracks]); if(sig===listsSig && $('#listsBody').innerHTML) return;
+  var sig=JSON.stringify([f.id,f.fields,f.tracks,f.varieties]); if(sig===listsSig && $('#listsBody').innerHTML) return;
   if(document.activeElement && $('#listsBody').contains(document.activeElement) && $('#listsBody').innerHTML && listsSig.indexOf(f.id)>=0){ listsSig=sig; }
   listsSig=sig;
   function part(kind,key,label,ph){
@@ -2985,16 +2995,16 @@ function renderLists(){
     }).join('')||'<span class="small">None yet.</span>')+'</div>'+
     '<form class="addrow" data-form="add'+kind+'" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="'+ph+'" aria-label="New '+kind.toLowerCase()+'"><button class="btn sm" type="submit">Add</button></form>';
   }
-  $('#listsBody').innerHTML=part('Field','fields','Fields','Field name or number')+part('Track','tracks','Tracks','Track, like Johnson');
+  $('#listsBody').innerHTML=part('Field','fields','Fields','Field name or number')+part('Track','tracks','Tracks','Track, like Johnson')+part('Variety','varieties','Cane varieties','Variety, like L 01-299');
 }
 function renameItem(kind,old){
-  var key=kind==='Field'?'fields':'tracks', f=farmById(S.farmId); if(!f) return;
+  var key=kind==='Field'?'fields':kind==='Variety'?'varieties':'tracks', f=farmById(S.farmId); if(!f) return;
   var nv=prompt(tr('Rename')+' '+old, old); if(nv==null) return; nv=nv.trim().slice(0,40);
   if(!nv || nv===old) return;
   var arr=(f[key]||[]);
   if(arr.indexOf(nv)>=0){ toast('That name is already in the list.'); return; }
   editList(S.farmId,key,function(a){ var i=a.indexOf(old); if(i>=0) a[i]=nv; return a; });
-  var act=kind==='Field'?'field':'track'; if(S.active[act]===old){ S.active[act]=nv; saveActive(); }
+  var act=kind==='Field'?'field':kind==='Variety'?'variety':'track'; if(S.active[act]===old){ S.active[act]=nv; saveActive(); }
   toast(old+' is now '+nv);
 }
 
@@ -3025,7 +3035,7 @@ async function saveMissed(){
   var mill=mills.length===1?mills[0]:(mills.length?$('#mMill').value:'');
   if(mills.length && !mill){ toast('Pick a mill.'); return; }
   try{
-    await col(loadsPath(farm,today())).doc().set({ truck:t.id, no:t.no, farm:farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', mill:mill, loadedAt:ms, loadedBy:byName(), day:today(), addedLate:true });
+    await col(loadsPath(farm,today())).doc().set({ truck:t.id, no:t.no, farm:farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', variety:S.active.variety||'', mill:mill, loadedAt:ms, loadedBy:byName(), day:today(), addedLate:true });
     markUsed(t,today());
     toast('Truck '+t.no+' added at '+hm); S.missed=null; last.board=''; schedule();
   }catch(e){ fail(e); }
@@ -3084,6 +3094,7 @@ document.addEventListener('click', function(e){
     case 'listsClose': S.lists=false; renderQuick(); break;
     case 'renField': renameItem('Field',el.getAttribute('data-v')); break;
     case 'renTrack': renameItem('Track',el.getAttribute('data-v')); break;
+    case 'renVariety': renameItem('Variety',el.getAttribute('data-v')); break;
     case 'missedOpen': openMissed(); break;
     case 'missedCancel': S.missed=null; schedule(); break;
     case 'quickCancel': S.quick=null; schedule(); break;
@@ -3150,6 +3161,7 @@ document.addEventListener('click', function(e){
       editList(el.getAttribute('data-farm'),'tracks',function(arr){ var have=arr.map(function(x){ return x.toLowerCase(); }); EDG.forEach(function(t){ if(have.indexOf(t.toLowerCase())<0) arr.push(t); }); return arr; }); toast('Edgard tracts added');
       break;
     case 'delTrack': editList(el.getAttribute('data-farm'),'tracks',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
+    case 'delVariety': editList(el.getAttribute('data-farm'),'varieties',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
     case 'delField': editList(el.getAttribute('data-farm'),'fields',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
     case 'delMill': editList(el.getAttribute('data-farm'),'mills',function(arr){ return arr.filter(function(x){ return x!==el.getAttribute('data-v'); }); }); break;
     case 'editTruck':
@@ -3183,10 +3195,11 @@ document.addEventListener('change', function(e){
     dref('farms/'+mf.id).update({ millColors:mc }).catch(fail);
   }
   else if(id==='selRoute'){ S.route=Number(e.target.value)||60; lsSet('cane-truck-log:route',String(S.route)); last.board=''; schedule(); }
-  else if((id==='selTrack'||id==='selField') && e.target.value==='__edit'){ e.target.value=(id==='selTrack'?S.active.track:S.active.field)||''; openLists(false); }
+  else if((id==='selTrack'||id==='selField'||id==='selVariety') && e.target.value==='__edit'){ e.target.value=(id==='selTrack'?S.active.track:id==='selVariety'?S.active.variety:S.active.field)||''; openLists(false); }
   else if((id==='rTrack'||id==='rField') && e.target.value==='__edit'){ e.target.value=(id==='rTrack'?S.report.track:S.report.field)||''; openLists(true); }
   else if(id==='selTrack'){ S.active.track=e.target.value; saveActive(); last.board=''; schedule(); }
   else if(id==='selField'){ S.active.field=e.target.value; saveActive(); last.board=''; schedule(); }
+  else if(id==='selVariety'){ S.active.variety=e.target.value; saveActive(); last.board=''; schedule(); }
   else if(id==='selFarm' && isOffice()){
     S.profile=Object.assign({name:'',role:'office',farm:''}, S.profile||{}); S.profile.farm=e.target.value; saveProfile(); schedule();
   }
@@ -3245,9 +3258,9 @@ document.addEventListener('submit', function(e){
     saveProfile();
     $('#meForm').removeAttribute('data-init'); S.tab='board'; last.board=''; schedule(); toast('Saved. Welcome, '+name+'.');
   }
-  else if(f.getAttribute('data-form')==='addField' || f.getAttribute('data-form')==='addMill' || f.getAttribute('data-form')==='addTrack'){
+  else if(f.getAttribute('data-form')==='addField' || f.getAttribute('data-form')==='addMill' || f.getAttribute('data-form')==='addTrack' || f.getAttribute('data-form')==='addVariety'){
     var inp=f.querySelector('input'), val=inp.value.trim(); inp.value=''; if(!val) return;
-    var fk=f.getAttribute('data-form'), key=fk==='addMill' ? 'mills' : (fk==='addTrack' ? 'tracks' : 'fields');
+    var fk=f.getAttribute('data-form'), key=fk==='addMill' ? 'mills' : (fk==='addTrack' ? 'tracks' : (fk==='addVariety' ? 'varieties' : 'fields'));
     editList(f.getAttribute('data-farm'), key, function(arr){ if(arr.indexOf(val)<0) arr.push(val); return arr; });
   }
 });
@@ -3255,7 +3268,7 @@ document.addEventListener('submit', function(e){
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
  'Cane Track':'Cane Track','Fetch tons and TRS':'Traer toneladas y TRS','Total tons hauled':'Total de toneladas acarreadas','Total lb sugar':'Total lb de azúcar','Tons per acre':'Toneladas por acre','Lb sugar per acre':'Lb de azúcar por acre','+ Add a mill':'+ Agregar un ingenio','Total acres':'Acres totales','Mill name':'Nombre del ingenio','Tons hauled':'Toneladas acarreadas','Liquidation %':'Liquidación %','Your account is made. To join a farm, paste the invite code or link your crew manager or farm owner sent you. Or start your own portal for your own farms.':'Su cuenta está hecha. Para unirse a una finca, pegue el código o enlace de invitación que le mandó su jefe de cuadrilla o el dueño de la finca. O empiece su propio portal para sus propias fincas.','Or start your own portal':'O empiece su propio portal','Name it, e.g. Smith Farms':'Póngale nombre, por ejemplo Fincas Smith','Start my own portal':'Empezar mi propio portal','Your portal name':'El nombre de su portal','Starting your own portal for your farms? Type a name for it. Were you invited? Leave this blank and use your invite link.':'¿Empieza su propio portal para sus fincas? Escriba un nombre. ¿Lo invitaron? Deje esto en blanco y use su enlace de invitación.','Your portal':'Su portal','Rename your portal':'Cambiar el nombre del portal','Save the name':'Guardar el nombre','Your farms, crew and tools are private to this portal. Other growers using the site cannot see them.':'Sus fincas, personal y herramientas son privados en este portal. Otros productores que usan la página no pueden verlos.','Make an account with your email. Start your own portal for your farms, or use an invite link to join a farm.':'Cree una cuenta con su correo. Empiece su propio portal para sus fincas, o use un enlace de invitación para unirse a una finca.','+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
- 'Active field (optional)':'Campo activo (opcional)','Active track (optional)':'Track activo (opcional)',
+ 'Active field (optional)':'Campo activo (opcional)','Cane variety (optional)':'Variedad de caña (opcional)','Cane varieties':'Variedades de caña','Cane variety':'Variedad de caña','Active track (optional)':'Track activo (opcional)',
  'Add farm':'Agregar finca','Add truck':'Agregar camión','Add trucks':'Agregar camiones','Add':'Agregar',
  'All farms':'Todas','All farms report':'Reporte de todas las fincas','Board':'Tablero','Cancel':'Cancelar',
  'Check again':'Revisar otra vez','Close':'Cerrar','Combine operator':'Operador de la cosechadora','Daily report':'Reporte diario',
