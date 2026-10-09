@@ -101,6 +101,9 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .newno{display:inline-block;color:#0E1511;border-radius:6px;padding:0 8px;font-weight:700}
 .tm{display:flex;flex-direction:column;gap:14px}
 #tmRoot{display:flex;flex-direction:column;gap:14px;min-width:0}
+.sgin{background:rgba(46,125,50,.10)!important;border-color:rgba(46,125,50,.45)!important}
+.sgin.sgneed{background:rgba(255,179,0,.28)!important;border-color:#E0A100!important}
+.sgin:focus{outline:3px solid #2F6FB5;outline-offset:1px;background:rgba(47,111,181,.14)!important}
 .tm input[type=date],.tm input[type=time],.tm input[type=text],.tm input[type=number],.tm textarea,#tmSheet textarea,#tmSheet input[type=text]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;font-weight:500;color:var(--ink);text-transform:none;letter-spacing:0}
 .tm textarea,#tmSheet textarea{min-height:90px;resize:vertical;font-family:inherit}
 #tmSheet textarea.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.5}
@@ -2060,6 +2063,14 @@ function sgBreakHtml(){
   var d=sgBreakData(); if(d.rows.length<2) return '<p class="small">Enter tons and TRS in each farm first. Pick a farm above to type its numbers.</p>';
   return '<div class="tablewrap"><table><thead><tr>'+d.head.map(function(x,i){ return '<th'+(i?' class="n"':'')+'>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+d.rows.map(function(r,ri){ var b=d.bold.indexOf(ri)>=0; return '<tr'+(b?' style="font-weight:700"':'')+'>'+r.map(function(c,i){ return '<td'+(i?' class="n"':'')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>';
 }
+/* Cane Track entry boxes: amber while empty (fill me), soft green once filled; tapping a box selects what is in it so typing replaces it */
+function sgMark(){
+  var r=$('#sgRoot'); if(!r) return;
+  var els=r.querySelectorAll('input[data-sgf],input[data-sgdate]');
+  for(var i=0;i<els.length;i++){ var e=els[i]; if(e.getAttribute('data-sgf')==='mill') continue; e.classList.add('sgin'); e.classList.toggle('sgneed', e.value.trim()===''); }
+}
+document.addEventListener('focusin',function(e){ var t=e.target; if(t && t.tagName==='INPUT' && t.classList && t.classList.contains('sgin') && t.type!=='date'){ try{ t.select(); }catch(x){} setTimeout(function(){ try{ t.select(); }catch(x){} },0); } });
+document.addEventListener('input',function(e){ var t=e.target; if(t && t.classList && t.classList.contains('sgin')) t.classList.toggle('sgneed', t.value.trim()===''); });
 function sgRender(){
   var root=$('#sgRoot'); if(!root) return;
   var vw=sgView(), fo=S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vw?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+(S.farms.length>1?'<option value="*"'+(vw==='*'?' selected':'')+'>All farms combined</option>':'');
@@ -2094,7 +2105,7 @@ function sgRender(){
   });
   if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2><div id="sgBreak"></div><h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div><h2 style="margin-top:16px">All farms combined</h2><div class="stats" id="sgAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
   h+='<div class="card"><div class="toolbar"><button class="btn" type="button" data-pdf="sugar">Share PDF report</button><button class="btn ghost" type="button" data-pdf="sugar" data-view="1">View PDF</button></div><p class="small">A PDF of the numbers on this screen, to send by text, email or print.</p></div>';
-  root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender();
+  root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender(); sgMark();
 }
 
 function sgSig(){ return JSON.stringify([sgView(),S.farms.map(function(f){ return [f.id,f.name,f.mills||[]]; })]); }
