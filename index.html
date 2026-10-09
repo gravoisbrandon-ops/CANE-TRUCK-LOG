@@ -2361,7 +2361,7 @@ document.addEventListener('click',function(e){
 });
 
 /* ---- Seasons: keep every year, compare years, import history ---- */
-var SE={ scope:'', edit:'', msg:'', imp:null, impText:'', cmpA:'', cmpB:'', confirm:'', sig:'' };
+var SE={ bulk:null, sel:{}, scope:'', edit:'', msg:'', imp:null, impText:'', cmpA:'', cmpB:'', confirm:'', sig:'' };
 SG.seasons=[];
 function seN(v){ var n=parseFloat(String(v==null?'':v).replace(/,/g,'')); return isFinite(n)?n:null; }
 function seScope(){ if(SE.scope==='*' && S.farms.length>1) return '*'; if(SE.scope && farmById(SE.scope)) return SE.scope; return (S.farmId&&farmById(S.farmId))?S.farmId:(S.farms[0]?S.farms[0].id:'*'); }
@@ -2471,7 +2471,18 @@ function seRender(){
     '<div class="toolbar"><button class="btn" type="button" data-se="save">'+(ed?'Update this year':'Add this year')+'</button>'+(ed?'<button class="btn ghost" type="button" data-se="cancel">Cancel</button>':'')+'</div>'+
     (SE.msg?'<p class="small">'+esc(SE.msg)+'</p>':'');
   var recs=SG.seasons.filter(function(r){ return (sc==='*'||r.farm===sc) && farmById(r.farm); }).sort(function(a,b){ return b.year-a.year || String(a.farm).localeCompare(b.farm); });
-  if(recs.length) h+='<div class="lbl" style="margin-top:12px">Saved years</div>'+recs.map(function(r){ var m=seFinish(Object.assign({},r)), k='seDel:'+r.id; return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><div class="sec-head"><b>'+r.year+'</b><span class="small">'+(sc==='*'?esc(farmName(r.farm))+' · ':'')+seFmt(m.acres,1)+' ac · '+seFmt(m.tons)+' t'+(m.acres>0?' · '+seFmt(m.tons/m.acres,2)+' t/ac':'')+(m.sugar!=null&&m.acres>0?' · '+seFmt(m.sugar/m.acres)+' lb/ac':'')+(r.src==='import'?' · imported':'')+'</span><button class="btn sm" type="button" data-se="edit" data-id="'+esc(r.id)+'">Edit</button><button class="btn ghost sm" type="button" data-se="del" data-id="'+esc(r.id)+'">'+(SE.confirm===k?'Tap again to delete':'Delete')+'</button></div>'+(r.note?'<div class="small">'+esc(r.note)+'</div>':'')+'</div>'; }).join('');
+  var nsel=recs.filter(function(r){ return SE.sel[r.id]; }).length;
+  h+='<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-se="bulkAdd">Bulk add years</button>'+(recs.length?'<button class="btn ghost" type="button" data-se="selAll">'+(nsel===recs.length?'Clear selection':'Select all')+'</button>':'')+(nsel?'<button class="btn" type="button" data-se="bulkEdit">Edit selected ('+nsel+')</button><button class="btn warn" type="button" data-se="delSel">'+(SE.confirm==='seDelSel'?'Tap again to delete '+nsel:'Delete selected ('+nsel+')')+'</button>':'')+'</div>';
+  if(SE.bulk){
+    var multi=sc==='*'||SE.bulk.some(function(b){ return b.id; });
+    h+='<div class="lbl" style="margin-top:12px">'+(SE.bulk.some(function(b){ return b.id; })?'Edit these years':'Bulk add years')+'</div><p class="small">One row per year. Leave a row empty to skip it. Year and tons are needed.</p>'+
+      '<div class="tablewrap"><table><thead><tr><th>Year</th>'+(multi?'<th>Farm</th>':'')+'<th>Acres</th><th>Tons</th><th>TRS</th><th>Liq %</th><th></th></tr></thead><tbody>'+SE.bulk.map(function(b,i){
+        var inp=function(k,w,st){ return '<input type="number" data-bk="'+i+':'+k+'" value="'+esc(b[k]==null?'':b[k])+'" inputmode="decimal" step="'+(st||'any')+'" style="min-width:'+w+'px;min-height:40px">'; };
+        return '<tr><td>'+inp('year',64,1)+'</td>'+(multi?'<td><select data-bk="'+i+':farm" style="min-height:40px">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(b.farm===f.id?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></td>':'')+'<td>'+inp('acres',70)+'</td><td>'+inp('tons',78)+'</td><td>'+inp('trs',64)+'</td><td>'+inp('liq',56)+'</td><td><button class="btn ghost sm" type="button" data-se="bkRm" data-i="'+i+'" aria-label="Remove row">&times;</button></td></tr>';
+      }).join('')+'</tbody></table></div>'+
+      '<div class="toolbar"><button class="btn ghost" type="button" data-se="bkRow">+ Add a row</button><button class="btn" type="button" data-se="bkSave">Save all</button><button class="btn ghost" type="button" data-se="bkCancel">Cancel</button></div>';
+  }
+  if(recs.length) h+='<div class="lbl" style="margin-top:12px">Saved years</div>'+recs.map(function(r){ var m=seFinish(Object.assign({},r)), k='seDel:'+r.id; return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><div class="sec-head"><label style="display:flex;align-items:center;gap:8px;min-height:40px"><input type="checkbox" data-sesel="'+esc(r.id)+'"'+(SE.sel[r.id]?' checked':'')+' aria-label="Select '+r.year+'" style="width:22px;height:22px"><b>'+r.year+'</b></label><span class="small">'+(sc==='*'?esc(farmName(r.farm))+' · ':'')+seFmt(m.acres,1)+' ac · '+seFmt(m.tons)+' t'+(m.acres>0?' · '+seFmt(m.tons/m.acres,2)+' t/ac':'')+(m.sugar!=null&&m.acres>0?' · '+seFmt(m.sugar/m.acres)+' lb/ac':'')+(r.src==='import'?' · imported':'')+'</span><button class="btn sm" type="button" data-se="edit" data-id="'+esc(r.id)+'">Edit</button><button class="btn ghost sm" type="button" data-se="del" data-id="'+esc(r.id)+'">'+(SE.confirm===k?'Tap again to delete':'Delete')+'</button></div>'+(r.note?'<div class="small">'+esc(r.note)+'</div>':'')+'</div>'; }).join('');
   h+='</div>';
   /* import */
   h+='<div class="card"><h2>Import history</h2><p class="small">Bring in past years from a spreadsheet. Save it as CSV, or copy the rows and paste them here. One row per farm per year. Columns: <b>year, farm, acres, tons, trs, liquidation, lb_sugar, notes</b>. The farm must match a farm name on this site (blank means the farm shown above). Lb sugar and liquidation are optional.</p>'+
@@ -2493,7 +2504,10 @@ function seRead(){
   if(!(tons>0)){ toast('Type the tons.'); return null; }
   return seFinish({ id:SE.edit||seId(), farm:$('#seFarmSel').value, year:y, acres:$('#seAcres').value, tons:tons, trs:$('#seTrs').value, liq:$('#seLiq').value, sugar:$('#seSugar').value, note:$('#seNote').value.trim().slice(0,120), src:SE.edit?'edit':'manual' });
 }
+document.addEventListener('input',function(e){ var k=e.target&&e.target.getAttribute&&e.target.getAttribute('data-bk'); if(k&&SE.bulk){ var p=k.split(':'), row=SE.bulk[Number(p[0])]; if(row) row[p[1]]=e.target.value; } });
 document.addEventListener('change',function(e){
+  var bk=e.target&&e.target.getAttribute&&e.target.getAttribute('data-bk'); if(bk&&SE.bulk){ var bp=bk.split(':'), br=SE.bulk[Number(bp[0])]; if(br) br[bp[1]]=e.target.value; return; }
+  var ss=e.target&&e.target.getAttribute&&e.target.getAttribute('data-sesel'); if(ss){ if(e.target.checked) SE.sel[ss]=1; else delete SE.sel[ss]; SE.confirm=''; SE.sig=''; seRender(); return; }
   var id=e.target&&e.target.id;
   if(id==='seFarm'){ SE.scope=e.target.value; SE.edit=''; SE.msg=''; SE.sig=''; seRender(); }
   else if(id==='seCmpA'){ SE.cmpA=e.target.value; seRender(); }
@@ -2504,6 +2518,20 @@ document.addEventListener('click',function(e){
   var el=e.target.closest?e.target.closest('[data-se]'):null; if(!el) return; var a=el.getAttribute('data-se'), sc=seScope();
   if(a==='save'){ var rec=seRead(); if(!rec) return; seSaveRec(rec); SG.logLoaded=true; sgPersist(); SE.edit=''; SE.msg='Saved '+rec.year+'.'; SE.sig=''; seRender(); toast('Saved '+rec.year); }
   else if(a==='cancel'){ SE.edit=''; SE.msg=''; SE.sig=''; seRender(); }
+  else if(a==='bulkAdd'){ var df=sc==='*'?(S.farmId||(S.farms[0]&&S.farms[0].id)||''):sc, y0=new Date().getFullYear(); SE.bulk=[]; for(var q=0;q<5;q++) SE.bulk.push({ farm:df, year:String(y0-1-q), acres:'', tons:'', trs:'', liq:'' }); SE.sig=''; seRender(); }
+  else if(a==='bulkEdit'){ SE.bulk=SG.seasons.filter(function(r){ return SE.sel[r.id] && farmById(r.farm); }).sort(function(x,y){ return y.year-x.year; }).map(function(r){ return { id:r.id, farm:r.farm, year:String(r.year), acres:r.acres||'', tons:r.tons||'', trs:r.trs==null?'':r.trs, liq:r.liq==null?'':r.liq, sugar:r.sugar, note:r.note, src:r.src }; }); SE.sig=''; seRender(); }
+  else if(a==='selAll'){ var vis=SG.seasons.filter(function(r){ return (sc==='*'||r.farm===sc) && farmById(r.farm); }), allOn=vis.every(function(r){ return SE.sel[r.id]; }); vis.forEach(function(r){ if(allOn) delete SE.sel[r.id]; else SE.sel[r.id]=1; }); SE.confirm=''; SE.sig=''; seRender(); }
+  else if(a==='delSel'){ if(SE.confirm==='seDelSel'){ SE.confirm=''; var n0=SG.seasons.length; SG.seasons=SG.seasons.filter(function(r){ return !SE.sel[r.id]; }); SE.sel={}; sgPersist(); toast('Deleted '+(n0-SG.seasons.length)+' year'+(n0-SG.seasons.length===1?'':'s')); } else { SE.confirm='seDelSel'; setTimeout(function(){ if(SE.confirm==='seDelSel'){ SE.confirm=''; SE.sig=''; seRender(); } },4000); } SE.sig=''; seRender(); }
+  else if(a==='bkRow'){ if(SE.bulk){ var lastB=SE.bulk[SE.bulk.length-1]||{}, ny=parseInt(lastB.year,10); SE.bulk.push({ farm:lastB.farm||sc, year:isFinite(ny)?String(ny-1):'', acres:'', tons:'', trs:'', liq:'' }); SE.sig=''; seRender(); } }
+  else if(a==='bkRm'){ if(SE.bulk){ SE.bulk.splice(Number(el.getAttribute('data-i')),1); SE.sig=''; seRender(); } }
+  else if(a==='bkCancel'){ SE.bulk=null; SE.sig=''; seRender(); }
+  else if(a==='bkSave'){
+    if(!SE.bulk) return; var rows=[], bad=0;
+    SE.bulk.forEach(function(b){ var empty=!String(b.year||'').trim() && !String(b.tons||'').trim() && !String(b.acres||'').trim(); if(empty) return; var y=parseInt(b.year,10), t=seN(b.tons); if(!isFinite(y)||y<1900||y>2100||!(t>0)||!farmById(b.farm)){ bad++; return; } rows.push(seFinish({ id:b.id||seId(), farm:b.farm, year:y, acres:b.acres, tons:t, trs:b.trs, liq:b.liq, sugar:(b.id&&b.sugar!=null&&!String(b.trs||'').trim())?b.sugar:'', note:b.note||'', src:b.id?'edit':'manual' })); });
+    if(bad){ toast(bad+' row'+(bad===1?' needs':'s need')+' a year and tons.'); return; }
+    if(!rows.length){ toast('Nothing to save yet.'); return; }
+    rows.forEach(function(r){ seSaveRec(r); }); SG.logLoaded=true; sgPersist(); SE.bulk=null; SE.sel={}; SE.msg='Saved '+rows.length+' year'+(rows.length===1?'':'s')+'.'; SE.sig=''; seRender(); toast('Saved '+rows.length+' year'+(rows.length===1?'':'s'));
+  }
   else if(a==='edit'){ SE.edit=el.getAttribute('data-id'); SE.msg=''; SE.sig=''; seRender(); var t=$('#seYear'); if(t) t.scrollIntoView({ block:'center' }); }
   else if(a==='del'){ var id=el.getAttribute('data-id'), k='seDel:'+id; if(SE.confirm===k){ SE.confirm=''; SG.seasons=SG.seasons.filter(function(r){ return r.id!==id; }); sgPersist(); } else { SE.confirm=k; setTimeout(function(){ if(SE.confirm===k){ SE.confirm=''; SE.sig=''; seRender(); } },4000); } SE.sig=''; seRender(); }
   else if(a==='close'){
