@@ -392,7 +392,7 @@ td.n,th.n{text-align:right}
       </div>
       <div class="card" id="scaleCard">
         <h2>Scale connection</h2>
-        <p class="small">Give each farm's key to whoever runs your scale app. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
+        <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
       <div class="card" id="trucksCard">
@@ -497,7 +497,7 @@ var S = {
   isAdmin:false, isMgr:false,
   farms:[], trucks:[], loads:[], loadsKey:'', loadsDay:'', unsubLoads:null, farmId:'',
   ready:{farms:false,trucks:false}, err:null,
-  quota:null, unsubQuota:null, pendingW:[], newKey:{}, keyInfo:{},
+  quota:null, unsubQuota:null, pendingW:[], newKey:{}, keyInfo:{}, millKeys:null, newMillKey:{}, millNames:[], platform:false,
   active:{track:'',field:''}, unsubActive:null, route:60, profile:null, dest:{mill:''}, listMill:'', tab:'board', edit:null, editing:null, lastTap:{},
   report:{mode:'daily',range:14,sel:'',mill:'',cache:{},loading:false,fails:0}
 };
@@ -850,7 +850,7 @@ function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile
 function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok';
-  S.portal = w.portal||''; S.isOwner = !!w.owner; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
+  S.portal = w.portal||''; S.isOwner = !!w.owner; S.platform = !!w.platform; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
@@ -2641,6 +2641,7 @@ async function loadPeople(){
     var fl=S.isAdmin ? S.farms.map(function(f){ return f.id; }) : (S.crewFarm?[S.crewFarm]:[]);
     for(var i=0;i<fl.length;i++){ if(!INV[fl[i]]){ try{ INV[fl[i]]=await rpc('invite_get',{ p_farm:fl[i] }); }catch(e){} } }
     for(var j=0;j<fl.length;j++){ if(!S.keyInfo[fl[j]]){ try{ S.keyInfo[fl[j]]=await rpc('scale_key_get',{ p_farm:fl[j] }); last.scale=''; }catch(e){} } }
+    if(S.platform && !S.millKeys){ try{ S.millNames=await rpc('mill_names',{})||[]; var mkl=await rpc('mill_key_list',{}); S.millKeys={}; (mkl||[]).forEach(function(k){ S.millKeys[String(k.mill).toLowerCase()]=k; }); last.scale=''; }catch(e){} }
     schedule();
   }
   catch(e){ if(e && e.code==='denied') S.err='denied'; schedule(); }
@@ -2672,22 +2673,52 @@ function scaleInstructions(fid){
    '  p_mill = the mill name exactly as it is in the truck log (leave out for a whole-farm quota). p_tons and p_loads are both optional. Applies to today unless "p_day":"2026-10-05" is added.\n\n'+
    'The key is secret and works only for '+fn+'. Keep it out of screenshots and emails you do not trust.';
 }
+function millInstructions(m){
+  var key=S.newMillKey[m.toLowerCase()]||'PASTE-THE-MILL-KEY-HERE', url=baseUrl()+'/rest/v1/rpc/', ak=CFG.supabaseAnonKey||'';
+  var hdr='  apikey: '+ak+'\n'+(/^eyJ/.test(ak)?'  Authorization: Bearer '+ak+'\n':'')+'  Content-Type: application/json';
+  return 'CANE TRUCK LOG - SCALE CONNECTION FOR '+m.toUpperCase()+' (ALL GROWERS)\n\n'+
+   '1) SEND A WEIGHT (each time a load is weighed)\nPOST '+url+'scale_weight\nHeaders:\n'+hdr+'\nBody (JSON):\n  {"p_key":"'+key+'","p_truck":"154","p_tons":30.09}\n'+
+   '  p_truck = the truck ID, either the hauler number and truck number like "54-154" (best: it picks the right grower by their hauler number) or just the truck number "154"\n  p_tons = net weight in tons (required)\n  p_trs = TRS, optional, for example "p_trs":207.28\n  p_ticket = ticket number, optional (a repeated ticket is ignored, so it is safe to resend)\n'+
+   '  p_farm = farm id, optional. Only needed if two growers use the same truck number and no hauler number.\n'+
+   'The weight goes on the oldest unweighed load for that truck going to '+m+', for any grower on the site. Reply: {"status":"matched","farm":"..."} put on a load, {"status":"waiting"} truck not tapped yet (it fills in when tapped), {"status":"duplicate"} already received.\n\n'+
+   '2) SEND THE QUOTA (whenever it changes)\nPOST '+url+'scale_quota\nSame headers. Body:\n  {"p_key":"'+key+'","p_farm":"FARM ID","p_tons":450,"p_loads":36}\n'+
+   '  p_farm = the grower the quota is for (required with a mill key). The mill is this key\'s mill. p_tons and p_loads are both optional. Applies to today unless "p_day":"2026-10-05" is added.\n\n'+
+   'The key is secret and works only for '+m+'. Keep it out of screenshots and emails you do not trust.';
+}
 function scaleBox(){
-  var fl=S.isAdmin ? S.farms : S.farms.filter(function(f){ return f.id===S.crewFarm; });
   var h='';
-  fl.forEach(function(f){
-    var ki=S.keyInfo[f.id], nk=S.newKey[f.id];
-    h+='<div class="ros-row" style="grid-template-columns:1fr;gap:8px"><div class="info"><span class="l1" style="font-size:16px">'+esc(f.name)+'</span><span class="l2">'+(ki&&ki.exists?'Connected. Key made '+esc(new Date(ki.created_at).toLocaleDateString()):'No key yet')+'</span></div>';
-    if(nk) h+='<div class="keybox">'+esc(nk)+'</div><p class="small">This key is shown only once. Copy it now.</p>';
-    h+='<div class="addrow"><button class="btn sm" type="button" data-act="scaleMake" data-farm="'+esc(f.id)+'">'+(ki&&ki.exists?(confirmKey==='scaleNew:'+f.id?'Sure? The old key stops working':'New key'):'Make key')+'</button>'+
-      (ki&&ki.exists?'<button class="btn ghost sm" type="button" data-act="scaleCopy" data-farm="'+esc(f.id)+'">Copy instructions</button>':'')+
-      (nk?'<button class="btn ghost sm" type="button" data-act="scaleCopyKey" data-farm="'+esc(f.id)+'">Copy key</button>':'')+
-      (ki&&ki.exists?'<button class="btn warn sm" type="button" data-act="scaleOff" data-farm="'+esc(f.id)+'">'+(confirmKey==='scaleOff:'+f.id?'Sure?':'Turn off')+'</button>':'')+'</div></div>';
-  });
+  if(S.platform){
+    h+='<p class="small"><b>One key per mill, for every grower on the site.</b> The mill\'s scale app sends weights for all growers, in every portal, with the same key.</p>';
+    var ms=(S.millNames||[]).concat(allMills().filter(function(m){ return (S.millNames||[]).map(function(x){ return x.toLowerCase(); }).indexOf(m.toLowerCase())<0; })).sort();
+    ms.forEach(function(m){
+      var lc=m.toLowerCase(), ki=S.millKeys&&S.millKeys[lc], nk=S.newMillKey[lc], q=encodeURIComponent(m);
+      h+='<div class="ros-row" style="grid-template-columns:1fr;gap:8px"><div class="info"><span class="l1" style="font-size:16px">'+esc(m)+'</span><span class="l2">'+(ki?'Connected. Key made '+esc(new Date(ki.created_at).toLocaleDateString()):'No key yet')+'</span></div>';
+      if(nk) h+='<div class="keybox">'+esc(nk)+'</div><p class="small">This key is shown only once. Copy it now.</p>';
+      h+='<div class="addrow"><button class="btn sm" type="button" data-act="millMake" data-mill="'+esc(m)+'">'+(ki?(confirmKey==='millNew:'+lc?'Sure? The old key stops working':'New key'):'Make key')+'</button>'+
+        (ki?'<button class="btn ghost sm" type="button" data-act="millCopy" data-mill="'+esc(m)+'">Copy instructions</button>':'')+
+        (nk?'<button class="btn ghost sm" type="button" data-act="millCopyKey" data-mill="'+esc(m)+'">Copy key</button>':'')+
+        (ki?'<button class="btn warn sm" type="button" data-act="millOff" data-mill="'+esc(m)+'">'+(confirmKey==='millOff:'+lc?'Sure?':'Turn off')+'</button>':'')+'</div></div>';
+    });
+    if(!ms.length) h+='<p class="small">Add the mills on each farm first.</p>';
+  }
+  var fl=S.isAdmin ? S.farms : S.farms.filter(function(f){ return f.id===S.crewFarm; });
+  var old=fl.filter(function(f){ var ki=S.keyInfo[f.id]; return ki && ki.exists; });
+  if(old.length){
+    h+='<div class="lbl" style="margin-top:12px">Older farm keys</div><p class="small">These farms still have their own key. They keep working. Turn them off once the mill uses its mill key.</p>';
+    old.forEach(function(f){
+      var ki=S.keyInfo[f.id], nk=S.newKey[f.id];
+      h+='<div class="ros-row" style="grid-template-columns:1fr;gap:8px"><div class="info"><span class="l1" style="font-size:16px">'+esc(f.name)+'</span><span class="l2">Farm key made '+esc(new Date(ki.created_at).toLocaleDateString())+'</span></div>';
+      if(nk) h+='<div class="keybox">'+esc(nk)+'</div><p class="small">This key is shown only once. Copy it now.</p>';
+      h+='<div class="addrow"><button class="btn sm" type="button" data-act="scaleMake" data-farm="'+esc(f.id)+'">'+(confirmKey==='scaleNew:'+f.id?'Sure? The old key stops working':'New key')+'</button>'+
+        '<button class="btn ghost sm" type="button" data-act="scaleCopy" data-farm="'+esc(f.id)+'">Copy instructions</button>'+
+        (nk?'<button class="btn ghost sm" type="button" data-act="scaleCopyKey" data-farm="'+esc(f.id)+'">Copy key</button>':'')+
+        '<button class="btn warn sm" type="button" data-act="scaleOff" data-farm="'+esc(f.id)+'">'+(confirmKey==='scaleOff:'+f.id?'Sure?':'Turn off')+'</button></div></div>';
+    });
+  }
   return h || '<p class="small">Add a farm first.</p>';
 }
 function renderScale(){
-  var sig=JSON.stringify([S.keyInfo,S.newKey,S.farms.map(function(f){ return f.id+f.name; }),confirmKey,S.isAdmin]);
+  var sig=JSON.stringify([S.keyInfo,S.newKey,S.millKeys,S.newMillKey,S.millNames,S.platform,S.farms.map(function(f){ return f.id+f.name+(f.mills||[]).join(','); }),confirmKey,S.isAdmin]);
   if(sig===last.scale) return; last.scale=sig;
   $('#scaleList').innerHTML=scaleBox();
 }
@@ -3021,6 +3052,17 @@ document.addEventListener('click', function(e){
       var of_=el.getAttribute('data-farm');
       if(confirmTap('scaleOff:'+of_)) rpc('scale_key_off',{ p_farm:of_ }).then(function(){ delete S.newKey[of_]; S.keyInfo[of_]={ exists:false }; last.scale=''; toast('Scale connection turned off'); schedule(); }).catch(fail);
       break;
+    case 'millMake':
+      var mm=el.getAttribute('data-mill'), mlc=mm.toLowerCase(), mhad=S.millKeys && S.millKeys[mlc];
+      if(mhad && !confirmTap('millNew:'+mlc)) break;
+      rpc('mill_key_new',{ p_mill:mm }).then(function(k){ S.newMillKey[mlc]=k; if(!S.millKeys) S.millKeys={}; S.millKeys[mlc]={ mill:mm, created_at:new Date().toISOString() }; last.scale=''; toast('Key made. Copy it now, it is shown only once.'); schedule(); }).catch(fail);
+      break;
+    case 'millOff':
+      var ox=el.getAttribute('data-mill'), olc=ox.toLowerCase();
+      if(confirmTap('millOff:'+olc)) rpc('mill_key_off',{ p_mill:ox }).then(function(){ delete S.newMillKey[olc]; if(S.millKeys) delete S.millKeys[olc]; last.scale=''; toast('Scale connection turned off'); schedule(); }).catch(fail);
+      break;
+    case 'millCopy': copyText(millInstructions(el.getAttribute('data-mill')), 'Instructions copied. Send them to the scale app developer.'); break;
+    case 'millCopyKey': copyText(S.newMillKey[el.getAttribute('data-mill').toLowerCase()]||'', 'Key copied.'); break;
     case 'scaleCopy': copyText(scaleInstructions(el.getAttribute('data-farm')), 'Instructions copied. Send them to the scale app developer.'); break;
     case 'scaleCopyKey': copyText(S.newKey[el.getAttribute('data-farm')]||'', 'Key copied.'); break;
     case 'quickAdd': openQuick(''); break;
@@ -3290,7 +3332,7 @@ var ES = {
  'An administrator has not approved your account yet.':'Un administrador todavía no aprueba su cuenta.','Delete':'Borrar',
  'Weights waiting for a truck tap':'Pesos esperando que toquen el camión','These came from the scale before the truck was tapped. Each lands on its load as soon as that truck is tapped.':'Estos llegaron de la báscula antes de tocar el camión. Cada uno se pone en su carga en cuanto se toca ese camión.',
  'Dismiss':'Descartar','Tons':'Toneladas','Average TRS':'TRS promedio','Tons (net)':'Toneladas (netas)','TRS (lb sugar per ton)':'TRS (lb de azúcar por tonelada)',
- 'Scale connection':'Conexión con la báscula','Give each farm\'s key to whoever runs your scale app. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.':'Dele la llave de cada finca a quien maneja su app de la báscula. Manda cada peso neto (toneladas, y TRS si lo tiene) y la cuota, y se llenan en el Tablero y en los reportes. Los números de camión deben ser iguales a los números de camión de aquí.',
+ 'Scale connection':'Conexión con la báscula','Give each mill\'s key to whoever runs that mill\'s scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.':'Dele la llave de cada molino a quien maneja la app de la báscula de ese molino, una sola llave para todos sus productores. Manda cada peso neto (toneladas, y TRS si lo tiene) y la cuota, y se llenan en el Tablero y en los reportes. Los números de camión deben ser iguales a los números de camión de aquí.',
  'No key yet':'Todavía no hay llave','Make key':'Crear llave','New key':'Llave nueva','Turn off':'Apagar','Copy instructions':'Copiar instrucciones','Copy key':'Copiar llave',
  'Sure? The old key stops working':'¿Seguro? La llave anterior deja de funcionar','This key is shown only once. Copy it now.':'Esta llave se muestra una sola vez. Cópiela ahora.',
  'Key made. Copy it now, it is shown only once.':'Llave creada. Cópiela ahora, se muestra una sola vez.','Instructions copied. Send them to the scale app developer.':'Instrucciones copiadas. Mándeselas a quien hizo la app de la báscula.',
