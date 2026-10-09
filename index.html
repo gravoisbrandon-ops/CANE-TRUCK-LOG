@@ -792,7 +792,7 @@ async function logLoad(t){
 function openEdit(id){
   var l=null; for(var i=0;i<S.loads.length;i++){ if(S.loads[i].id===id) l=S.loads[i]; }
   if(!l) return;
-  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs) };
+  S.edit={ id:id, day:l.day||S.loadsDay, truck:l.truck, no:l.no, orig:hhmm(l.loadedAt), origMs:l.loadedAt, mill:l.mill||'', track:l.track||'', field:l.field||'', hauler:l.hauler||'', tons:(l.tons==null?'':l.tons), trs:(l.trs==null?'':l.trs), brix:(l.brix==null?'':l.brix), fin:!!l.trsFinal };
   $('#sheetWrap').hidden=false;
   renderEdit(true);
   var s=document.querySelector('#sheet .close'); if(s) s.focus();
@@ -815,7 +815,7 @@ function renderEdit(force){
     (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (tracks.length||cur.track?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+(cur.track&&tracks.indexOf(cur.track)<0?tracks.concat([cur.track]):tracks).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (fields.length||cur.field?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+(cur.field&&fields.indexOf(cur.field)<0?fields.concat([cur.field]):fields).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
-    (isLead()?'<label class="f">Tons (net)<input type="number" id="eTons" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTons')?$('#eTons').value:e.tons)+'"></label><label class="f">TRS (lb sugar per ton)<input type="number" id="eTrs" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTrs')?$('#eTrs').value:e.trs)+'"></label>':'')+
+    (isLead()?'<label class="f">Tons (net)<input type="number" id="eTons" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTons')?$('#eTons').value:e.tons)+'"></label><label class="f">TRS (lb sugar per ton)<input type="number" id="eTrs" step="0.01" min="0" inputmode="decimal" value="'+esc($('#eTrs')?$('#eTrs').value:e.trs)+'"></label><label class="f" style="flex-direction:row;align-items:center;gap:10px"><input type="checkbox" id="eFin"'+(($('#eFin')?$('#eFin').checked:e.fin)?' checked':'')+'><span>TRS is final from the mill</span></label><label class="f">Brix<input type="number" id="eBrix" step="0.01" min="0" max="40" inputmode="decimal" value="'+esc($('#eBrix')?$('#eBrix').value:e.brix)+'"></label>':'')+
     '<div data-st="full"><button class="btn primary" type="button" data-act="saveEdit"'+(S.canWrite?'':' disabled')+'>Save changes</button></div>'+
     '<button class="btn warn" type="button" data-act="deleteLoad"'+(S.canWrite?'':' disabled')+'>'+(confirmKey===key?'Tap again to delete this load':'Delete this load')+'</button>'+
     (S.canWrite?'':'<p class="small">You have view access only, so editing is turned off.</p>');
@@ -830,7 +830,7 @@ async function saveEdit(){
   if($('#eMill')) patch.mill=$('#eMill').value;
   if($('#eTrack')) patch.track=$('#eTrack').value;
   if($('#eField')) patch.field=$('#eField').value;
-  if($('#eTons')){ var tv=$('#eTons').value.trim(), rv=$('#eTrs').value.trim(); patch.tons=tv===''?null:Number(tv); patch.trs=rv===''?null:Number(rv); }
+  if($('#eTons')){ var tv=$('#eTons').value.trim(), rv=$('#eTrs').value.trim(); patch.tons=tv===''?null:Number(tv); patch.trs=rv===''?null:Number(rv); var bv=$('#eBrix').value.trim(); patch.brix=bv===''?null:Number(bv); patch.trsFinal=$('#eFin').checked; }
   try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).update(patch); toast('Load fixed'); closeEdit(); }
   catch(err){ fail(err); }
 }
@@ -2452,6 +2452,8 @@ function tonsOf(x){ if(x.tons==null || x.tons==='') return null; var n=Number(x.
 function sumTons(rows){ var t=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null) t+=n; }); return t; }
 function weighedOf(rows){ return rows.filter(function(x){ return tonsOf(x)!=null; }).length; }
 function avgTrs(rows){ var a=0,w=0; rows.forEach(function(x){ var n=tonsOf(x), r=Number(x.trs); if(n!=null && x.trs!=null && isFinite(r) && r>0){ a+=n*r; w+=n; } }); return w ? a/w : null; }
+function avgBrix(rows){ var a=0,w=0; rows.forEach(function(x){ var b=Number(x.brix); if(x.brix!=null && x.brix!=='' && isFinite(b) && b>0){ var n=tonsOf(x); if(n==null) n=1; a+=n*b; w+=n; } }); return w ? a/w : null; }
+function finalCount(rows){ var f=0, t=0; rows.forEach(function(x){ if(x.trs!=null && x.trs!=='' && Number(x.trs)>0){ t++; if(x.trsFinal) f++; } }); return { f:f, t:t }; }
 function tonsPerLoad(rows){ var t=0, c=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null){ t+=n; c++; } }); return c ? t/c : null; }
 function tpt(rows){ var v=tonsPerLoad(rows); return v==null ? '–' : f1(v); }
 function f1(n){ return (Math.round(n*10)/10).toFixed(1); }
@@ -2459,7 +2461,7 @@ function dayStats(list){
   var L=list.filter(function(x){ return x.loadedAt; });
   var ids={}; L.forEach(function(x){ ids[x.truck]=1; });
   var times=L.map(function(x){ return x.loadedAt; });
-  return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
+  return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), brix:avgBrix(L), fin:finalCount(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
 }
 async function loadReport(onlyMissing){
   if(!S.db || !S.farmId) return;
@@ -2544,6 +2546,8 @@ function renderReport(){
       '<div class="stat"><span class="lbl">Trucks used</span><b>'+sd.trucks+'</b></div>'+
       (sd.weighed?'<div class="stat"><span class="lbl">Tons to date</span><b>'+f1(sd.tons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(sd.rows)+'</b></div><div class="stat"><span class="lbl">Tons per day</span><b>'+(nd?f1(sd.tons/nd):'–')+'</b></div>':'')+
       (sd.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(sd.trs)+'</b></div>':'')+
+      (sd.brix?'<div class="stat"><span class="lbl">Average brix</span><b>'+sd.brix.toFixed(1)+'</b><span class="small">'+sd.rows.filter(function(x){ return x.brix; }).length+' sampled</span></div>':'')+
+      (sd.fin&&sd.fin.t?'<div class="stat"><span class="lbl">TRS final</span><b>'+sd.fin.f+' of '+sd.fin.t+'</b></div>':'')+
       (cycAll.length?'<div class="stat"><span class="lbl">Avg between loads</span><b>'+fmtDur(avgOf(cycAll))+'</b></div>':'')+
       (rateAll>0?'<div class="stat"><span class="lbl">Loads per hour</span><b>'+f1(rateAll)+'</b></div>':'')+'</div>';
   } else {
@@ -2553,6 +2557,8 @@ function renderReport(){
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div>'+
     (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(ss.rows)+'</b></div>':'')+
     (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+
+    (ss.brix?'<div class="stat"><span class="lbl">Average brix</span><b>'+ss.brix.toFixed(1)+'</b><span class="small">'+ss.rows.filter(function(x){ return x.brix; }).length+' sampled</span></div>':'')+
+    (ss.fin&&ss.fin.t?'<div class="stat"><span class="lbl">TRS final</span><b>'+ss.fin.f+' of '+ss.fin.t+'</b></div>':'')+
     (cycAll.length?'<div class="stat"><span class="lbl">Avg between loads</span><b>'+fmtDur(avgOf(cycAll))+'</b></div>':'')+
     (rateAll>0?'<div class="stat"><span class="lbl">Loads per hour</span><b>'+f1(rateAll)+'</b></div>':'')+'</div>';
   }
@@ -2605,8 +2611,8 @@ function renderReport(){
     var lbl=ids.length?esc(ids.join(', ')):esc(r.k);
     return [season?lbl:newNoChip(no,sel,lbl),r.n].concat((season?WS:W)?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it only with other trucks hauling to the same mill from the same track, since each mill is a different distance: 100% is average for that mill, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
   var log=season?[]:ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
-  if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]),log.map(function(x){
-    return [newNoChip(x.no,sel,'<b>'+esc(millTruckNo(x.no,x.mill,S.farmId)||x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs):'–']:[]);
+  if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]).concat(log.some(function(x){ return x.brix; })?['Brix']:[]),log.map(function(x){
+    return [newNoChip(x.no,sel,'<b>'+esc(millTruckNo(x.no,x.mill,S.farmId)||x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs)+(x.trsFinal?' <span class="small">final</span>':''):'–']:[]).concat(log.some(function(z){ return z.brix; })?[x.brix?Number(x.brix).toFixed(1):'–']:[]);
   }));
   var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill' || document.activeElement.id==='rTrack' || document.activeElement.id==='rField') ? document.activeElement.id : '';
   $('#reportBody').innerHTML=html;
@@ -2616,10 +2622,10 @@ function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.rep
 async function exportCsv(){
   if(!S.dl || !S.farmId) return;
   var days=(S.report.mode!=='range' && S.report.mode!=='season' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
   days.forEach(function(d){
     repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
+      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
     });
   });
   var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
@@ -2678,10 +2684,12 @@ function millInstructions(m){
   var hdr='  apikey: '+ak+'\n'+(/^eyJ/.test(ak)?'  Authorization: Bearer '+ak+'\n':'')+'  Content-Type: application/json';
   return 'CANE TRUCK LOG - SCALE CONNECTION FOR '+m.toUpperCase()+' (ALL GROWERS)\n\n'+
    '1) SEND A WEIGHT (each time a load is weighed)\nPOST '+url+'scale_weight\nHeaders:\n'+hdr+'\nBody (JSON):\n  {"p_key":"'+key+'","p_truck":"154","p_tons":30.09}\n'+
-   '  p_truck = the truck ID, either the hauler number and truck number like "54-154" (best: it picks the right grower by their hauler number) or just the truck number "154"\n  p_tons = net weight in tons (required)\n  p_trs = TRS, optional, for example "p_trs":207.28\n  p_ticket = ticket number, optional (a repeated ticket is ignored, so it is safe to resend)\n'+
+   '  p_truck = the truck ID, either the hauler number and truck number like "54-154" (best: it picks the right grower by their hauler number) or just the truck number "154"\n  p_tons = net weight in tons (required)\n  p_trs = TRS, optional, for example "p_trs":207.28\n  p_brix = brix, optional, for example "p_brix":17.4\n  p_ticket = ticket number (send it: the final TRS is found by it later. A repeated ticket is ignored, so it is safe to resend)\n'+
    '  p_farm = farm id, optional. Only needed if two growers use the same truck number and no hauler number.\n'+
    'The weight goes on the oldest unweighed load for that truck going to '+m+', for any grower on the site. Reply: {"status":"matched","farm":"..."} put on a load, {"status":"waiting"} truck not tapped yet (it fills in when tapped), {"status":"duplicate"} already received.\n\n'+
-   '2) SEND THE QUOTA (whenever it changes)\nPOST '+url+'scale_quota\nSame headers. Body:\n  {"p_key":"'+key+'","p_farm":"FARM ID","p_tons":450,"p_loads":36}\n'+
+   '2) SEND THE FINAL TRS AND BRIX (when the mill finalizes a load)\nPOST '+url+'scale_final\nSame headers. Body:\n  {"p_key":"'+key+'","p_ticket":"123456","p_trs":212.5,"p_brix":17.9}\n'+
+   '  p_ticket = the same ticket number sent with the weight (required). p_trs = the final TRS. p_brix = brix. Send either or both. The final TRS replaces the first TRS on that load and the site uses it from then on. Reply: {"status":"matched"} or {"status":"notfound"}.\n\n'+
+   '3) SEND THE QUOTA (whenever it changes)\nPOST '+url+'scale_quota\nSame headers. Body:\n  {"p_key":"'+key+'","p_farm":"FARM ID","p_tons":450,"p_loads":36}\n'+
    '  p_farm = the grower the quota is for (required with a mill key). The mill is this key\'s mill. p_tons and p_loads are both optional. Applies to today unless "p_day":"2026-10-05" is added.\n\n'+
    'The key is secret and works only for '+m+'. Keep it out of screenshots and emails you do not trust.';
 }
@@ -2849,11 +2857,11 @@ function renderAll_(){
 async function exportCombCsv(){
   if(!S.dl) return;
   var days=combDays().slice().reverse();
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
   days.forEach(function(d){
     S.farms.forEach(function(f){
       combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.ticket].map(csvCell).join(','));
+        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
       });
     });
   });
