@@ -1627,8 +1627,8 @@ function pdfSugar(){
   var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
   var rr2=[], tl=0, plan2=0, rem2=0, noE=false;
-  S.farms.forEach(function(f){ if(vw!=='*' && f.id!==vw) return; var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(!r) return; plan2+=r.plan; rem2+=r.rem; if(r.left!=null) tl+=r.left; else noE=true; rr2.push([f.name,f1(r.plan),f1(r.done),f1(r.rem),r.est!=null?r.est.toFixed(2):'',r.left!=null?sgNf(r.left):'']); });
-  if(rr2.length){ if(rr2.length>1) rr2.push(['All farms',f1(plan2),f1(plan2-rem2),f1(rem2),'',noE?'':sgNf(tl)]); secs.push({ h:'Left to harvest and ship' }); secs.push({ head:['Farm','Acres to harvest','Harvested','Remaining','Est. tons/acre','Est. tons left'], rows:rr2, bold:rr2.length>1?[rr2.length-1]:undefined }); }
+  S.farms.forEach(function(f){ if(vw!=='*' && f.id!==vw) return; var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(!r) return; plan2+=r.plan; rem2+=r.rem; if(r.left!=null) tl+=r.left; else noE=true; rr2.push([f.name,f1(r.plan),f1(r.done),f1(r.rem),r.est!=null?r.est.toFixed(2):'',r.left!=null?sgNf(r.left):'',(sgFin(r).finTpa!=null?r.finTpa.toFixed(2):''),(r.finLpa!=null?sgNf(r.finLpa):'')]); });
+  if(rr2.length){ if(rr2.length>1) rr2.push(['All farms',f1(plan2),f1(plan2-rem2),f1(rem2),'',noE?'':sgNf(tl),'','']); secs.push({ h:'Left to harvest and ship' }); secs.push({ head:['Farm','Acres to harvest','Harvested','Remaining','Est. tons/acre','Est. tons left','Finish tons/acre','Finish lb sugar/acre'], rows:rr2, bold:rr2.length>1?[rr2.length-1]:undefined }); }
   var scope=vw==='*'?'all':vw, ck=sgCheck(scope);
   if(ck.run.length){ secs.push({ h:'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); secs.push({ h:'Running average, start to each checkpoint (newest first)' }); secs.push({ head:ck.runHead, rows:ck.run.filter(function(r){ return !/not saved/.test(r[0]); }) }); }
   pdfShare('Cane Track',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('cane-track-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
@@ -1995,31 +1995,34 @@ function sgRemain(o,c){
   var plan=sgN(o.plan), ac=sgN(o.acres), est=sgN(o.est), tpa=(ac>0&&c.tons>0)?c.tons/ac:null, useEst=est!=null&&est>0?est:tpa;
   if(!(plan>0)) return null;
   var rem=Math.max(0,plan-(ac||0));
-  return { plan:plan, done:ac||0, rem:rem, pct:plan>0?Math.min(100,(ac||0)/plan*100):0, est:useEst, estIsActual:!(est>0)&&tpa!=null, left:useEst!=null?rem*useEst:null, hauled:c.tons, proj:useEst!=null?c.tons+rem*useEst:null };
+  return { plan:plan, done:ac||0, rem:rem, pct:plan>0?Math.min(100,(ac||0)/plan*100):0, est:useEst, estIsActual:!(est>0)&&tpa!=null, left:useEst!=null?rem*useEst:null, hauled:c.tons, proj:useEst!=null?c.tons+rem*useEst:null, per:c.sTons>0?c.sugar/c.sTons:null };
+}
+function sgFin(r){ if(!r||r.proj==null) return r; r.finTpa=r.proj/r.plan; r.finLpa=r.per!=null?r.finTpa*r.per:null; return r;
 }
 function sgRemBoxes(r){
+  r=sgFin(r);
   var b=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; };
   if(!r) return '<p class="small">Enter the total acres to harvest to see what is left.</p>';
   return b('Total acres to harvest',f1(r.plan))+b('Harvested',f1(r.done)+' ('+Math.round(r.pct)+'%)')+b('Acres remaining',f1(r.rem))+
-    (r.est!=null?b('Est. tons per acre',r.est.toFixed(2)+(r.estIsActual?'*':''))+b('Est. tons left to ship',sgNf(r.left))+b('Projected total tons',sgNf(r.proj)):'')+
+    (r.est!=null?b('Est. tons per acre',r.est.toFixed(2)+(r.estIsActual?'*':''))+b('Est. tons left to ship',sgNf(r.left))+b('Projected total tons',sgNf(r.proj))+b('Projected tons per acre at finish',r.finTpa.toFixed(2))+(r.finLpa!=null?b('Projected lb sugar per acre at finish',sgNf(r.finLpa)):''):'')+
     (r.estIsActual?'<p class="small" style="grid-column:1/-1">* Using the tons per acre so far. Type an estimate to change it.</p>':'');
 }
 function sgOut(){
   sgCmpRefresh();
-  var sh=sgN(SG.share), all={ tons:0, sugar:0, sTons:0, trsW:0, miss:[] }, allAc=0, accTons=0, accSugar=0, accSt=0, remAll={ plan:0, done:0, rem:0, left:0, hauled:0, rows:[], n:0, noEst:false };
+  var sh=sgN(SG.share), all={ tons:0, sugar:0, sTons:0, trsW:0, miss:[] }, allAc=0, accTons=0, accSugar=0, accSt=0, remAll={ plan:0, done:0, rem:0, left:0, hauled:0, rows:[], n:0, noEst:false, sug:0, noSug:false };
   S.farms.forEach(function(f){
     var o=sgFarm(f.id), c=sgCalc(o.rows), ac=sgN(o.acres);
     o.rows.forEach(function(r,i){ var e=$('#sgL_'+f.id+'_'+i); if(e) e.textContent=c.rows[i]!=null ? sgNf(c.rows[i])+' lb sugar' : ''; });
     var el=$('#sgO_'+f.id); if(el) el.innerHTML=sgBoxes(c,ac,sh);
     var rr=sgRemain(o,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr);
-    if(rr){ remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; remAll.rows.push([f.name,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',rr.left!=null?sgNf(rr.left):'–']); remAll.n++; }
+    if(rr){ remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; if(rr.proj!=null&&rr.per!=null) remAll.sug+=rr.proj*rr.per; else remAll.noSug=true; remAll.rows.push([f.name,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',rr.left!=null?sgNf(rr.left):'–',sgFin(rr).finTpa!=null?rr.finTpa.toFixed(2):'–',rr.finLpa!=null?sgNf(rr.finLpa):'–']); remAll.n++; }
     all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
     if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
   });
   var br=$('#sgBreak'); if(br) br.innerHTML=sgBreakHtml();
   var rall=$('#sgRemAll'); if(rall){
     if(!remAll.n) rall.innerHTML='<p class="small">Enter the total acres to harvest on each farm to see what is left.</p>';
-    else rall.innerHTML='<div class="stats">'+sgRemBoxes({ plan:remAll.plan, done:remAll.done, rem:remAll.rem, pct:remAll.plan>0?Math.min(100,remAll.done/remAll.plan*100):0, est:(!remAll.noEst&&remAll.rem>0)?remAll.left/remAll.rem:null, estIsActual:false, left:remAll.noEst?null:remAll.left, hauled:remAll.hauled, proj:remAll.noEst?null:remAll.hauled+remAll.left })+'</div>'+tbl(['Farm','To harvest','Harvested','Remaining','Est. t/acre','Est. tons left'],remAll.rows.map(function(r){ return r.map(function(x){ return esc(x); }); }));
+    else rall.innerHTML='<div class="stats">'+sgRemBoxes({ plan:remAll.plan, done:remAll.done, rem:remAll.rem, pct:remAll.plan>0?Math.min(100,remAll.done/remAll.plan*100):0, est:(!remAll.noEst&&remAll.rem>0)?remAll.left/remAll.rem:null, estIsActual:false, left:remAll.noEst?null:remAll.left, hauled:remAll.hauled, proj:remAll.noEst?null:remAll.hauled+remAll.left, per:(!remAll.noSug&&!remAll.noEst&&remAll.hauled+remAll.left>0)?remAll.sug/(remAll.hauled+remAll.left):null })+'</div>'+tbl(['Farm','To harvest','Harvested','Remaining','Est. t/acre','Est. tons left','Finish t/acre','Finish lb sugar/acre'],remAll.rows.map(function(r){ return r.map(function(x){ return esc(x); }); }));
   }
   var el2=$('#sgAll'); if(!el2) return;
   var h=sgBoxes(all,0,sh);
