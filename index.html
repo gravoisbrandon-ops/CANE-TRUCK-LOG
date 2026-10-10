@@ -1614,9 +1614,10 @@ async function pdfShare(title, sub, secs, fname, landscape){
   var view=PDF_VIEW; PDF_VIEW=false;
   var blob; try{ blob=pdfBuild(title,sub,secs,landscape); }catch(e){ try{ console.warn('pdf',e); }catch(x){} toast('Could not make the PDF.'); return; }
   if(view){ var vu=URL.createObjectURL(blob), vw2=null; try{ vw2=window.open(vu,'_blank'); }catch(e){} if(!vw2){ location.href=vu; } setTimeout(function(){ URL.revokeObjectURL(vu); },120000); return; }
+  fname=String(title||'Report').replace(/[\\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim()+(sub?' - '+String(sub).replace(/[\\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim():'')+' - '+today()+'.pdf';
   var file=null; try{ file=new File([blob],fname,{ type:'application/pdf' }); }catch(e){}
   if(file && navigator.canShare && navigator.canShare({ files:[file] })){
-    try{ await navigator.share({ files:[file], title:title }); return; }catch(e){ if(e && e.name==='AbortError') return; }
+    try{ await navigator.share({ files:[file] }); return; }catch(e){ if(e && e.name==='AbortError') return; }
   }
   var a=document.createElement('a'), url=URL.createObjectURL(blob); a.href=url; a.download=fname; document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },1500);
   toast('PDF saved. Open it from your downloads to share it.');
