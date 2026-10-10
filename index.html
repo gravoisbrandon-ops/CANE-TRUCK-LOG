@@ -2594,7 +2594,10 @@ function dtBreakHtml(days,scopeLbl,farm){
   var T=0, W=0, TT=0, L=0; rows.forEach(function(a){ T+=a.tons; W+=a.tw; TT+=a.tt; L+=a.loads; });
   var body=rows.map(function(a){ var trs=a.tt>0?a.tw/a.tt:null; return [esc(a.track||'–'),esc(a.field||'–'),a.loads||'–',f1(a.tons),trs?Math.round(trs):'–',trs?Math.round(a.tons*trs).toLocaleString():'–',a.ent&&a.lg?'typed + loads':(a.ent?'typed':'loads')]; });
   body.push(['<b>Total</b>','',L||'–','<b>'+f1(T)+'</b>',TT>0?'<b>'+Math.round(W/TT)+'</b>':'–',TT>0?'<b>'+Math.round(W).toLocaleString()+'</b>':'–','']);
-  return '<div class="lbl">'+esc(scopeLbl)+' breakdown by track and field</div>'+tbl(['Track','Field','Loads','Tons','TRS','Lb sugar','From'],body)+'<p class="small">Totals typed in for a day stand in for the loads they cover. TRS is the tons-weighted average.</p>';
+  var bm={}; days.forEach(function(d){ dayCombine(farm,d,loadsFor(d)).forEach(function(it){ if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && it.field!==S.report.field)) return; var k=it.mill||'No mill', m=bm[k]||(bm[k]={ tons:0, tw:0, tt:0 }); m.tons+=it.tons; m.tw+=it.tw; m.tt+=it.tt; }); });
+  var mk=Object.keys(bm).filter(function(k){ return bm[k].tons>0; }), mh='';
+  if(mk.length>1 || (mk.length&&mk[0]!=='No mill')) mh='<div class="lbl">'+esc(scopeLbl)+' by mill, with typed totals</div>'+tbl(['Mill','Tons','TRS','Lb sugar'],mk.sort().map(function(k){ var m=bm[k], t=m.tt>0?m.tw/m.tt:null; return [esc(k),f1(m.tons),t?Math.round(t):'–',t?Math.round(m.tons*t).toLocaleString():'–']; }));
+  return mh+'<div class="lbl">'+esc(scopeLbl)+' breakdown by track and field</div>'+tbl(['Track','Field','Loads','Tons','TRS','Lb sugar','From'],body)+'<p class="small">Totals typed in for a day stand in for the loads they cover. TRS is the tons-weighted average.</p>';
 }
 function dtRender(){
   var root=$('#dtRoot'); if(!root) return;
@@ -2608,7 +2611,7 @@ function dtRender(){
   if(ents.length) h+=ents.map(function(e){ var k='dtDel:'+e.id, t=seN(e.tons)||0, r=seN(e.trs); return '<div class="sgrow" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px"><div class="sec-head"><b>'+esc([e.track,e.field].filter(Boolean).join(' / ')||'Whole day')+'</b><span class="small">'+(e.mill?esc(e.mill)+' · ':'')+f1(t)+' t'+(r>0?' · TRS '+Math.round(r):'')+(e.loads?' · '+e.loads+' loads':'')+(e.note?' · '+esc(e.note):'')+'</span><button class="btn sm" type="button" data-dt="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn ghost sm" type="button" data-dt="del" data-id="'+esc(e.id)+'">'+(DT.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>'; }).join('');
   else h+='<p class="small">Nothing typed in for this day.</p>';
   h+='<div class="lbl" style="margin-top:12px">'+(ed?'Change these totals':'Add totals')+'</div>'+
-    '<div class="toolbar">'+sel('dtTrack','Track',tr,ed?ed.track:'')+sel('dtField','Field',fl,ed?ed.field:'')+(mills.length>1?sel('dtMill','Mill',mills,ed?ed.mill:''):'')+'</div>'+
+    '<div class="toolbar">'+sel('dtTrack','Track',tr,ed?ed.track:'')+sel('dtField','Field',fl,ed?ed.field:'')+(mills.length?sel('dtMill','Mill (blank = all)',mills,ed?ed.mill:''):'')+'</div>'+
     '<div class="toolbar"><label class="f">Total tons<input type="number" id="dtTons" step="0.01" min="0" inputmode="decimal" class="sgin sgneed" value="'+(ed?esc(ed.tons):'')+'"></label>'+
     '<label class="f">TRS (lb/ton)<input type="number" id="dtTrs" step="0.01" min="0" inputmode="decimal" class="sgin sgneed" value="'+(ed&&ed.trs!=null?esc(ed.trs):'')+'"></label>'+
     '<label class="f">Loads (optional)<input type="number" id="dtLoads" step="1" min="0" inputmode="numeric" value="'+(ed&&ed.loads?esc(ed.loads):'')+'"></label></div>'+
