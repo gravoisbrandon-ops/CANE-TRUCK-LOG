@@ -240,6 +240,12 @@ td.n,th.n{text-align:right}
 }
 @media (min-width:700px){ body{padding-inline:24px} .top{margin-inline:-24px;padding-inline:24px} }
 @media (prefers-reduced-motion: no-preference){ .num,.btn{transition:transform .08s,box-shadow .12s} }
+
+#view-setup .card[data-sk]>h2,#view-setup .card[data-sk]>header>h3{cursor:pointer;margin:0;display:flex;align-items:center;justify-content:space-between;gap:8px}
+#view-setup .card[data-sk]>h2::after,#view-setup .card[data-sk]>header>h3::after{content:'\25BE';font-size:16px;opacity:.6}
+#view-setup .card.col[data-sk]>h2::after,#view-setup .card.col[data-sk]>header>h3::after{content:'\25B8'}
+#view-setup .card.col[data-sk]>*:not(h2):not(header){display:none}
+#view-setup .card.col[data-sk]{padding-top:12px;padding-bottom:12px}
 </style>
 </head>
 <body>
@@ -382,7 +388,7 @@ td.n,th.n{text-align:right}
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
-      <div class="card" id="farmsCard">
+      <div class="card" id="farmsCard" data-sk="farmsCard">
         <h2>Farms</h2>
         <p class="small">Every farm is separate, with its own trucks, drivers, combine operator, loads and report. Administrators can open any farm and switch between them. Crew log only on their own farm. A farm with two or more mills asks the driver which mill the loads are going to. Each new date starts with a clean list.</p>
         <form id="farmForm" class="addrow" autocomplete="off">
@@ -392,17 +398,17 @@ td.n,th.n{text-align:right}
       </div>
       <div id="farmList" style="display:flex;flex-direction:column;gap:16px"></div>
 
-      <div class="card" id="peopleCard">
+      <div class="card col" id="peopleCard" data-sk="peopleCard">
         <h2>People</h2>
         <p class="small">Crew make their own account from your invite link. A crew manager can add and remove trucks, edit mills, tracks and fields, and manage the crew on their farm. Crew can log loads and add trucks.</p>
         <div id="peopleList" class="ros"></div>
       </div>
-      <div class="card" id="scaleCard">
+      <div class="card col" id="scaleCard" data-sk="scaleCard">
         <h2>Scale connection</h2>
         <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
-      <div class="card" id="trucksCard">
+      <div class="card col" id="trucksCard" data-sk="trucksCard">
         <h2>Trucks</h2>
         <p class="small">Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.</p>
         <details id="truckDet"><summary id="truckFormTitle">Add a truck here</summary>
@@ -554,7 +560,9 @@ async function loadPrev(){
   S.prevBusy=false; last.board=''; schedule();
 }
 function markUsed(t,day){ if(t.lastUsed!==day){ t.lastUsed=day; dref('trucks/'+t.id).update({ lastUsed:day }).catch(function(){}); } }
-function millsOf(id){ var f=farmById(id); return (f&&f.mills)||[]; }
+function millNorm(m){ return String(m).toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\b(sugars?|mill|co|inc|llc)\b/g,' ').replace(/\s+/g,' ').trim(); }
+function uniqMills(a){ var seen={}, o=[]; (a||[]).forEach(function(m){ var k=String(m).trim().toLowerCase(); if(!k||seen[k]) return; seen[k]=1; o.push(String(m).trim()); }); return o; }
+function millsOf(id){ var f=farmById(id); return uniqMills(f&&f.mills); }
 function tracksOf(id){ var f=farmById(id); return (f&&f.tracks)||[]; }
 function fieldsOf(id){ var f=farmById(id); return (f&&f.fields)||[]; }
 function varietiesOf(id){ var f=farmById(id); return (f&&f.varieties)||[]; }
@@ -2561,9 +2569,15 @@ function pdfSeasons(){
   pdfShare('Seasons compared',sc==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('seasons-'+(sc==='*'?'all-farms':(fm&&fm.name))),true);
 }
 
+document.addEventListener('click',function(e){
+  var h=e.target.closest&&e.target.closest('#view-setup .card[data-sk]>h2,#view-setup .card[data-sk]>header>h3'); if(!h) return;
+  var c=h.closest('.card[data-sk]'); c.classList.toggle('col'); S.setupOpen[c.getAttribute('data-sk')]=!c.classList.contains('col');
+});
+
 /* ---- End-of-day totals: tons and TRS typed in per track and/or field (for days without mill weights) ---- */
 SG.dayTotals=[];
 try{ if(localStorage.getItem('cane-truck-log:sguseday')==='0') SG.useDay=false; }catch(x){}
+S.setupOpen=S.setupOpen||{};
 var DT={ day:'', edit:'', msg:'', sig:'', confirm:'' };
 function dtFarmEntries(farm,day){ return (SG.dayTotals||[]).filter(function(e){ return e.farm===farm && (!day || e.day===day); }); }
 /* an entry covers a load when every part the entry names (track, field, mill) matches the load */
@@ -2684,12 +2698,12 @@ function renderSetup(){
       var key='delFarm:'+f.id, n=S.trucks.filter(function(t){ return t.farm===f.id; }).length;
       function chips(arr,kind,none){
         return (arr||[]).map(function(x){
-          return '<span class="chip">'+(kind==='Mill'?'<input type="color" class="mcolor" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" value="'+millColor(f.id,x)+'" aria-label="Color for '+esc(x)+'">':'')+esc(x)+'<button type="button" data-act="del'+kind+'" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Remove '+esc(x)+'">&times;</button></span>';
+          return '<span class="chip">'+(kind==='Mill'?'<input type="color" class="mcolor" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" value="'+millColor(f.id,x)+'" aria-label="Color for '+esc(x)+'">':'')+esc(x)+'<button type="button" data-act="del'+kind+'" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Remove '+esc(x)+'">&times;</button>'+(kind==='Mill'?'<button type="button" data-act="renMillSetup" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Rename '+esc(x)+'" style="background:none;border:0;padding:0 4px;cursor:pointer">&#9998;</button>':'')+'</span>';
         }).join('') || '<span class="small">'+none+'</span>';
       }
-      return '<article class="card farm"><header><h3>'+esc(f.name)+(lead?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
+      return '<article class="card farm'+(S.setupOpen['f'+f.id]===undefined?(S.farms.length===1?'':' col'):(S.setupOpen['f'+f.id]?'':' col'))+'" data-sk="f'+esc(f.id)+'"><header><h3>'+esc(f.name)+(lead?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
         (lead?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
-        (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(f.mills,'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
+        (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(uniqMills(f.mills),'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
         '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>':'')+
         (lead?'<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="wcolor" data-farm="'+esc(f.id)+'" value="'+weighedColor(f.id)+'" aria-label="Weighed number color"><span>Weighed number color <span class="small">(the truck keeps its mill color, and its number turns this color once its weight comes in)</span></span></label><label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="ncolor" data-farm="'+esc(f.id)+'" value="'+newColor(f.id)+'" aria-label="New truck number color"><span>New truck number color <span class="small">(a truck that is new for the day gets its number highlighted in this color)</span></span></label>':'')+
         (adm?'<div class="lbl">Truck ID at the mill</div><p class="small">Some mills (for example Lula Westfield and Lafourche) know a truck by the hauler number and the truck number, like 54-154. Enter the hauler number and tick those mills. The Board keeps the 3 digit number. The Report (by truck and load log) shows just 54-154 for loads going to the ticked mills, and the CSV has a Mill truck ID column. Each farm has its own hauler number, so another farm like Armant sets its own number on its own card.</p>'+
@@ -3048,7 +3062,8 @@ function scaleBox(){
   var h='';
   if(S.platform){
     h+='<p class="small"><b>One key per mill, for every grower on the site.</b> The mill\'s scale app sends weights for all growers, in every portal, with the same key.</p>';
-    var ms=(S.millNames||[]).concat(allMills().filter(function(m){ return (S.millNames||[]).map(function(x){ return x.toLowerCase(); }).indexOf(m.toLowerCase())<0; })).sort();
+    var grp={}, srv={}; (S.millNames||[]).forEach(function(x){ srv[millNorm(x)]=x; }); (S.millNames||[]).concat(allMills()).forEach(function(x){ var k=millNorm(x); if(!k) return; var cur=grp[k]; if(!cur || (!srv[k] && x.length<cur.length)) grp[k]=srv[k]||x; });
+    var ms=Object.keys(grp).map(function(k){ return grp[k]; }).sort();
     ms.forEach(function(m){
       var lc=m.toLowerCase(), ki=S.millKeys&&S.millKeys[lc], nk=S.newMillKey[lc], q=encodeURIComponent(m);
       h+='<div class="ros-row" style="grid-template-columns:1fr;gap:8px"><div class="info"><span class="l1" style="font-size:16px">'+esc(m)+'</span><span class="l2">'+(ki?'Connected. Key made '+esc(new Date(ki.created_at).toLocaleDateString()):'No key yet')+'</span></div>';
@@ -3098,7 +3113,7 @@ function personRow(p, adm, view){
     (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+millSel+'</div>')+'</div>'+
     (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
 }
-function allMills(){ var o=[]; S.farms.forEach(function(f){ (f.mills||[]).forEach(function(m){ if(o.indexOf(m)<0) o.push(m); }); }); return o.sort(); }
+function allMills(){ var o=[]; S.farms.forEach(function(f){ o=o.concat(f.mills||[]); }); return uniqMills(o).sort(); }
 function roleName(r){ return r==='mill'?'Mill field manager':r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
 function renderAccess(){
   var sig=JSON.stringify([P,INV,S.isAdmin,S.isOwner,S.farmId,S.farms.map(function(f){ return [f.id,f.name]; }),confirmKey]);
@@ -3338,6 +3353,18 @@ function renderLists(){
   }
   $('#listsBody').innerHTML=part('Field','fields','Fields','Field name or number')+part('Track','tracks','Tracks','Track, like Johnson')+part('Variety','varieties','Cane varieties','Variety, like L 01-299');
 }
+async function renameMill(fid,old){
+  var f=farmById(fid); if(!f) return;
+  var nv=prompt('Rename mill '+old+'. Use the same name the mill uses so their weights match.', old); if(nv==null) return; nv=nv.trim().slice(0,40);
+  if(!nv || nv===old) return;
+  if((f.mills||[]).some(function(x){ return x!==old && String(x).trim().toLowerCase()===nv.toLowerCase(); })){ toast('That mill is already in the list.'); return; }
+  var patch={ mills:(f.mills||[]).map(function(x){ return x===old?nv:x; }) };
+  ['haulerMills'].forEach(function(k){ if(f[k]) patch[k]=f[k].map(function(x){ return x===old?nv:x; }); });
+  ['haulerMillCodes','millColors'].forEach(function(k){ if(f[k] && f[k][old]!=null){ var o=Object.assign({},f[k]); o[nv]=o[old]; delete o[old]; patch[k]=o; } });
+  var before={}; Object.keys(patch).forEach(function(k){ before[k]=f[k]; f[k]=patch[k]; });
+  last.board=''; last.report=''; schedule(); if(S.lists) renderLists();
+  try{ await dref('farms/'+fid).update(patch); toast(old+' is now '+nv+'. Loads already logged keep the old name.'); }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); fail(e); }
+}
 function renameItem(kind,old){
   var key=kind==='Field'?'fields':kind==='Variety'?'varieties':'tracks', f=farmById(S.farmId); if(!f) return;
   var nv=prompt(tr('Rename')+' '+old, old); if(nv==null) return; nv=nv.trim().slice(0,40);
@@ -3433,6 +3460,7 @@ document.addEventListener('click', function(e){
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
     case 'listsOpen': openLists(false); break;
     case 'listsClose': S.lists=false; renderQuick(); break;
+    case 'renMillSetup': renameMill(el.getAttribute('data-farm'),el.getAttribute('data-v')); break;
     case 'renField': renameItem('Field',el.getAttribute('data-v')); break;
     case 'renTrack': renameItem('Track',el.getAttribute('data-v')); break;
     case 'renVariety': renameItem('Variety',el.getAttribute('data-v')); break;
@@ -3602,7 +3630,7 @@ document.addEventListener('submit', function(e){
   else if(f.getAttribute('data-form')==='addField' || f.getAttribute('data-form')==='addMill' || f.getAttribute('data-form')==='addTrack' || f.getAttribute('data-form')==='addVariety'){
     var inp=f.querySelector('input'), val=inp.value.trim(); inp.value=''; if(!val) return;
     var fk=f.getAttribute('data-form'), key=fk==='addMill' ? 'mills' : (fk==='addTrack' ? 'tracks' : (fk==='addVariety' ? 'varieties' : 'fields'));
-    editList(f.getAttribute('data-farm'), key, function(arr){ if(arr.indexOf(val)<0) arr.push(val); return arr; });
+    editList(f.getAttribute('data-farm'), key, function(arr){ var lv=val.toLowerCase(); if(!arr.some(function(x){ return String(x).trim().toLowerCase()===lv; })) arr.push(val); return arr; });
   }
 });
 
