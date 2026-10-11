@@ -1513,12 +1513,13 @@ document.addEventListener('change',function(e){
   tmField(e);
 });
 
-function smokeOpen(lat,lon,ms,ac){
+function smokeOpen(lat,lon,ms,ac,wx){
   var la=parseFloat(lat), lo=parseFloat(lon);
   if(!isFinite(la)||!isFinite(lo)){ toast('Set the burn location first. In Burn log, type your town or press Use my location.'); return; }
   var d=new Date(ms||Date.now()), z=function(n){ return (n<10?'0':'')+n; };
   var t=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+'T'+z(d.getHours())+':00';
   S.smokeSrc='smoke-trial.html?lat='+la.toFixed(4)+'&lon='+lo.toFixed(4)+'&t='+encodeURIComponent(t)+'&ash=1';
+  if(wx){ var mp={ wd:'windDeg', ws:'windMph', tr:'transMph', mx:'mixHt', rh:'rh', tf:'tempF', dp:'dewF', vi:'visMi' }, got=false; Object.keys(mp).forEach(function(k){ var v=wx[mp[k]]; if(v!==''&&v!=null&&isFinite(Number(v))){ S.smokeSrc+='&'+k+'='+encodeURIComponent(Number(v)); got=true; } }); if(got && wx.station) S.smokeSrc+='&stn='+encodeURIComponent(wx.station); }
   var tb=$('#tab-tools'); if(tb) tb.click(); S.tool='smoke'; toolsShow();
 }
 function toolsShow(){
@@ -1963,8 +1964,8 @@ document.addEventListener('click',function(e){
   else if(a==='place') bnFindPlace();
   else if(a==='locate') bnLocate();
   else if(a==='fetch') bnFetchWx();
-  else if(a==='smoke'){ var se=BN.log.filter(function(x){ return x.id===el.getAttribute('data-id'); })[0]; if(se) smokeOpen(se.lat||BN.lat,se.lon||BN.lon,se.burnedAt,se.acres); }
-  else if(a==='smokeNow'){ smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres); }
+  else if(a==='smoke'){ var se=BN.log.filter(function(x){ return x.id===el.getAttribute('data-id'); })[0]; if(se) smokeOpen(se.lat||BN.lat,se.lon||BN.lon,se.burnedAt,se.acres,se.wx); }
+  else if(a==='smokeNow'){ smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres,BN.wx); }
   else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
   else if(a==='save'||a==='saveNew'){
     if(!(BN.field||'').trim()){ toast('Enter the field ID.'); return; }
