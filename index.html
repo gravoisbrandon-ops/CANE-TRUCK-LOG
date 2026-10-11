@@ -1702,12 +1702,13 @@ function pdfBuild(title, sub, secs, landscape){
   var np=function(){ ops=[]; pages.push(ops); y=M; };
   var txt=function(x,yy,t,bold,size,gray,align){ if(!t) return; var w=align==='r'?pdfW(t,bold,size):0; ops.push('BT /'+(bold?'F2':'F1')+' '+size+' Tf '+gray+' '+gray+' '+gray+' rg '+(x-w).toFixed(2)+' '+(PH-yy).toFixed(2)+' Td ('+esc2(t)+') Tj ET'); };
   var rect=function(x,yy,w,h,rgb){ ops.push(rgb.join(' ')+' rg '+x.toFixed(2)+' '+(PH-yy-h).toFixed(2)+' '+w.toFixed(2)+' '+h.toFixed(2)+' re f'); };
-  var need=function(h){ if(y+h>PH-M-14) np(); };
+  var need=function(h){ if(y+h>PH-M-14) np(); }, imgs=[];
   np();
   txt(M,y+14,pdfT(title),true,18,0); y+=24;
   txt(M,y+8,pdfT(sub+'  ·  made '+new Date().toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})),false,9,0.35); y+=20;
   secs.forEach(function(sc){
-    if(sc.h!=null){ need(36); y+=8; txt(M,y+10,pdfT(sc.h),true,11,0); y+=18; }
+    if(sc.img){ var iw=sc.w||240, ih=sc.hh||240; need(ih+6); imgs.push(sc.img); ops.push('q '+iw+' 0 0 '+ih+' '+M+' '+(PH-y-ih).toFixed(2)+' cm /Im'+(imgs.length-1)+' Do Q'); y+=ih+8; }
+    else if(sc.h!=null){ need(36); y+=8; txt(M,y+10,pdfT(sc.h),true,11,0); y+=18; }
     else if(sc.p!=null){ var ls=pdfWrap(pdfT(sc.p),false,8.5,CW); ls.forEach(function(l){ need(12); txt(M,y+9,l,false,8.5,0.35); y+=11; }); y+=4; }
     else if(sc.stats){
       var colW=CW/2;
@@ -1737,10 +1738,11 @@ function pdfBuild(title, sub, secs, landscape){
   /* assemble the PDF file */
   var objs=[], add=function(body){ objs.push(body); return objs.length; };
   add('<< /Type /Catalog /Pages 2 0 R >>'); add(null); add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'); add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  var imgIds=imgs.map(function(im){ return add('<< /Type /XObject /Subtype /Image /Width '+im.w+' /Height '+im.h+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+im.bin.length+' >>\nstream\n'+im.bin+'\nendstream'); }), xo=imgIds.length?' /XObject << '+imgIds.map(function(id,i){ return '/Im'+i+' '+id+' 0 R'; }).join(' ')+' >>':'';
   var kids=[];
   pages.forEach(function(po,pi){
     po.push('BT /F1 8 Tf 0.47 0.47 0.47 rg '+(PW-M-pdfW('Cane Truck Log  ·  page '+(pi+1)+' of '+pages.length,false,8)).toFixed(2)+' 16 Td (Cane Truck Log  \xb7  page '+(pi+1)+' of '+pages.length+') Tj ET');
-    var stream=po.join('\n'), ci=add('<< /Length '+stream.length+' >>\nstream\n'+stream+'\nendstream'), pn=add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents '+ci+' 0 R >>'); kids.push(pn+' 0 R');
+    var stream=po.join('\n'), ci=add('<< /Length '+stream.length+' >>\nstream\n'+stream+'\nendstream'), pn=add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 '+PW+' '+PH+'] /Resources << /Font << /F1 3 0 R /F2 4 0 R >>'+xo+' >> /Contents '+ci+' 0 R >>'); kids.push(pn+' 0 R');
   });
   objs[1]='<< /Type /Pages /Kids ['+kids.join(' ')+'] /Count '+kids.length+' >>';
   var out='%PDF-1.4\n', offs=[];
@@ -1788,7 +1790,11 @@ function pdfBurn(){
   if(!l.length){ toast('No burns saved for this farm yet.'); return; }
   var rows=l.map(function(e){ var w=e.wx||{}, wd=w.windDir||(w.windDeg!==''&&w.windDeg!=null?bnCompass(Number(w.windDeg)):'');
     return [bnWhen(e),(e.track?e.track+' / ':'')+(e.field||''),e.acres||'',e.catDay||'',bnBestShort(e.catDay),w.tempF,w.rh,(wd?wd+' ':'')+(w.windDeg!==''&&w.windDeg!=null?'('+Math.round(w.windDeg)+' deg) ':'')+(w.windMph!==''&&w.windMph!=null?w.windMph+' mph':''),w.mixHt,w.transMph,w.station||'',e.notes||'']; });
-  pdfShare('Burn log',(fm&&fm.name)||'',[{ head:['Burned','Track / field','Acres','Cat. day','Best time','Temp F','RH %','Wind from','Mixing ft','Transport mph','Station','Notes'], rows:rows, num:false }],pdfName('burn-log-'+((fm&&fm.name)||'')),true);
+  var bsecs=[{ head:['Burned','Track / field','Acres','Cat. day','Best time','Temp F','RH %','Wind from','Mixing ft','Transport mph','Station','Notes'], rows:rows, num:false }];
+  if(BN.rptSmoke) l.forEach(function(e){ if(!e.smoke) return; bsecs.push({ h:'Smoke projection: '+((e.track?e.track+' / ':'')+(e.field||''))+', '+bnWhen(e) });
+    if(e.smoke.pic && e.smoke.pic.indexOf('data:image/jpeg;base64,')===0){ try{ var bin=atob(e.smoke.pic.slice(23)); bsecs.push({ img:{ bin:bin, w:480, h:480 }, w:230, hh:230 }); }catch(x){} }
+    if(e.smoke.desc) bsecs.push({ p:e.smoke.desc }); });
+  pdfShare('Burn log',(fm&&fm.name)||'',bsecs,pdfName('burn-log-'+((fm&&fm.name)||'')),true);
 }
 function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
@@ -1813,7 +1819,7 @@ document.addEventListener('click',function(e){
   if(k==='burn') pdfBurn(); else if(k==='sugar') pdfSugar(); else if(k==='seasons') pdfSeasons(); else pdfReport(k);
 });
 /* ---- Burn log: field, date and time burned, weather from a National Weather Service station ---- */
-var BN={ farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', smsg:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
+var BN={ rptSmoke:(lsGet('cane-truck-log:bnrs')==='1'), farm:'', field:'', date:'', time:'', acres:'', notes:'', catDay:'', grid:'', cwa:'', fz:'', track:'', viewFarm:'', wx:{}, station:'', stationName:'', lat:'', lon:'', place:'', smsg:'', edit:'', log:[], loaded:false, shared:true, msg:'', loading:false, confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:burn')||'null'); if(d){ BN.station=d.station||''; BN.stationName=d.stationName||''; BN.lat=d.lat||BN.lat; BN.lon=d.lon||BN.lon; BN.place=d.place||''; BN.farm=d.farm||''; BN.grid=d.grid||''; BN.cwa=d.cwa||''; BN.fz=d.fz||''; } }catch(e){} })();
 function bnSaveLocal(){ lsSet('cane-truck-log:burn', JSON.stringify({ station:BN.station, stationName:BN.stationName, lat:BN.lat, lon:BN.lon, place:BN.place, farm:BN.farm, grid:BN.grid, cwa:BN.cwa, fz:BN.fz })); }
 function bnNow(){ var d=new Date(); return { date:ymd(d), time:pad(d.getHours())+':'+pad(d.getMinutes()) }; }
@@ -2016,7 +2022,7 @@ function bnRender(){
     '<label class="f" style="margin-top:12px">Notes (optional)<textarea rows="2" data-bnf="notes">'+esc(BN.notes)+'</textarea></label>'+
     '<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-bn="save">'+(ed?'Update this burn':'Save burn')+'</button>'+(S.isAdmin?'<button class="btn ghost" type="button" data-bn="smokeNow">See smoke map</button>':'')+(ed?'<button class="btn ghost" type="button" data-bn="saveNew">Save as new burn</button><button class="btn ghost" type="button" data-bn="cancel">Cancel edit</button>':'')+'</div></div>';
   var vf=BN.viewFarm && farmById(BN.viewFarm) ? BN.viewFarm : farm; BN.viewFarm=vf;
-  h+='<div class="card"><h2>Saved burns</h2><label class="f">Farm<select data-bnf="viewFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vf?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">Each farm has its own list and its own CSV.</p><div id="bnLog"></div><div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download this farm as CSV</button><button class="btn sm" type="button" data-pdf="burn">Share PDF report</button><button class="btn ghost sm" type="button" data-pdf="burn" data-view="1">View PDF</button></div><p class="small" id="bnFoot"></p></div>';
+  h+='<div class="card"><h2>Saved burns</h2><label class="f">Farm<select data-bnf="viewFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vf?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">Each farm has its own list and its own CSV.</p><div id="bnLog"></div>'+(BN.log.some(function(x){ return x.smoke; })?'<label class="f" style="flex-direction:row;align-items:center;gap:8px;margin-top:8px"><input type="checkbox" data-bnrs="1"'+(BN.rptSmoke?' checked':'')+' style="width:auto;min-height:0"> Include smoke projections in the PDF and CSV</label>':'')+'<div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download this farm as CSV</button><button class="btn sm" type="button" data-pdf="burn">Share PDF report</button><button class="btn ghost sm" type="button" data-pdf="burn" data-view="1">View PDF</button></div><p class="small" id="bnFoot"></p></div>';
   root.innerHTML=h; bnLogRender();
 }
 function bnWhen(e){ return new Date(e.burnedAt).toLocaleString([],{weekday:'short',month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'}); }
@@ -2034,13 +2040,13 @@ function bnLogRender(){
       '<div class="small">'+(bits.length?esc(bits.join(' · ')):'No weather')+(w.station?' · '+esc(w.station):'')+(w.sky?' · '+esc(w.sky):'')+'</div>'+
       (e.notes?'<div class="small">'+esc(e.notes)+'</div>':'')+
       '<div class="small">Logged '+esc(new Date(e.loggedAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(e.by?' by '+esc(e.by):'')+(e.editedAt?' · edited':'')+'</div>'+
-      '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button>'+(S.isAdmin?'<button class="btn sm" type="button" data-bn="smoke" data-id="'+esc(e.id)+'">Smoke map</button>':'')+'<button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
+      '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button>'+(S.isAdmin?'<button class="btn sm" type="button" data-bn="smoke" data-id="'+esc(e.id)+'">Smoke map</button>'+(e.smoke&&e.smoke.pic?'<button class="btn ghost sm" type="button" data-bn="smokeSaved" data-id="'+esc(e.id)+'">'+(BN.showSmoke===e.id?'Hide saved smoke':'Saved smoke')+'</button>':''):'')+'<button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div>'+(S.isAdmin&&BN.showSmoke===e.id&&e.smoke?'<div class="small" style="margin-top:8px">'+(e.smoke.pic?'<img alt="Saved smoke projection" src="'+esc(e.smoke.pic)+'" style="max-width:100%;width:320px;border:1px solid var(--line);border-radius:10px">':'')+'<div style="white-space:pre-wrap;margin-top:6px">'+esc(e.smoke.desc||'')+'</div></div>':'')+'</div>';
   }).join('');
 }
 var BN_HEAD=['logged_at','farm','track','field','burn_date','burn_time','acres','category_day','best_time_to_burn','temp_f','dew_point_f','humidity_pct','wind_mph','wind_from','wind_from_deg','pressure_inhg','visibility_mi','mixing_height_ft','transport_wind_mph','ventilation_rate','conditions','station','observed_at','source','notes','logged_by'];
 function bnCsv(list){
-  var L=[BN_HEAD.join(',')]; list.slice().sort(function(a,b){ return a.burnedAt-b.burnedAt; }).forEach(function(e){ var w=e.wx||{};
-    L.push([new Date(e.loggedAt).toISOString(),e.farmName,e.track,e.field,e.date,e.time,e.acres,e.catDay,bnBestShort(e.catDay),w.tempF,w.dewF,w.rh,w.windMph,w.windDir,w.windDeg,w.pressInHg,w.visMi,w.mixHt,w.transMph,(Number(w.mixHt)>0&&Number(w.transMph)>0?Math.round(Number(w.mixHt)*Number(w.transMph)):''),w.sky,w.station,w.obsAt?new Date(w.obsAt).toISOString():'',w.src||'',e.notes,e.by].map(csvCell).join(',')); });
+  var sm=BN.rptSmoke && list.some(function(e){ return e.smoke && e.smoke.desc; }), L=[BN_HEAD.concat(sm?['smoke_projection']:[]).join(',')]; list.slice().sort(function(a,b){ return a.burnedAt-b.burnedAt; }).forEach(function(e){ var w=e.wx||{};
+    L.push([new Date(e.loggedAt).toISOString(),e.farmName,e.track,e.field,e.date,e.time,e.acres,e.catDay,bnBestShort(e.catDay),w.tempF,w.dewF,w.rh,w.windMph,w.windDir,w.windDeg,w.pressInHg,w.visMi,w.mixHt,w.transMph,(Number(w.mixHt)>0&&Number(w.transMph)>0?Math.round(Number(w.mixHt)*Number(w.transMph)):''),w.sky,w.station,w.obsAt?new Date(w.obsAt).toISOString():'',w.src||'',e.notes,e.by].concat(sm?[(e.smoke&&e.smoke.desc||'').replace(/\s*\n\s*/g,' | ')]:[]).map(csvCell).join(',')); });
   return L.join('\n');
 }
 function bnDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:bnCsv(list) }); }
@@ -2087,6 +2093,7 @@ document.addEventListener('input',function(e){
     if(w==='windDir'){ var ix=BN_PTS.indexOf(el.value); BN.wx.windDeg=ix<0?'':String(Math.round(ix*22.5*10)/10); var di=$('[data-bnw=windDeg]'); if(di) di.value=BN.wx.windDeg; } }
 });
 document.addEventListener('change',function(e){
+  if(e.target && e.target.getAttribute && e.target.getAttribute('data-bnrs')){ BN.rptSmoke=!!e.target.checked; lsSet('cane-truck-log:bnrs',BN.rptSmoke?'1':'0'); return; }
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'); if(!f) return;
   if(f==='farm'){ BN.farm=el.value; BN.track=''; BN.field=''; BN.viewFarm=el.value; bnSaveLocal(); bnRender(); }
   if(f==='station'){ BN.station=el.value.trim().toUpperCase(); bnSaveLocal(); bnPersist(); }
@@ -2103,6 +2110,7 @@ document.addEventListener('click',function(e){
   else if(a==='locate') bnLocate();
   else if(a==='fetch') bnFetchWx();
   else if(a==='smoke'){ var se=BN.log.filter(function(r){ return r.id===el.getAttribute('data-id'); })[0]; if(se) smokeOpen(se.lat||BN.lat,se.lon||BN.lon,se.burnedAt,se.acres,se.wx,se.id); }
+  else if(a==='smokeSaved'){ var sid=el.getAttribute('data-id'); BN.showSmoke=(BN.showSmoke===sid?'':sid); bnLogRender(); }
   else if(a==='smokeNow'){ smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres,BN.wx,'form'); }
   else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
   else if(a==='save'||a==='saveNew'){
