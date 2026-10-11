@@ -379,12 +379,14 @@ td.n,th.n{text-align:right}
           <button type="button" class="fchip" data-act="toolPick" data-tool="seasons" aria-pressed="false">Seasons</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="tank" aria-pressed="false">Tank mix</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="burn" aria-pressed="false">Burn log</button>
+          <button type="button" class="fchip" data-act="toolPick" data-tool="smoke" id="smokeChip" aria-pressed="false" hidden>Smoke map (trial)</button>
         </div>
       </div>
       <div id="toolSugar" class="tm"><div id="sgRoot"></div></div>
       <div id="toolSeasons" class="tm" hidden><div id="seRoot"></div></div>
       <div id="toolTank" class="tm" hidden><div id="tmRoot"></div></div>
       <div id="toolBurn" class="tm" hidden><div id="bnRoot"></div></div>
+      <div id="toolSmoke" class="tm" hidden></div>
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
@@ -1514,6 +1516,9 @@ document.addEventListener('change',function(e){
 function toolsShow(){
   var t=S.tool||'sugar';
   $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn');
+  var sm=$('#smokeChip'); if(sm) sm.hidden=!S.isAdmin; if(t==='smoke' && !S.isAdmin){ S.tool='sugar'; t='sugar'; $('#toolSugar').hidden=false; }
+  $('#toolSmoke').hidden=(t!=='smoke');
+  if(t==='smoke' && !$('#toolSmoke').firstChild){ $('#toolSmoke').innerHTML='<iframe title="Smoke map trial" src="smoke-trial.html" allow="geolocation" style="width:100%;height:calc(100vh - 230px);min-height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'; }
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
   if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
   if(t==='sugar') sgShow();
