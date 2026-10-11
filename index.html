@@ -313,11 +313,11 @@ td.n,th.n{text-align:right}
     </section>
 
     <section id="view-board" aria-label="Truck board">
-      <div class="row" id="destRow" style="margin-bottom:16px" hidden>
+      <div class="row" id="destRow" style="margin-bottom:16px;grid-template-columns:1fr 1fr;gap:8px 10px" hidden>
+        <label class="f" id="trackSwitch" hidden>Track<select id="selTrack"></select></label>
+        <label class="f" id="fieldSwitch" hidden>Field<select id="selField"></select></label>
         <label class="f" id="millSwitch" hidden>Loading to mill<select id="selMill"></select></label>
-        <label class="f" id="trackSwitch" hidden>Active track (optional)<select id="selTrack"></select></label>
-        <label class="f" id="fieldSwitch" hidden>Active field (optional)<select id="selField"></select></label>
-        <label class="f" id="varietySwitch" hidden>Cane variety (optional)<select id="selVariety"></select></label>
+        <label class="f" id="varietySwitch" hidden>Variety<select id="selVariety"></select></label>
       </div>
       <div class="row" id="boardTools" style="margin-bottom:16px" hidden>
         <button class="btn sm" type="button" data-act="quickAdd">+ Add truck</button>
@@ -975,8 +975,9 @@ function emptyCard(title, text, btn){
   return '<div class="card empty"><h2>'+esc(title)+'</h2><p>'+esc(text)+'</p>'+(btn||'')+'</div>';
 }
 
+function azSort(a){ return (a||[]).slice().sort(function(x,y){ return String(x).localeCompare(String(y),undefined,{numeric:true,sensitivity:'base'}); }); }
 function renderDest(){
-  var mills=millsOf(S.farmId), fields=fieldsOf(S.farmId), tracks=tracksOf(S.farmId), vars=varietiesOf(S.farmId);
+  var mills=millsOf(S.farmId), fields=azSort(fieldsOf(S.farmId)), tracks=azSort(tracksOf(S.farmId)), vars=azSort(varietiesOf(S.farmId));
   if(S.dest.mill && mills.indexOf(S.dest.mill)<0) S.dest.mill='';
   var ms=$('#millSwitch'), fs=$('#fieldSwitch'), ts=$('#trackSwitch'), vs=$('#varietySwitch');
   ms.hidden = mills.length<2;
@@ -1648,6 +1649,17 @@ document.addEventListener('click',function(e){
   else if(a==='clearAll'){ if(YC.confirm){ YC.confirm=false; YC.samples=YC.samples.filter(function(x){ return x.farm!==YC.farm; }); ycSave(); ycList(); } else { YC.confirm=true; el.textContent='Tap again to clear'; setTimeout(function(){ YC.confirm=false; },4000); } }
 });
 
+/* In Tools, tapping a box that already has something selects it all, so typing replaces it without erasing first */
+(function(){
+  var skip={checkbox:1,radio:1,button:1,submit:1,file:1,range:1,color:1,date:1,time:1,'datetime-local':1,hidden:1}, pend=null;
+  document.addEventListener('focusin',function(e){
+    var el=e.target; if(!el || el.tagName!=='INPUT' || skip[el.type] || !el.value) return;
+    var v=document.getElementById('view-tools'); if(!v || !v.contains(el) || el.readOnly || el.disabled) return;
+    pend=el; setTimeout(function(){ try{ el.select(); if(el.setSelectionRange && /^(text|search|tel|url|password|email)$/.test(el.type)) el.setSelectionRange(0,el.value.length); }catch(x){} },0);
+  });
+  document.addEventListener('mouseup',function(e){ if(pend && e.target===pend){ e.preventDefault(); } pend=null; },true);
+  document.addEventListener('touchend',function(e){ if(pend && e.target===pend){ e.preventDefault(); } },true);
+})();
 function toolsShow(){
   var t=S.tool||'sugar';
   $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn'); $('#toolYield').hidden=(t!=='yield');
@@ -3008,7 +3020,7 @@ function renderReport(){
   if(days.indexOf(S.report.sel)<0) S.report.sel=days[0];
   var mills=millsOf(S.farmId);
   if(S.report.mill && mills.indexOf(S.report.mill)<0) S.report.mill='';
-  var tracksL=seenNames('track',tracksOf(S.farmId)), fieldsL=seenNames('field',fieldsOf(S.farmId));
+  var tracksL=azSort(seenNames('track',tracksOf(S.farmId))), fieldsL=azSort(seenNames('field',fieldsOf(S.farmId)));
   if(S.report.track && tracksL.indexOf(S.report.track)<0) S.report.track='';
   if(S.report.field && fieldsL.indexOf(S.report.field)<0) S.report.field='';
   var sig=JSON.stringify([S.farmId, S.report.mode, harvestStart(), mills, S.report.mill, S.report.track, S.report.field, tracksL, fieldsL, S.loads.map(function(l){ return [l.id,l.loadedAt,l.mill,l.no]; }), Object.keys(S.report.cache).map(function(k){ return k+':'+S.report.cache[k].length; }), S.report.sel, S.report.range, S.canWrite, S.report.loading, S.report.fails, !!S.dl, S.loadsDay, S.report.mode, (SG.dayTotals||[]).filter(function(e){ return e.farm===S.farmId; }).map(function(e){ return [e.id,e.day,e.track,e.field,e.mill,e.tons,e.trs,e.loads]; })]);
@@ -3487,7 +3499,7 @@ function renderLists(){
   if(document.activeElement && $('#listsBody').contains(document.activeElement) && $('#listsBody').innerHTML && listsSig.indexOf(f.id)>=0){ listsSig=sig; }
   listsSig=sig;
   function part(kind,key,label,ph){
-    var arr=f[key]||[];
+    var arr=azSort(f[key]||[]);
     return '<div class="lbl">'+label+'</div><div class="chips">'+(arr.map(function(x){
       return '<span class="chip"><button type="button" data-act="ren'+kind+'" data-v="'+esc(x)+'" style="background:none;border:0;font:inherit;color:inherit;min-height:36px;padding:0 4px;cursor:pointer">'+esc(x)+'</button><button type="button" data-act="del'+kind+'" data-farm="'+esc(f.id)+'" data-v="'+esc(x)+'" aria-label="Remove '+esc(x)+'">&times;</button></span>';
     }).join('')||'<span class="small">None yet.</span>')+'</div>'+
