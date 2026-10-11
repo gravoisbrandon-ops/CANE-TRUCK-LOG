@@ -25,12 +25,13 @@ small{color:var(--mut);font-size:12px}
 <div id="bar">
 <label><b style="color:#1a2a1f">Start time</b><select id="st" style="font-weight:700"></select></label>
 <label>Fire burns (hrs)<input type="number" id="dur" min="1" max="12" value="1"></label>
+<label>Lift<select id="lift"><option value="auto">Auto (from forecast)</option><option value="low">Low, stays near ground</option><option value="high">High, rises fast</option></select></label>
 <label style="flex-direction:row;align-items:center;gap:6px;font-size:13px;color:#1a2a1f"><input type="checkbox" id="ash" style="min-height:0;width:20px;height:20px">Standing cane (ash)</label>
 <details id="more" style="width:100%"><summary style="cursor:pointer;font-size:13px;color:#5d6b61">More settings</summary>
 <div style="display:flex;flex-wrap:wrap;gap:6px 10px;padding-top:6px">
 <label>Smoke lingers (hrs)<input type="number" id="fol" min="1" max="12" value="2"></label>
 <label>Spread (+/- deg)<input type="number" id="sp" min="5" max="45" value="20"></label>
-<label>Road hazard out to (mi)<input type="number" id="lim" min="1" max="60" value="5"></label>
+<label>Thick smoke out to (mi) at normal lift<input type="number" id="lim" min="0.5" max="60" step="0.5" value="2"></label>
 <label>Ash seen to (mi)<input type="number" id="ashd" min="1" max="30" placeholder="auto"></label>
 <button id="here" type="button">My location</button>
 </div></details>
@@ -60,17 +61,23 @@ var DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function dd(t){ return DN[new Date(t.slice(0,10)+'T12:00:00').getDay()]; }
 function hh(t){var h=parseInt(t.slice(11,13),10);return (h%12||12)+(h<12?'a':'p');}
 /* rough rule of thumb, not an official rating */
+function liftOf(i){ var m=H.mix[i]||300; return m<400?'low':(m<1200?'medium':'high'); }
+function liftF(i){ var f=Math.max(0.4,Math.min(4,900/Math.max(150,H.mix[i]||300))), m=$('lift').value; if(m==='low') f*=2; else if(m==='high') f*=0.5; if(H.rh[i]>=90 && !H.day[i]) f*=1.5; return f; }
+function fogOf(i){ var sp=(H.tf[i]!=null&&H.dp[i]!=null)?H.tf[i]-H.dp[i]:null, w=H.w10[i]!=null?H.w10[i]:99, vm=H.vis[i]!=null?H.vis[i]/MI:null;
+ if((sp!=null&&sp<=2&&w<=6)||(vm!=null&&vm<1.5)) return 'Likely'; if((sp!=null&&sp<=4&&w<=8)||(vm!=null&&vm<4)) return 'Possible'; return ''; }
+function fogMorning(st){ var worst='',at=null,vmin=null; for(var i=st;i<Math.min(H.t.length,st+30);i++){ var hr=parseInt(H.t[i].slice(11,13),10); if(hr<1||hr>9) continue; if(i===st && false) continue; var f=fogOf(i), vm=H.vis[i]!=null?H.vis[i]/MI:null; if(vm!=null&&(vmin==null||vm<vmin)) vmin=vm; if(f==='Likely'||(f==='Possible'&&worst!=='Likely')){ if(f!==worst){worst=f;at=i;} } }
+ return {lvl:worst,at:at,vmin:vmin}; }
 function rate(i){ var ft=H.mix[i]*M2FT, sp=H.sp[i], night=!H.day[i];
  if(night||ft<1500||sp<5) return 'Poor'; if(ft<3000||sp<8) return 'Fair'; return 'Good'; }
 function load(){
  $('info').textContent='Loading the forecast...';
- var u='https://api.open-meteo.com/v1/forecast?latitude='+src.lat+'&longitude='+src.lng+'&hourly=wind_speed_80m,wind_direction_80m,boundary_layer_height,is_day,relative_humidity_2m&wind_speed_unit=mph&past_days=2&forecast_days=3&timezone=auto';
+ var u='https://api.open-meteo.com/v1/forecast?latitude='+src.lat+'&longitude='+src.lng+'&hourly=wind_speed_80m,wind_direction_80m,boundary_layer_height,is_day,relative_humidity_2m,temperature_2m,dew_point_2m,visibility,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&past_days=2&forecast_days=3&timezone=auto';
  fetch(u).then(function(r){return r.json();}).then(function(j){
   var h=j.hourly; if(!h||!h.time) throw 0;
   var nowL=new Date(Date.now()+(j.utc_offset_seconds||0)*1000).toISOString().slice(0,13), ni=0;
   for(var i=0;i<h.time.length;i++){ if(h.time[i].slice(0,13)>=nowL){ni=i;break;} }
   var a0=Math.max(0,ni-48), a1=ni+48; nowT=h.time[ni];
-  H={t:h.time.slice(a0,a1),sp:h.wind_speed_80m.slice(a0,a1),dir:h.wind_direction_80m.slice(a0,a1),mix:h.boundary_layer_height.slice(a0,a1),day:h.is_day.slice(a0,a1),rh:(h.relative_humidity_2m||[]).slice(a0,a1)};
+  H={t:h.time.slice(a0,a1),sp:h.wind_speed_80m.slice(a0,a1),dir:h.wind_direction_80m.slice(a0,a1),mix:h.boundary_layer_height.slice(a0,a1),day:h.is_day.slice(a0,a1),rh:(h.relative_humidity_2m||[]).slice(a0,a1),tf:(h.temperature_2m||[]).slice(a0,a1),dp:(h.dew_point_2m||[]).slice(a0,a1),vis:(h.visibility||[]).slice(a0,a1),w10:(h.wind_speed_10m||[]).slice(a0,a1)};
   buildStart(); draw();
  }).catch(function(){ $('info').textContent='Could not read the forecast. Check your connection and tap My location.'; });
 }
@@ -83,7 +90,7 @@ function draw(){
  var ashMax=0, ashMin=null, reach=0, reachHr=null, poor=0, nightH=0, fog=0, cols={Poor:'#c0392b',Fair:'#d68910',Good:'#2e8b57'};
  for(var k=0;k<dur;k++){
   var r=st+k; if(r>=n) break; if(H.rh[r]>=90 && !H.day[r]) fog++; var rt=rate(r), lat=src.lat,lng=src.lng, dist=0, path=[[lat,lng]];
-  var lim=(+$('lim').value||5)*(rt==='Poor'?3:1), pd=0, pa=[lat,lng];
+  var lim=(+$('lim').value||2)*liftF(r), pd=0, pa=[lat,lng];
   for(var h=0;h<fol;h++){ var i=Math.min(r+h,n-1), to=(H.dir[i]+180)%360, step=H.sp[i]*MI; var nx=dest(lat,lng,to,step);
    var d0=dist, d1=dist+H.sp[i]; if(d0>=lim) break; var f=Math.min(1,(lim-d0)/H.sp[i]); if(f<1){ nx=dest(lat,lng,to,step*f); d1=d0+H.sp[i]*f; }
    var w0=Math.max(0.3,d0*tn)*MI, w1=Math.max(0.3,d1*tn)*MI, a0=dest(lat,lng,to-90,w0), b0=dest(lat,lng,to+90,w0), a1=dest(nx[0],nx[1],to-90,w1), b1=dest(nx[0],nx[1],to+90,w1);
@@ -96,21 +103,21 @@ function draw(){
   if(rt==='Poor') poor++;
   L.polyline(path,{color:cols[rt],weight:1.5,opacity:.7}).addTo(layer);
  }
- var rmax=Math.max(reach,ashMax,1), stp=rmax<=6?1:5, rEnd=Math.ceil(rmax/stp)*stp;
+ var rmax=Math.max(reach,ashMax,1), stp=rmax<=3?0.5:(rmax<=8?1:5), rEnd=Math.ceil(rmax/stp)*stp;
  for(var rg=stp;rg<=rEnd+0.001;rg+=stp){ L.circle([src.lat,src.lng],{radius:rg*MI,color:'#7f8c8d',weight:.7,fill:false,dashArray:'4 4'}).addTo(layer);
   L.marker(dest(src.lat,src.lng,0,rg*MI),{interactive:false,icon:L.divIcon({className:'',html:'<span class="lab">'+rg+' mi</span>',iconSize:[0,0]})}).addTo(layer); }
  var s0=Math.min(st,n-1), d0=H.dir[s0], sp0=H.sp[s0];
- $('info').innerHTML='<b>Lit at '+dd(H.t[s0])+' '+hh(H.t[s0])+'.</b> The wind about 260 ft up is from <b>'+comp(d0)+'</b> at <b>'+Math.round(sp0)+' mph</b>, so smoke heads <b>'+comp(d0+180)+'</b>. Over the next '+fol+' hours smoke could be a hazard for drivers out to about <b>'+Math.round(reach)+' miles</b> from the fire, and thin enough beyond that'+(reachHr?' (past the '+mark+' mile mark)':'')+'. '+
+ var eo=Math.min(n-1,s0+dur), sg=Math.min(n-1,s0+dur+fol); $('info').innerHTML='<b>Lit at '+dd(H.t[s0])+' '+hh(H.t[s0])+'. Fire out about '+hh(H.t[eo])+(s0+dur>n-1?'':'')+', smoke mostly gone by '+hh(H.t[sg])+'.</b> The wind about 260 ft up is from <b>'+comp(d0)+'</b> at <b>'+Math.round(sp0)+' mph</b>, so smoke heads <b>'+comp(d0+180)+'</b>. Over the next '+fol+' hours thick smoke that could bother drivers should reach about <b>'+(Math.round(reach*10)/10)+' miles</b> from the fire, and be thin enough beyond that'+(reachHr?' (past the '+mark+' mile mark)':'')+'. '+
   (poor?'<b>'+poor+' of '+dur+' burn hours</b> have poor dispersal (night, low mixing height or light wind). ':'')+(fog?'<b>Humidity is 90% or more on '+fog+' night burn hour'+(fog===1?'':'s')+'</b>, so fog and smoke can combine on the roads. Keep drivers away or plan for signs. ':'')+(nightH?'Smoke is still in the air after dark for part of this, when it can stay low and thick. ':'')+
-  (ashMax?'<br><b>Ash:</b> heavy fallout within about '+(Math.round(ashMin*10)/10)+' mi of the field, light flakes out to about '+(Math.round(ashMax*10)/10)+' mi (gray shading). '+($('ashd').value?'Using the distance you set.':'Estimated from the wind and mixing height. Type a distance in Ash seen to if your burns land ash farther or closer.'):'')+'<br><small>Shaded paths fade as the smoke thins and stop where it should no longer matter (the road hazard distance you set, tripled on poor-dispersal hours). One path per hour the fire burns, red = poor, amber = fair, green = good dispersal. Estimate only, from one forecast point, using the wind about 260 ft up and a rough rule of thumb. Not an official smoke model.</small>';
- var cur=null; $('strip').innerHTML=H.t.map(function(t,i){ return i; }).filter(function(i){ return i>=Math.max(0,st-1) && i<st+36; }).map(function(i){ var t=H.t[i], rt=rate(i); return '<div class="hr '+rt+(i>=st&&i<st+dur?' in':'')+'" data-i="'+i+'"><b>'+(t===nowT?'Now':hh(t))+'</b>'+comp(H.dir[i])+' '+Math.round(H.sp[i])+' mph<br>'+Math.round(H.mix[i]*M2FT/100)/10+'k ft<br>'+rt+'</div>'; }).join('');
+  (ashMax?'<br><b>Ash:</b> heavy fallout within about '+(Math.round(ashMin*10)/10)+' mi of the field, light flakes out to about '+(Math.round(ashMax*10)/10)+' mi (gray shading). '+($('ashd').value?'Using the distance you set.':'Estimated from the wind and mixing height. Type a distance in Ash seen to if your burns land ash farther or closer.'):'')+(function(){ var fm=fogMorning(st); if(!fm.lvl) return '<br><b>Fog:</b> none expected by morning.'; return '<br><b>Fog:</b> '+fm.lvl.toLowerCase()+' by '+hh(H.t[fm.at])+' the next morning'+(fm.vmin!=null?' (visibility as low as '+(Math.round(fm.vmin*10)/10)+' mi)':'')+'. Smoke from a burn lit today can settle into fog overnight and cut visibility on the roads. '+(fm.lvl==='Likely'?'<b>Plan for signs or traffic control, or hold the burn.</b>':'Watch the roads in the morning.'); })()+'<br><b>Lift:</b> '+liftOf(s0)+' at light-up (mixing height about '+Math.round((H.mix[s0]||0)*M2FT/100)/10+'k ft). Low lift keeps smoke near the ground and the roads; high lift carries it up and over.<br><small>Shaded paths fade as the smoke thins and stop where it should no longer matter (the thick smoke distance you set, longer when the smoke has little lift and shorter when it rises high). One path per hour the fire burns, red = poor, amber = fair, green = good dispersal. Estimate only, from one forecast point, using the wind about 260 ft up and a rough rule of thumb. Not an official smoke model.</small>';
+ var cur=null; $('strip').innerHTML=H.t.map(function(t,i){ return i; }).filter(function(i){ return i>=Math.max(0,st-1) && i<st+36; }).map(function(i){ var t=H.t[i], rt=rate(i); return '<div class="hr '+rt+(i>=st&&i<st+dur?' in':'')+'" data-i="'+i+'"><b>'+(t===nowT?'Now':hh(t))+'</b>'+comp(H.dir[i])+' '+Math.round(H.sp[i])+' mph<br>'+Math.round(H.mix[i]*M2FT/100)/10+'k ft<br>'+rt+(fogOf(i)?'<br>Fog '+fogOf(i).toLowerCase():'')+'</div>'; }).join('');
  var sh=$('strip').querySelector('.hr.in'); if(sh) $('strip').scrollLeft=Math.max(0,sh.offsetLeft-12);
  try{ var bnd=L.circle([src.lat,src.lng],{radius:Math.max(reach,ashMax,1)*1.1*MI}).getBounds(); map.fitBounds(bnd,{padding:[10,10]}); }catch(e){}
 }
 function setSrc(ll){src={lat:ll.lat,lng:ll.lng};marker.setLatLng(ll);load();}
 map.on('click',function(e){setSrc(e.latlng);});
 marker.on('dragend',function(){setSrc(marker.getLatLng());});
-['st','dur','fol','sp','lim','ash','ashd'].forEach(function(i){$(i).addEventListener('input',draw);});
+['st','dur','fol','sp','lim','ash','ashd','lift'].forEach(function(i){$(i).addEventListener('input',draw);});
 $('strip').addEventListener('click',function(e){var d=e.target.closest('.hr'); if(!d) return; $('st').value=d.getAttribute('data-i'); draw();});
 function locate(first){ if(!navigator.geolocation){ load(); return; } navigator.geolocation.getCurrentPosition(function(p){ setSrc({lat:p.coords.latitude,lng:p.coords.longitude}); },function(){ if(!first) $('info').textContent='Could not get your location. Tap the map to place the pin.'; load(); },{enableHighAccuracy:true,timeout:10000,maximumAge:60000}); }
 $('here').addEventListener('click',function(){locate(false);});
