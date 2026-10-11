@@ -1534,9 +1534,10 @@ window.addEventListener('message',function(ev){
 });
 
 /* Yield check: distance from point A to point B, times row width, gives area cut. Weight divided by area gives tons per acre. */
+function ycToday0(){ var d=new Date(), p=function(n){ return (n<10?'0':'')+n; }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 var YC={ farm:'', field:'', variety:'', stub:'', yr:String(new Date().getFullYear()), date:'', fyr:'', w:'72', rows:'1', ft:0, st:'idle', last:null, wid:null, unit:'ton', wt:'', acres:'', samples:[], lock:null, msg:'', on:false };
-try{ YC.samples=JSON.parse(lsGet('cane-truck-log:yield')||'[]')||[]; var _yp=JSON.parse(lsGet('cane-truck-log:yieldset')||'{}'); if(_yp.w) YC.w=_yp.w; if(_yp.rows) YC.rows=_yp.rows; if(_yp.unit) YC.unit=_yp.unit; if(_yp.acres) YC.acres=_yp.acres; if(_yp.variety) YC.variety=_yp.variety; if(_yp.stub) YC.stub=_yp.stub; if(_yp.field) YC.field=_yp.field; if(_yp.farm) YC.farm=_yp.farm; }catch(e){}
-function ycSave(){ lsSet('cane-truck-log:yield',JSON.stringify(YC.samples)); lsSet('cane-truck-log:yieldset',JSON.stringify({w:YC.w,rows:YC.rows,unit:YC.unit,acres:YC.acres,variety:YC.variety,stub:YC.stub,field:YC.field,farm:YC.farm})); }
+try{ YC.samples=JSON.parse(lsGet('cane-truck-log:yield')||'[]')||[]; var _yp=JSON.parse(lsGet('cane-truck-log:yieldset')||'{}'); if(_yp.w) YC.w=_yp.w; if(_yp.rows) YC.rows=_yp.rows; if(_yp.unit) YC.unit=_yp.unit; if(_yp.acres) YC.acres=_yp.acres; if(_yp.variety) YC.variety=_yp.variety; if(_yp.stub) YC.stub=_yp.stub; if(_yp.field) YC.field=_yp.field; if(_yp.farm) YC.farm=_yp.farm; if(_yp.ft>0){ YC.ft=_yp.ft; YC.st=(_yp.st==='run'||_yp.st==='pause')?'pause':(_yp.st||'idle'); if(YC.st==='pause') YC.msg='Distance held. Press Resume to keep measuring, or Mark B to finish.'; } if(_yp.wt) YC.wt=_yp.wt; if(_yp.date && _yp.date===ycToday0()) YC.date=_yp.date; if(_yp.yr) YC.yr=_yp.yr; }catch(e){}
+function ycSave(){ lsSet('cane-truck-log:yield',JSON.stringify(YC.samples)); lsSet('cane-truck-log:yieldset',JSON.stringify({w:YC.w,rows:YC.rows,unit:YC.unit,acres:YC.acres,variety:YC.variety,stub:YC.stub,field:YC.field,farm:YC.farm,ft:YC.ft,st:YC.st,wt:YC.wt,date:YC.date,yr:YC.yr})); }
 var YC_STUB=[['','Not set'],['Plant cane','Plant cane'],['1st stubble','1st stubble'],['2nd stubble','2nd stubble'],['3rd stubble','3rd stubble'],['4th stubble or older','4th stubble or older']];
 function ycToday(){ var d=new Date(), p=function(n){ return (n<10?'0':'')+n; }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function ycMeta(){
@@ -1554,7 +1555,7 @@ function ycTons(){ var v=Number(YC.wt); if(!(v>0)) return 0; return YC.unit==='l
 function ycFmt(n,d){ return isFinite(n) ? n.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}) : '–'; }
 function ycShow(){ if(!$('#ycRoot').firstChild) ycRender(); }
 function ycRender(){
-  var h='<div class="card"><h2>Yield check</h2><p class="small">Press Mark A to take the phone location, then drive to point B and press Mark B. Pause for the headland turn so it is not counted. Distance times row width is the area cut. Weight divided by that area is the tons per acre.</p>'+ycMeta()+
+  var h='<div class="card"><h2>Yield check</h2><p class="small">Press Mark A to take the phone location, then drive to point B and press Mark B. Pause for the headland turn so it is not counted. If you leave to check the weight in another app, the distance is held until you come back. Distance times row width is the area cut. Weight divided by that area is the tons per acre.</p>'+ycMeta()+
    '<div class="toolbar"><label class="f">Row width (inches)<input type="number" inputmode="decimal" step="any" list="ycWidths" data-ycf="w" value="'+esc(YC.w)+'"><datalist id="ycWidths"><option value="60"><option value="66"><option value="72"><option value="78"><option value="80"><option value="84"></datalist></label>'+
    '<label class="f">Rows cut at once<input type="number" inputmode="numeric" min="1" step="1" data-ycf="rows" value="'+esc(YC.rows)+'"></label></div>'+
    '<div class="toolbar" id="ycBtns"></div><p class="small" id="ycStat"></p>'+
@@ -1571,7 +1572,7 @@ function ycBtns(){
    : s==='run' ? '<button class="btn" type="button" data-yc="pause">Pause (headland)</button><button class="btn ghost" type="button" data-yc="stop">Mark B (stop)</button>'
    : s==='pause' ? '<button class="btn" type="button" data-yc="resume">Resume</button><button class="btn ghost" type="button" data-yc="stop">Mark B (stop)</button>'
    : '<button class="btn" type="button" data-yc="start">Start again</button>';
-  el.innerHTML+='<button class="btn ghost" type="button" data-yc="reset">Clear</button>';
+  el.innerHTML+='<button class="btn ghost" type="button" data-yc="reset">Clear</button>'+(YC.geoErr?'<button class="btn" type="button" data-yc="retry">Try location again</button>':'');
   var st=$('#ycStat'); if(st) st.textContent = YC.msg || (s==='run'?'Measuring. Drive from A to B.':s==='pause'?'Paused. Distance is not counting.':s==='done'?'Stopped at B.':'');
 }
 function ycOut(){
@@ -1603,16 +1604,16 @@ function ycCsv(){
   return L.join('\n');
 }
 function ycGeoErr(err){
-  YC.msg = (err && err.code===1) ? "Couldn't get your location. Location is blocked for this site. In Safari tap aA, then Website Settings, then Location, then Allow. That turns it on for this site only. You can also type the distance."
+  YC.geoErr=true; YC.msg = (err && err.code===1) ? "Couldn't get your location. Location is blocked for this site. In Safari tap aA, then Website Settings, then Location, then Allow. That turns it on for this site only. You can also type the distance."
    : "Couldn't get your location. Move to open sky and try again, or type the distance.";
   ycBtns();
 }
 function ycFt(a,b){ var R=20902231, r=Math.PI/180, dl=(b.latitude-a.latitude)*r, dn=(b.longitude-a.longitude)*r, x=Math.sin(dl/2)*Math.sin(dl/2)+Math.cos(a.latitude*r)*Math.cos(b.latitude*r)*Math.sin(dn/2)*Math.sin(dn/2); return 2*R*Math.asin(Math.min(1,Math.sqrt(x))); }
 function ycPos(p){
-  var c=p.coords; if(YC.st!=='run') return; if(c.accuracy>30) return;
+  var c=p.coords; if(YC.geoErr){ YC.geoErr=false; ycBtns(); } if(YC.st!=='run') return; if(c.accuracy>30) return;
   if(!YC.last){ YC.last=c; return; }
   var d=ycFt(YC.last,c); if(d<4 || d>300) { if(d>300) YC.last=c; return; }
-  YC.ft+=d; YC.last=c; var i=$('#ycFt'); if(i && document.activeElement!==i) i.value=Math.round(YC.ft*10)/10; ycOut();
+  YC.ft+=d; YC.last=c; ycSave(); var i=$('#ycFt'); if(i && document.activeElement!==i) i.value=Math.round(YC.ft*10)/10; ycOut();
 }
 function ycWatch(on){
   if(on){ if(YC.wid!=null) return; if(!navigator.geolocation){ YC.msg="Couldn't get your location. This browser has no GPS. Type the distance instead."; ycBtns(); return; }
@@ -1620,6 +1621,10 @@ function ycWatch(on){
     try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(function(l){ YC.lock=l; }).catch(function(){}); }catch(e){} }
   else { if(YC.wid!=null){ navigator.geolocation.clearWatch(YC.wid); YC.wid=null; } try{ if(YC.lock){ YC.lock.release(); YC.lock=null; } }catch(e){} }
 }
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden && YC.st==='run'){ YC.st='pause'; YC.last=null; YC.msg='Paused while you were away. The distance is held. Press Resume to keep measuring, or Mark B to finish.'; ycSave(); if($('#ycBtns')) ycBtns(); }
+  else if(!document.hidden && $('#ycRoot') && $('#ycRoot').firstChild){ var i=$('#ycFt'); if(i && document.activeElement!==i) i.value=YC.ft?Math.round(YC.ft*10)/10:''; ycBtns(); ycOut(); }
+});
 document.addEventListener('input',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-ycf'); if(!f) return;
   if(f==='ft'){ YC.ft=Number(el.value)||0; } else YC[f]=el.value;
@@ -1627,9 +1632,11 @@ document.addEventListener('input',function(e){
 });
 document.addEventListener('change',function(e){ if(e.target&&e.target.getAttribute&&e.target.getAttribute('data-ycv')){ YC.view=e.target.value; ycList(); return; } var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-ycf'); if(f==='unit'){ YC.unit=el.value; ycSave(); ycOut(); } if(f==='stub'){ YC.stub=el.value; ycSave(); } if(f==='farm'){ YC.farm=el.value; YC.variety=''; YC.view='all'; ycSave(); ycRender(); } });
 document.addEventListener('click',function(e){
-  var el=e.target.closest ? e.target.closest('[data-yc]') : null; if(!el) return; var a=el.getAttribute('data-yc');
+  var el=e.target.closest ? e.target.closest('[data-yc]') : null; if(!el) return; var a=el.getAttribute('data-yc'); setTimeout(ycSave,50);
   if(a==='start'){ YC.ft=0; YC.last=null; YC.st='run'; YC.msg='Getting your location for point A...'; var i=$('#ycFt'); if(i) i.value=''; ycWatch(true); ycBtns(); ycOut();
-    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ if(YC.st==='run'&&!YC.last){ YC.last=p.coords; } YC.msg='Point A marked ('+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+'). Drive to B.'; ycBtns(); },ycGeoErr,{enableHighAccuracy:true,maximumAge:0,timeout:15000}); }
+    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ YC.geoErr=false; if(YC.st==='run'&&!YC.last){ YC.last=p.coords; } YC.msg='Point A marked ('+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+'). Drive to B.'; ycBtns(); },ycGeoErr,{enableHighAccuracy:true,maximumAge:0,timeout:15000}); }
+  else if(a==='retry'){ YC.msg='Checking your location...'; ycBtns(); if(!navigator.geolocation){ ycGeoErr({code:2}); return; }
+    navigator.geolocation.getCurrentPosition(function(p){ YC.geoErr=false; YC.msg='Location works ('+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+'). Press Mark A to start.'; ycBtns(); },ycGeoErr,{enableHighAccuracy:true,maximumAge:0,timeout:15000}); }
   else if(a==='pause'){ YC.st='pause'; YC.last=null; YC.msg=''; ycBtns(); }
   else if(a==='resume'){ YC.st='run'; YC.last=null; YC.msg=''; ycBtns(); }
   else if(a==='stop'){ var was=YC.st, lp=YC.last; YC.st='done'; YC.last=null; YC.msg=''; ycWatch(false); ycBtns(); ycOut();
