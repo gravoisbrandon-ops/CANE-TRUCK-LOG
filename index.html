@@ -1602,6 +1602,11 @@ function ycCsv(){
   YC.samples.filter(function(x){ return x.farm===YC.farm; }).sort(function(a,b){ return (a.date||'').localeCompare(b.date||'')||a.at-b.at; }).forEach(function(x){ L.push([x.date,x.yr,(farmById(YC.farm)||{}).name||'',x.field,x.variety,x.stub,Math.round(x.ft),x.w,x.rows,x.acres.toFixed(4),x.tons.toFixed(3),(x.tons/x.acres).toFixed(2)].map(csvCell).join(',')); });
   return L.join('\n');
 }
+function ycGeoErr(err){
+  YC.msg = (err && err.code===1) ? "Couldn't get your location. Location is blocked for this site. On iPhone, open Settings, Privacy and Security, Location Services, Safari Websites, and choose While Using. Then in Safari tap aA, Website Settings, Location, Allow. You can also type the distance."
+   : "Couldn't get your location. Move to open sky and try again, or type the distance.";
+  ycBtns();
+}
 function ycFt(a,b){ var R=20902231, r=Math.PI/180, dl=(b.latitude-a.latitude)*r, dn=(b.longitude-a.longitude)*r, x=Math.sin(dl/2)*Math.sin(dl/2)+Math.cos(a.latitude*r)*Math.cos(b.latitude*r)*Math.sin(dn/2)*Math.sin(dn/2); return 2*R*Math.asin(Math.min(1,Math.sqrt(x))); }
 function ycPos(p){
   var c=p.coords; if(YC.st!=='run') return; if(c.accuracy>30) return;
@@ -1610,8 +1615,8 @@ function ycPos(p){
   YC.ft+=d; YC.last=c; var i=$('#ycFt'); if(i && document.activeElement!==i) i.value=Math.round(YC.ft*10)/10; ycOut();
 }
 function ycWatch(on){
-  if(on){ if(YC.wid!=null) return; if(!navigator.geolocation){ YC.msg='GPS is not available. Type the distance instead.'; ycBtns(); return; }
-    YC.wid=navigator.geolocation.watchPosition(ycPos,function(){ YC.msg='Could not read GPS. Allow location, or type the distance.'; ycBtns(); },{enableHighAccuracy:true,maximumAge:0,timeout:15000});
+  if(on){ if(YC.wid!=null) return; if(!navigator.geolocation){ YC.msg="Couldn't get your location. This browser has no GPS. Type the distance instead."; ycBtns(); return; }
+    YC.wid=navigator.geolocation.watchPosition(ycPos,ycGeoErr,{enableHighAccuracy:true,maximumAge:0,timeout:15000});
     try{ if(navigator.wakeLock) navigator.wakeLock.request('screen').then(function(l){ YC.lock=l; }).catch(function(){}); }catch(e){} }
   else { if(YC.wid!=null){ navigator.geolocation.clearWatch(YC.wid); YC.wid=null; } try{ if(YC.lock){ YC.lock.release(); YC.lock=null; } }catch(e){} }
 }
@@ -1624,7 +1629,7 @@ document.addEventListener('change',function(e){ if(e.target&&e.target.getAttribu
 document.addEventListener('click',function(e){
   var el=e.target.closest ? e.target.closest('[data-yc]') : null; if(!el) return; var a=el.getAttribute('data-yc');
   if(a==='start'){ YC.ft=0; YC.last=null; YC.st='run'; YC.msg='Getting your location for point A...'; var i=$('#ycFt'); if(i) i.value=''; ycWatch(true); ycBtns(); ycOut();
-    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ if(YC.st==='run'&&!YC.last){ YC.last=p.coords; } YC.msg='Point A marked ('+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+'). Drive to B.'; ycBtns(); },function(){ YC.msg='Could not read GPS. Allow location, or type the distance.'; ycBtns(); },{enableHighAccuracy:true,maximumAge:0,timeout:15000}); }
+    if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ if(YC.st==='run'&&!YC.last){ YC.last=p.coords; } YC.msg='Point A marked ('+p.coords.latitude.toFixed(5)+', '+p.coords.longitude.toFixed(5)+'). Drive to B.'; ycBtns(); },ycGeoErr,{enableHighAccuracy:true,maximumAge:0,timeout:15000}); }
   else if(a==='pause'){ YC.st='pause'; YC.last=null; YC.msg=''; ycBtns(); }
   else if(a==='resume'){ YC.st='run'; YC.last=null; YC.msg=''; ycBtns(); }
   else if(a==='stop'){ var was=YC.st, lp=YC.last; YC.st='done'; YC.last=null; YC.msg=''; ycWatch(false); ycBtns(); ycOut();
