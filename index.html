@@ -1603,7 +1603,7 @@ function ycCsv(){
   return L.join('\n');
 }
 function ycGeoErr(err){
-  YC.msg = (err && err.code===1) ? "Couldn't get your location. Location is blocked for this site. On iPhone, open Settings, Privacy and Security, Location Services, Safari Websites, and choose While Using. Then in Safari tap aA, Website Settings, Location, Allow. You can also type the distance."
+  YC.msg = (err && err.code===1) ? "Couldn't get your location. Location is blocked for this site. In Safari tap aA, then Website Settings, then Location, then Allow. That turns it on for this site only. You can also type the distance."
    : "Couldn't get your location. Move to open sky and try again, or type the distance.";
   ycBtns();
 }
