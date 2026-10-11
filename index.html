@@ -379,14 +379,12 @@ td.n,th.n{text-align:right}
           <button type="button" class="fchip" data-act="toolPick" data-tool="seasons" aria-pressed="false">Seasons</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="tank" aria-pressed="false">Tank mix</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="burn" aria-pressed="false">Burn log</button>
-          <button type="button" class="fchip" data-act="toolPick" data-tool="smoke" id="smokeChip" aria-pressed="false" hidden>Smoke map (trial)</button>
         </div>
       </div>
       <div id="toolSugar" class="tm"><div id="sgRoot"></div></div>
       <div id="toolSeasons" class="tm" hidden><div id="seRoot"></div></div>
       <div id="toolTank" class="tm" hidden><div id="tmRoot"></div></div>
       <div id="toolBurn" class="tm" hidden><div id="bnRoot"></div></div>
-      <div id="toolSmoke" class="tm" hidden></div>
     </section>
 
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
@@ -1513,21 +1511,9 @@ document.addEventListener('change',function(e){
   tmField(e);
 });
 
-function smokeOpen(lat,lon,ms,ac,wx){
-  var la=parseFloat(lat), lo=parseFloat(lon);
-  if(!isFinite(la)||!isFinite(lo)){ toast('Set the burn location first. In Burn log, type your town or press Use my location.'); return; }
-  var d=new Date(ms||Date.now()), z=function(n){ return (n<10?'0':'')+n; };
-  var t=d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+'T'+z(d.getHours())+':00';
-  S.smokeSrc='smoke-trial.html?lat='+la.toFixed(4)+'&lon='+lo.toFixed(4)+'&t='+encodeURIComponent(t)+'&ash=1';
-  if(wx){ var mp={ wd:'windDeg', ws:'windMph', tr:'transMph', mx:'mixHt', rh:'rh', tf:'tempF', dp:'dewF', vi:'visMi' }, got=false; Object.keys(mp).forEach(function(k){ var v=wx[mp[k]]; if(v!==''&&v!=null&&isFinite(Number(v))){ S.smokeSrc+='&'+k+'='+encodeURIComponent(Number(v)); got=true; } }); if(got && wx.station) S.smokeSrc+='&stn='+encodeURIComponent(wx.station); }
-  var tb=$('#tab-tools'); if(tb) tb.click(); S.tool='smoke'; toolsShow();
-}
 function toolsShow(){
   var t=S.tool||'sugar';
   $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn');
-  var sm=$('#smokeChip'); if(sm) sm.hidden=!S.isAdmin; if(t==='smoke' && !S.isAdmin){ S.tool='sugar'; t='sugar'; $('#toolSugar').hidden=false; }
-  $('#toolSmoke').hidden=(t!=='smoke');
-  if(t==='smoke' && $('#toolSmoke').getAttribute('data-src')!==(S.smokeSrc||'smoke-trial.html')){ $('#toolSmoke').setAttribute('data-src',S.smokeSrc||'smoke-trial.html'); $('#toolSmoke').innerHTML='<iframe title="Smoke map trial" src="'+esc(S.smokeSrc||'smoke-trial.html')+'" allow="geolocation" style="width:100%;height:calc(100vh - 230px);min-height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'; }
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
   if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
   if(t==='sugar') sgShow();
@@ -1876,7 +1862,7 @@ function bnRender(){
     '<div class="toolbar"><label class="f">Sky or conditions<input type="text" data-bnw="sky" value="'+esc(wx.sky||'')+'" placeholder="e.g. Clear"></label></div>'+
     (wx.obsAt?'<p class="small">Reading from '+esc(wx.station||'')+' taken '+esc(new Date(wx.obsAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(wx.windDir?' · wind from the '+esc(wx.windDir):'')+'.</p>':'')+
     '<label class="f" style="margin-top:12px">Notes (optional)<textarea rows="2" data-bnf="notes">'+esc(BN.notes)+'</textarea></label>'+
-    '<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-bn="save">'+(ed?'Update this burn':'Save burn')+'</button>'+(S.isAdmin?'<button class="btn ghost" type="button" data-bn="smokeNow">See smoke map</button>':'')+(ed?'<button class="btn ghost" type="button" data-bn="saveNew">Save as new burn</button><button class="btn ghost" type="button" data-bn="cancel">Cancel edit</button>':'')+'</div></div>';
+    '<div class="toolbar" style="margin-top:12px"><button class="btn" type="button" data-bn="save">'+(ed?'Update this burn':'Save burn')+'</button>'+(ed?'<button class="btn ghost" type="button" data-bn="saveNew">Save as new burn</button><button class="btn ghost" type="button" data-bn="cancel">Cancel edit</button>':'')+'</div></div>';
   var vf=BN.viewFarm && farmById(BN.viewFarm) ? BN.viewFarm : farm; BN.viewFarm=vf;
   h+='<div class="card"><h2>Saved burns</h2><label class="f">Farm<select data-bnf="viewFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===vf?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">Each farm has its own list and its own CSV.</p><div id="bnLog"></div><div class="toolbar"><button class="btn ghost sm" type="button" data-bn="csvAll">Download this farm as CSV</button><button class="btn sm" type="button" data-pdf="burn">Share PDF report</button><button class="btn ghost sm" type="button" data-pdf="burn" data-view="1">View PDF</button></div><p class="small" id="bnFoot"></p></div>';
   root.innerHTML=h; bnLogRender();
@@ -1896,7 +1882,7 @@ function bnLogRender(){
       '<div class="small">'+(bits.length?esc(bits.join(' · ')):'No weather')+(w.station?' · '+esc(w.station):'')+(w.sky?' · '+esc(w.sky):'')+'</div>'+
       (e.notes?'<div class="small">'+esc(e.notes)+'</div>':'')+
       '<div class="small">Logged '+esc(new Date(e.loggedAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(e.by?' by '+esc(e.by):'')+(e.editedAt?' · edited':'')+'</div>'+
-      '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button>'+(S.isAdmin?'<button class="btn sm" type="button" data-bn="smoke" data-id="'+esc(e.id)+'">Smoke map</button>':'')+'<button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
+      '<div class="toolbar"><button class="btn sm" type="button" data-bn="edit" data-id="'+esc(e.id)+'">Edit</button><button class="btn sm" type="button" data-bn="csv" data-id="'+esc(e.id)+'">CSV</button>'+'<button class="btn ghost sm" type="button" data-bn="del" data-id="'+esc(e.id)+'">'+(BN.confirm===k?'Tap again to delete':'Delete')+'</button></div></div>';
   }).join('');
 }
 var BN_HEAD=['logged_at','farm','track','field','burn_date','burn_time','acres','category_day','best_time_to_burn','temp_f','dew_point_f','humidity_pct','wind_mph','wind_from','wind_from_deg','pressure_inhg','visibility_mi','mixing_height_ft','transport_wind_mph','ventilation_rate','conditions','station','observed_at','source','notes','logged_by'];
@@ -1935,7 +1921,7 @@ function bnTyping(){ var a=document.activeElement, r=$('#bnRoot'); return !!(a &
 function bnShow(){ if(!$('#bnRoot').firstChild) bnRender(); if(!BN.loaded) bnLoad(); }
 function bnEntry(){
   var fm=farmById(BN.farm), w=BN.wx||{}, now=Date.now();
-  var e={ lat:BN.lat||'', lon:BN.lon||'', farm:BN.farm, farmName:fm?fm.name:'', track:(BN.track||'').trim(), field:(BN.field||'').trim(), catDay:BN.catDay||'', date:BN.date, time:BN.time, burnedAt:bnMs(), acres:BN.acres, notes:(BN.notes||'').trim(), loggedAt:now, by:(S.profile&&S.profile.name)||'',
+  var e={ farm:BN.farm, farmName:fm?fm.name:'', track:(BN.track||'').trim(), field:(BN.field||'').trim(), catDay:BN.catDay||'', date:BN.date, time:BN.time, burnedAt:bnMs(), acres:BN.acres, notes:(BN.notes||'').trim(), loggedAt:now, by:(S.profile&&S.profile.name)||'',
     wx:{ station:w.station||(BN.station||'').toUpperCase(), src:w.src||'manual', obsAt:w.obsAt||null, windDir:w.windDir||'' } };
   BN_WX.forEach(function(x){ e.wx[x[0]]=w[x[0]]==null?'':w[x[0]]; }); e.wx.sky=w.sky||'';
   if(!e.wx.windDir && e.wx.windDeg!=='') e.wx.windDir=bnCompass(Number(e.wx.windDeg));
@@ -1964,8 +1950,6 @@ document.addEventListener('click',function(e){
   else if(a==='place') bnFindPlace();
   else if(a==='locate') bnLocate();
   else if(a==='fetch') bnFetchWx();
-  else if(a==='smoke'){ var se=BN.log.filter(function(x){ return x.id===el.getAttribute('data-id'); })[0]; if(se) smokeOpen(se.lat||BN.lat,se.lon||BN.lon,se.burnedAt,se.acres,se.wx); }
-  else if(a==='smokeNow'){ smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres,BN.wx); }
   else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
   else if(a==='save'||a==='saveNew'){
     if(!(BN.field||'').trim()){ toast('Enter the field ID.'); return; }
