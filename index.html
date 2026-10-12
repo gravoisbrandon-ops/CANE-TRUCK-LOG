@@ -1063,6 +1063,7 @@ function renderBoard(){
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(rt&&p.w?' · '+f1(p.tons)+' t':'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : (isNew?'New today':esc(tag)));
       return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(numNew?' style="background:'+newColor(t.farm)+';color:'+(numW?weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.7)':'#0E1511')+';border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
     };
+    html+=orphanBanner();
     html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
     html+='<div class="lbl">'+(needPick&&!S.boardEdit?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
@@ -3534,20 +3535,30 @@ async function moveLoadField(fid,fkey,old,nv){
 async function scanLoadMills(fid){
   var f=farmById(fid); if(!f) return; var t=today(), st=harvestStartFor(f), days=[], i=0, found={}, ml=uniqMills(f.mills).map(function(m){ return m.toLowerCase(); });
   for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; days.push(d); }
-  async function w(){ while(i<days.length){ var d=days[i++]; try{ docs(await col(loadsPath(fid,d)).limit(1000).get()).forEach(function(x){ var m=String(x.mill||'').trim(); if(m && ml.indexOf(m.toLowerCase())<0) found[m]=(found[m]||0)+1; }); }catch(e){} } }
+  async function w(){ while(i<days.length){ var d=days[i++]; try{ docs(await col(loadsPath(fid,d)).limit(1000).get()).forEach(function(x){ var m=String(x.mill||'').trim(); if(m && ml.indexOf(m.toLowerCase())<0){ var fo=found[m]||(found[m]={ n:0, nos:[] }); fo.n++; fo.nos.push(x.no); } }); }catch(e){} } }
   S.loadOrph=S.loadOrph||{}; S.loadOrph[fid]={ busy:true }; last.farms=''; schedule();
   await Promise.all([w(),w(),w(),w()]); S.loadOrph[fid]={ found:found }; last.farms=''; schedule();
 }
+function lev(a,b){ a=String(a).toLowerCase(); b=String(b).toLowerCase(); var d=[],i,j; for(i=0;i<=a.length;i++){ d[i]=[i]; } for(j=1;j<=b.length;j++) d[0][j]=j; for(i=1;i<=a.length;i++) for(j=1;j<=b.length;j++) d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1)); return d[a.length][b.length]; }
+function bestMillOpts(name,mls){ var best=null,bs=1e9; mls.forEach(function(m){ var sc=lev(name,m)/Math.max(name.length,m.length,1); if(sc<bs){ bs=sc; best=m; } }); return mls.map(function(m){ return '<option'+(m===best?' selected':'')+'>'+esc(m)+'</option>'; }).join(''); }
+function nosTxt(a){ var u=[]; a.forEach(function(x){ if(u.indexOf(x)<0) u.push(x); }); u.sort(function(x,y){ return String(x).localeCompare(String(y),undefined,{numeric:true}); }); return u.length?(u.length>12?u.slice(0,12).join(', ')+'...':u.join(', ')):''; }
+function orphanBanner(){
+  if(!isLead()) return ''; var f=farmById(S.farmId); if(!f) return '';
+  var ml=uniqMills(f.mills).map(function(m){ return m.toLowerCase(); }), n=0, names={};
+  S.trucks.forEach(function(t){ if(t.farm!==f.id) return; var bad=(t.mills||[]).filter(function(m){ return ml.indexOf(String(m).toLowerCase())<0; }); if(bad.length){ n++; bad.forEach(function(b){ names[b]=1; }); } });
+  if(!n) return '';
+  return '<div class="card" style="border-color:#d68910"><b>'+n+' truck'+(n===1?' is':'s are')+' tied to a mill name that is gone</b> ('+esc(Object.keys(names).join(', '))+'). They show as Any mill and stay grey until a mill is picked.<div class="toolbar" style="margin-top:8px"><button class="btn sm" type="button" data-act="tab" data-tab="setup">Fix in Setup</button></div></div>';
+}
 function orphanHtml(f){
   var mls=uniqMills(f.mills), ml=mls.map(function(m){ return m.toLowerCase(); }), o={}, opts=mls.map(function(m){ return '<option>'+esc(m)+'</option>'; }).join('');
-  S.trucks.forEach(function(t){ if(t.farm!==f.id) return; (t.mills||[]).forEach(function(m){ if(ml.indexOf(String(m).toLowerCase())<0) o[m]=(o[m]||0)+1; }); });
+  S.trucks.forEach(function(t){ if(t.farm!==f.id) return; (t.mills||[]).forEach(function(m){ if(ml.indexOf(String(m).toLowerCase())<0){ (o[m]=o[m]||[]).push(t.no); } }); });
   var ks=Object.keys(o), h='';
-  if(ks.length) h+='<div class="lbl">Trucks tied to a mill name that is gone</div><p class="small">These trucks are stuck on an old mill name. Pick the mill they go to now.</p>'+ks.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+o[k]+' truck'+(o[k]===1?'':'s')+')</span><select aria-label="Move trucks from '+esc(k)+' to">'+opts+'</select><button class="btn sm" type="button" data-act="fixMillTrucks" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('');
+  if(ks.length) h+='<div class="lbl">Trucks tied to a mill name that is gone</div><p class="small">These trucks were set to a mill under its old name. The closest match is picked for you. Check it, then tap Move.</p>'+ks.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+o[k].length+' truck'+(o[k].length===1?'':'s')+(nosTxt(o[k])?': '+esc(nosTxt(o[k])):'')+')</span><select aria-label="Move trucks from '+esc(k)+' to">'+bestMillOpts(k,mls)+'</select><button class="btn sm" type="button" data-act="fixMillTrucks" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('');
   if(mls.length){
     var lo=(S.loadOrph||{})[f.id];
     h+='<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="scanLoadMills" data-farm="'+esc(f.id)+'">'+(lo&&lo.busy?'Checking...':'Check logged loads for old mill names')+'</button></div>';
     if(lo && lo.found){ var lk=Object.keys(lo.found);
-      h+=lk.length ? '<p class="small">These loads have a mill name that is not in the list. Pick the mill they belong to.</p>'+lk.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+lo.found[k]+' load'+(lo.found[k]===1?'':'s')+')</span><select aria-label="Move loads from '+esc(k)+' to">'+opts+'</select><button class="btn sm" type="button" data-act="fixLoadMills" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('') : '<p class="small">All logged loads match a mill in the list.</p>'; }
+      h+=lk.length ? '<p class="small">These loads have a mill name that is not in the list. Pick the mill they belong to.</p>'+lk.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+lo.found[k].n+' load'+(lo.found[k].n===1?'':'s')+(nosTxt(lo.found[k].nos)?', trucks '+esc(nosTxt(lo.found[k].nos)):'')+')</span><select aria-label="Move loads from '+esc(k)+' to">'+bestMillOpts(k,mls)+'</select><button class="btn sm" type="button" data-act="fixLoadMills" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('') : '<p class="small">All logged loads match a mill in the list.</p>'; }
   }
   return h;
 }
