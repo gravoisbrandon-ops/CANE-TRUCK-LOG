@@ -3526,8 +3526,15 @@ async function renameMill(fid,old){
   ['haulerMills'].forEach(function(k){ if(f[k]) patch[k]=f[k].map(function(x){ return x===old?nv:x; }); });
   ['haulerMillCodes','millColors','millStart'].forEach(function(k){ if(f[k] && f[k][old]!=null){ var o=Object.assign({},f[k]); o[nv]=o[old]; delete o[old]; patch[k]=o; } });
   var before={}; Object.keys(patch).forEach(function(k){ before[k]=f[k]; f[k]=patch[k]; });
+  var tchg=S.trucks.filter(function(t){ return t.farm===fid && (t.mills||[]).indexOf(old)>=0; }), tbefore=tchg.map(function(t){ return t.mills; });
+  tchg.forEach(function(t){ t.mills=t.mills.map(function(x){ return x===old?nv:x; }); });
+  var dbefore=S.dest.mill; if(S.dest.mill===old) S.dest.mill=nv;
   last.board=''; last.report=''; schedule(); if(S.lists) renderLists();
-  try{ await dref('farms/'+fid).update(patch); toast(old+' is now '+nv+'. Loads already logged keep the old name.'); }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); fail(e); }
+  try{
+    await dref('farms/'+fid).update(patch);
+    await Promise.all(tchg.map(function(t){ return dref('trucks/'+t.id).update({ mills:t.mills }); }));
+    toast(old+' is now '+nv+'. Trucks keep their mill. Loads already logged keep the old name.');
+  }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); tchg.forEach(function(t,i){ t.mills=tbefore[i]; }); S.dest.mill=dbefore; last.board=''; schedule(); fail(e); }
 }
 function renameItem(kind,old){
   var key=kind==='Field'?'fields':kind==='Variety'?'varieties':'tracks', f=farmById(S.farmId); if(!f) return;
