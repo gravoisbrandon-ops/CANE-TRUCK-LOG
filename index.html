@@ -3517,10 +3517,18 @@ function renderLists(){
   }
   $('#listsBody').innerHTML=part('Field','fields','Fields','Field name or number')+part('Track','tracks','Tracks','Track, like Johnson')+part('Variety','varieties','Cane varieties','Variety, like L 01-299');
 }
-async function moveLoadMills(fid,old,nv){
+async function moveLoadMills(fid,old,nv){ return moveLoadField(fid,'mill',old,nv); }
+async function renameLocalData(fid,fkey,old,nv){
+  try{ if(!SG.logLoaded) await sgLoad(); if(!BN.loaded) await bnLoad(); }catch(x){}
+  var lo=String(old).trim().toLowerCase(), hit=false;
+  (SG.dayTotals||[]).forEach(function(e){ if(e.farm===fid && String(e[fkey]||'').trim().toLowerCase()===lo){ e[fkey]=nv; hit=true; } });
+  if(hit){ try{ sgPersist(); }catch(x){} last.report=''; schedule(); }
+  if(fkey==='track'||fkey==='field'){ var bh=false; BN.log.forEach(function(e){ if(e.farm===fid && String(e[fkey]||'').trim().toLowerCase()===lo){ e[fkey]=nv; bh=true; } }); if(bh){ try{ bnPersist(); }catch(x){} } }
+}
+async function moveLoadField(fid,fkey,old,nv){
   var f=farmById(fid); if(!f) return 0; var t=today(), st=harvestStartFor(f), days=[], n=0, i=0, lo=String(old).trim().toLowerCase();
   for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; days.push(d); }
-  async function w(){ while(i<days.length){ var d=days[i++]; try{ var rows=docs(await col(loadsPath(fid,d)).limit(1000).get()); for(var r=0;r<rows.length;r++){ if(String(rows[r].mill||'').trim().toLowerCase()===lo){ await dref(loadsPath(fid,d)+'/'+rows[r].id).update({ mill:nv }); n++; } } }catch(e){} } }
+  async function w(){ while(i<days.length){ var d=days[i++]; try{ var rows=docs(await col(loadsPath(fid,d)).limit(1000).get()); for(var r=0;r<rows.length;r++){ if(String(rows[r][fkey]||'').trim().toLowerCase()===lo){ var pt={}; pt[fkey]=nv; await dref(loadsPath(fid,d)+'/'+rows[r].id).update(pt); n++; } } }catch(e){} } }
   await Promise.all([w(),w(),w(),w()]); last.board=''; last.report=''; schedule(); return n;
 }
 async function scanLoadMills(fid){
@@ -3561,7 +3569,7 @@ async function renameMill(fid,old){
   var before={}; Object.keys(patch).forEach(function(k){ before[k]=f[k]; f[k]=patch[k]; });
   var tchg=S.trucks.filter(function(t){ return t.farm===fid && (t.mills||[]).indexOf(old)>=0; }), tbefore=tchg.map(function(t){ return t.mills; });
   tchg.forEach(function(t){ t.mills=t.mills.map(function(x){ return x===old?nv:x; }); });
-  var dbefore=S.dest.mill; if(S.dest.mill===old) S.dest.mill=nv;
+  var dbefore=S.dest.mill; if(S.dest.mill===old) S.dest.mill=nv; renameLocalData(fid,'mill',old,nv);
   last.board=''; last.report=''; schedule(); if(S.lists) renderLists();
   try{
     await dref('farms/'+fid).update(patch);
@@ -3577,7 +3585,8 @@ function renameItem(kind,old){
   if(arr.indexOf(nv)>=0){ toast('That name is already in the list.'); return; }
   editList(S.farmId,key,function(a){ var i=a.indexOf(old); if(i>=0) a[i]=nv; return a; });
   var act=kind==='Field'?'field':kind==='Variety'?'variety':'track'; if(S.active[act]===old){ S.active[act]=nv; saveActive(); }
-  toast(old+' is now '+nv);
+  renameLocalData(S.farmId,act,old,nv);
+  toast(old+' is now '+nv+'. Updating its logged loads...'); moveLoadField(S.farmId,act,old,nv).then(function(n){ toast(old+' is now '+nv+'. '+n+' logged load'+(n===1?'':'s')+' follow it.'); });
 }
 
 /* ---------- add a load that was skipped ---------- */
