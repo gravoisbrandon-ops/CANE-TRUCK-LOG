@@ -832,7 +832,7 @@ function renderEdit(force){
     '<div class="sheet-head"><h2 id="sheetTitle">Fix this load</h2><button class="close" type="button" data-act="closeSheet" aria-label="Close">&times;</button></div>'+
     '<label class="f">Truck<select id="eTruck">'+opts+'</select></label>'+
     '<label class="f">Time loaded<input type="time" id="eTime" value="'+esc(cur.time)+'"></label>'+
-    (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+mills.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
+    (mills.length?'<label class="f">Mill<select id="eMill"><option value="">No mill</option>'+(cur.mill&&mills.indexOf(cur.mill)<0?mills.concat([cur.mill]):mills).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.mill?' selected':'')+'>'+esc(m)+(mills.indexOf(m)<0?' (old name)':'')+'</option>'; }).join('')+'</select></label>':'')+
     (tracks.length||cur.track?'<label class="f">Track<select id="eTrack"><option value="">Not set</option>'+(cur.track&&tracks.indexOf(cur.track)<0?tracks.concat([cur.track]):tracks).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.track?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (fields.length||cur.field?'<label class="f">Field<select id="eField"><option value="">Not set</option>'+(cur.field&&fields.indexOf(cur.field)<0?fields.concat([cur.field]):fields).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.field?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
     (varts.length||cur.variety?'<label class="f">Cane variety<select id="eVariety"><option value="">Not set</option>'+(cur.variety&&varts.indexOf(cur.variety)<0?varts.concat([cur.variety]):varts).map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur.variety?' selected':'')+'>'+esc(m)+'</option>'; }).join('')+'</select></label>':'')+
@@ -2855,7 +2855,7 @@ function renderMe(){
 function renderSetup(){
   var adm=isOffice(), lead=isLead();
   $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead;
-  var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm+':'+(t.mills||[]).join(','); }),confirmKey]);
+  var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm+':'+(t.mills||[]).join(','); }),confirmKey,S.loadOrph||{}]);
   if(fsig!==last.farms){
     last.farms=fsig;
     $('#farmList').innerHTML=S.farms.map(function(f){
@@ -3517,17 +3517,37 @@ function renderLists(){
   }
   $('#listsBody').innerHTML=part('Field','fields','Fields','Field name or number')+part('Track','tracks','Tracks','Track, like Johnson')+part('Variety','varieties','Cane varieties','Variety, like L 01-299');
 }
+async function moveLoadMills(fid,old,nv){
+  var f=farmById(fid); if(!f) return 0; var t=today(), st=harvestStartFor(f), days=[], n=0, i=0, lo=String(old).trim().toLowerCase();
+  for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; days.push(d); }
+  async function w(){ while(i<days.length){ var d=days[i++]; try{ var rows=docs(await col(loadsPath(fid,d)).limit(1000).get()); for(var r=0;r<rows.length;r++){ if(String(rows[r].mill||'').trim().toLowerCase()===lo){ await dref(loadsPath(fid,d)+'/'+rows[r].id).update({ mill:nv }); n++; } } }catch(e){} } }
+  await Promise.all([w(),w(),w(),w()]); last.board=''; last.report=''; schedule(); return n;
+}
+async function scanLoadMills(fid){
+  var f=farmById(fid); if(!f) return; var t=today(), st=harvestStartFor(f), days=[], i=0, found={}, ml=uniqMills(f.mills).map(function(m){ return m.toLowerCase(); });
+  for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; days.push(d); }
+  async function w(){ while(i<days.length){ var d=days[i++]; try{ docs(await col(loadsPath(fid,d)).limit(1000).get()).forEach(function(x){ var m=String(x.mill||'').trim(); if(m && ml.indexOf(m.toLowerCase())<0) found[m]=(found[m]||0)+1; }); }catch(e){} } }
+  S.loadOrph=S.loadOrph||{}; S.loadOrph[fid]={ busy:true }; last.farms=''; schedule();
+  await Promise.all([w(),w(),w(),w()]); S.loadOrph[fid]={ found:found }; last.farms=''; schedule();
+}
 function orphanHtml(f){
-  var ml=uniqMills(f.mills).map(function(m){ return m.toLowerCase(); }), o={};
+  var mls=uniqMills(f.mills), ml=mls.map(function(m){ return m.toLowerCase(); }), o={}, opts=mls.map(function(m){ return '<option>'+esc(m)+'</option>'; }).join('');
   S.trucks.forEach(function(t){ if(t.farm!==f.id) return; (t.mills||[]).forEach(function(m){ if(ml.indexOf(String(m).toLowerCase())<0) o[m]=(o[m]||0)+1; }); });
-  var ks=Object.keys(o); if(!ks.length) return '';
-  return '<div class="lbl">Trucks tied to a mill name that is gone</div><p class="small">These trucks are stuck on an old mill name. Pick the mill they go to now.</p>'+ks.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+o[k]+' truck'+(o[k]===1?'':'s')+')</span><select aria-label="Move trucks from '+esc(k)+' to">'+uniqMills(f.mills).map(function(m){ return '<option>'+esc(m)+'</option>'; }).join('')+'</select><button class="btn sm" type="button" data-act="fixMillTrucks" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('');
+  var ks=Object.keys(o), h='';
+  if(ks.length) h+='<div class="lbl">Trucks tied to a mill name that is gone</div><p class="small">These trucks are stuck on an old mill name. Pick the mill they go to now.</p>'+ks.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+o[k]+' truck'+(o[k]===1?'':'s')+')</span><select aria-label="Move trucks from '+esc(k)+' to">'+opts+'</select><button class="btn sm" type="button" data-act="fixMillTrucks" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('');
+  if(mls.length){
+    var lo=(S.loadOrph||{})[f.id];
+    h+='<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="scanLoadMills" data-farm="'+esc(f.id)+'">'+(lo&&lo.busy?'Checking...':'Check logged loads for old mill names')+'</button></div>';
+    if(lo && lo.found){ var lk=Object.keys(lo.found);
+      h+=lk.length ? '<p class="small">These loads have a mill name that is not in the list. Pick the mill they belong to.</p>'+lk.map(function(k){ return '<div class="addrow" data-orph="1"><span style="flex:1">'+esc(k)+' ('+lo.found[k]+' load'+(lo.found[k]===1?'':'s')+')</span><select aria-label="Move loads from '+esc(k)+' to">'+opts+'</select><button class="btn sm" type="button" data-act="fixLoadMills" data-farm="'+esc(f.id)+'" data-old="'+esc(k)+'">Move</button></div>'; }).join('') : '<p class="small">All logged loads match a mill in the list.</p>'; }
+  }
+  return h;
 }
 async function fixMillTrucks(fid,old,nv,box){
   var ts=S.trucks.filter(function(t){ return t.farm===fid && (t.mills||[]).indexOf(old)>=0; }); if(!ts.length||!nv) return;
   try{
     await Promise.all(ts.map(function(t){ var nm=[]; t.mills.forEach(function(x){ var y=x===old?nv:x; if(nm.indexOf(y)<0) nm.push(y); }); t.mills=nm; return dref('trucks/'+t.id).update({ mills:nm }); }));
-    last.farms=''; last.board=''; schedule(); toast(ts.length+' truck'+(ts.length===1?'':'s')+' moved to '+nv+'.');
+    last.farms=''; last.board=''; schedule(); toast(ts.length+' truck'+(ts.length===1?'':'s')+' moved to '+nv+'. Use Check logged loads for old mill names if loads show No mill.');
   }catch(e){ fail(e); }
 }
 async function renameMill(fid,old){
@@ -3546,7 +3566,7 @@ async function renameMill(fid,old){
   try{
     await dref('farms/'+fid).update(patch);
     await Promise.all(tchg.map(function(t){ return dref('trucks/'+t.id).update({ mills:t.mills }); }));
-    toast(old+' is now '+nv+'. Trucks keep their mill. Loads already logged keep the old name.');
+    toast(old+' is now '+nv+'. Updating its logged loads...'); moveLoadMills(fid,old,nv).then(function(n){ toast(old+' is now '+nv+'. Trucks and '+n+' logged load'+(n===1?'':'s')+' follow it.'); });
   }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); tchg.forEach(function(t,i){ t.mills=tbefore[i]; }); S.dest.mill=dbefore; last.board=''; schedule(); fail(e); }
 }
 function renameItem(kind,old){
@@ -3644,6 +3664,8 @@ document.addEventListener('click', function(e){
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
     case 'listsOpen': openLists(false); break;
     case 'listsClose': S.lists=false; renderQuick(); break;
+    case 'scanLoadMills': scanLoadMills(el.getAttribute('data-farm')); break;
+    case 'fixLoadMills': { var bx2=el.closest('[data-orph]'), sl2=bx2&&bx2.querySelector('select'), fo=el.getAttribute('data-farm'), od=el.getAttribute('data-old'); if(sl2&&sl2.value){ toast('Updating the loads...'); moveLoadMills(fo,od,sl2.value).then(function(n){ toast(n+' load'+(n===1?'':'s')+' moved to '+sl2.value+'.'); scanLoadMills(fo); }); } break; }
     case 'fixMillTrucks': { var bx=el.closest('[data-orph]'), sl=bx&&bx.querySelector('select'); fixMillTrucks(el.getAttribute('data-farm'),el.getAttribute('data-old'),sl&&sl.value); break; }
     case 'renMillSetup': renameMill(el.getAttribute('data-farm'),el.getAttribute('data-v')); break;
     case 'renField': renameItem('Field',el.getAttribute('data-v')); break;
