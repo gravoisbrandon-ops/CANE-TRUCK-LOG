@@ -2885,25 +2885,52 @@ function renderSetup(){
     }).join('');
   }
   setOptions($('#tFarm'), S.farms.length ? S.farms.map(function(f){ return [f.id,f.name]; }) : [['','Add a farm first']]);
-  var rsig=JSON.stringify([S.trucks.map(function(t){ return [t.id,t.no,t.farm,t.hauler,t.mills]; }),S.farms.map(function(f){ return [f.id,f.name,f.mills]; }),confirmKey]);
+  var rsig=JSON.stringify([S.trucks.map(function(t){ return [t.id,t.no,t.farm,t.hauler,t.mills]; }),S.farms.map(function(f){ return [f.id,f.name,f.mills]; }),confirmKey,S.batch&&[S.batch.sel,S.batch.mills,S.batch.farm]]);
   if(rsig!==last.roster){
     last.roster=rsig;
     var out='';
     if(!S.trucks.length) out='<p class="small">No trucks yet. Add the first one above.</p>';
+    var B=lead?S.batch:null;
     var row=function(t, note){
       var key='delTruck:'+t.id;
+      if(B) return '<label class="ros-row" data-st="empty" style="cursor:pointer"><input type="checkbox" data-act="batchPick" data-id="'+esc(t.id)+'"'+(B.sel[t.id]?' checked':'')+' style="width:22px;height:22px;margin-right:8px"><span class="plate">'+esc(t.no)+'</span><span class="info"><span class="l2">'+esc(note||[t.hauler||'No hauler named', isRestricted(t)?'Only '+allowedMills(t).join(' / '):''].filter(Boolean).join(' · '))+'</span></span></label>';
       return '<div class="ros-row" data-st="empty"><span class="plate">'+esc(t.no)+'</span><span class="info"><span class="l2">'+esc(note||[t.hauler||'No hauler named', isRestricted(t)?'Only '+allowedMills(t).join(' / '):''].filter(Boolean).join(' · '))+'</span></span>'+
         '<span class="acts"><button class="btn ghost sm" type="button" data-act="editTruck" data-id="'+esc(t.id)+'">Edit</button>'+(lead?'<button class="btn warn sm" type="button" data-act="delTruck" data-id="'+esc(t.id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>':'')+'</span></div>';
     };
     S.farms.forEach(function(f){
       var mine=S.trucks.filter(function(t){ return t.farm===f.id; });
       if(!mine.length) return;
-      out+='<div class="lbl" style="margin-top:8px">'+esc(f.name)+' · '+mine.length+'</div>'+mine.map(function(t){ return row(t); }).join('');
+      out+='<div class="lbl" style="margin-top:8px;display:flex;align-items:center;gap:10px"><span style="flex:1">'+esc(f.name)+' · '+mine.length+'</span>'+(B?'<button class="btn ghost sm" type="button" data-act="batchAll" data-farm="'+esc(f.id)+'">'+(mine.every(function(t){ return B.sel[t.id]; })?'Clear':'Select all')+'</button>':'')+'</div>'+mine.map(function(t){ return row(t); }).join('');
     });
+    if(lead && S.trucks.length) out=batchPanel(B)+out;
     var orphans=S.trucks.filter(function(t){ return !farmById(t.farm); });
     if(orphans.length) out+='<div class="lbl" style="margin-top:8px">Farm was removed</div>'+orphans.map(function(t){ return row(t,'Edit to move it to a farm'); }).join('');
     $('#roster').innerHTML=out;
   }
+}
+function batchPanel(B){
+  if(!B) return '<div class="addrow" style="margin:0 0 8px"><button class="btn ghost sm" type="button" data-act="batchOn">Batch edit trucks</button></div>';
+  var ids=Object.keys(B.sel).filter(function(k){ return B.sel[k] && truckById(k); }), ts=ids.map(truckById);
+  var farms={}; ts.forEach(function(t){ farms[t.farm]=1; });
+  var fk=Object.keys(farms), one=fk.length===1?fk[0]:'', ml=one?millsOf(one):[];
+  var h='<div class="card" style="margin:0 0 10px;gap:8px;display:flex;flex-direction:column"><b>Batch edit · '+ids.length+' selected</b><p class="small">Tick the trucks below, then apply a change to all of them at once.</p>';
+  if(ids.length){
+    h+='<div class="lbl">Mills these trucks can haul to</div>';
+    if(!one) h+='<p class="small">Select trucks from one farm to set mills.</p>';
+    else if(ml.length<2) h+='<p class="small">This farm has fewer than two mills, so there is nothing to restrict.</p>';
+    else h+='<div class="chips">'+ml.map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-act="batchMill" data-v="'+esc(m)+'"'+(B.mills[m]?' checked':'')+'>'+esc(m)+'</label>'; }).join('')+'</div><div class="addrow"><button class="btn sm" type="button" data-act="batchApplyMills">Apply mills</button><button class="btn ghost sm" type="button" data-act="batchAnyMill">Any mill</button></div>';
+    h+='<label class="f">Hauler name<input type="text" id="bHauler" maxlength="40" value="'+esc(B.hauler||'')+'" placeholder="Leave blank to clear"></label><div class="addrow"><button class="btn sm" type="button" data-act="batchApplyHauler">Apply hauler</button></div>';
+    if(S.isAdmin&&S.farms.length>1) h+='<label class="f">Move to farm<select id="bFarm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'">'+esc(f.name)+'</option>'; }).join('')+'</select></label><div class="addrow"><button class="btn sm" type="button" data-act="batchApplyFarm">Move trucks</button></div>';
+    h+='<div class="addrow"><button class="btn warn sm" type="button" data-act="batchDel">'+(confirmKey==='batchDel'?'Tap again to remove '+ids.length:'Remove selected')+'</button></div>';
+  }
+  h+='<div class="addrow"><button class="btn ghost sm" type="button" data-act="batchOff">Done</button></div></div>';
+  return h;
+}
+async function batchRun(fn,msg){
+  var B=S.batch; if(!B||!isLead()) return;
+  var ts=Object.keys(B.sel).filter(function(k){ return B.sel[k]; }).map(truckById).filter(Boolean);
+  if(!ts.length){ toast('Tick at least one truck.'); return; }
+  try{ await Promise.all(ts.map(fn)); toast(msg.replace('#',ts.length)); last.roster=''; last.board=''; schedule(); }catch(e){ fail(e); }
 }
 function renderTruckMills(checked){
   var farm=$('#tFarm').value, all=farm?millsOf(farm):[], wrap=$('#tMillsWrap');
@@ -3766,6 +3793,27 @@ document.addEventListener('click', function(e){
       renderSetup(); $('#tFarm').value=t.farm||''; renderTruckMills(t.mills||[]); syncTruckForm();
       $('#truckForm').scrollIntoView({block:'center'}); $('#tNo').focus(); break;
     case 'cancelEdit': resetTruckForm(); break;
+    case 'batchOn': S.batch={sel:{},mills:{},hauler:'',farm:''}; last.roster=''; schedule(); break;
+    case 'batchOff': S.batch=null; last.roster=''; schedule(); break;
+    case 'batchPick': if(S.batch){ var bid=el.getAttribute('data-id'); S.batch.sel[bid]=!S.batch.sel[bid]; S.batch.mills={}; last.roster=''; schedule(); } break;
+    case 'batchAll': if(S.batch){ var bm=S.trucks.filter(function(t){ return t.farm===el.getAttribute('data-farm'); }), allOn=bm.every(function(t){ return S.batch.sel[t.id]; }); bm.forEach(function(t){ S.batch.sel[t.id]=!allOn; }); S.batch.mills={}; last.roster=''; schedule(); } break;
+    case 'batchMill': if(S.batch){ S.batch.mills[el.getAttribute('data-v')]=el.checked; } break;
+    case 'batchApplyMills':
+      var bch=Object.keys(S.batch.mills).filter(function(k){ return S.batch.mills[k]; });
+      if(!bch.length){ toast('Tick the mills, or tap Any mill.'); break; }
+      batchRun(function(t){ var all=millsOf(t.farm); var v=bch.length>=all.length?[]:bch.slice(); t.mills=v; return dref('trucks/'+t.id).update({ mills:v }); },'Mills set on # trucks'); break;
+    case 'batchAnyMill': batchRun(function(t){ t.mills=[]; return dref('trucks/'+t.id).update({ mills:[] }); },'# trucks can haul to any mill'); break;
+    case 'batchApplyHauler':
+      var bh=($('#bHauler')||{}).value||''; bh=bh.trim(); S.batch.hauler=bh;
+      batchRun(function(t){ t.hauler=bh; return dref('trucks/'+t.id).update({ hauler:bh }); },'Hauler set on # trucks'); break;
+    case 'batchApplyFarm':
+      var bf=($('#bFarm')||{}).value; if(!bf) break;
+      batchRun(function(t){ t.farm=bf; t.mills=[]; return dref('trucks/'+t.id).update({ farm:bf, mills:[] }); },'# trucks moved (mill limits cleared)'); break;
+    case 'batchDel':
+      if(isLead() && confirmTap('batchDel')){
+        var dl=Object.keys(S.batch.sel).filter(function(k){ return S.batch.sel[k]; });
+        Promise.all(dl.map(function(id){ return dref('trucks/'+id).delete(); })).then(function(){ S.batch.sel={}; toast(dl.length+' trucks removed'); last.roster=''; schedule(); }).catch(fail);
+      } break;
     case 'delTruck':
       var tid=el.getAttribute('data-id');
       if(isLead() && confirmTap('delTruck:'+tid)) dref('trucks/'+tid).delete().then(function(){ toast('Truck removed'); }).catch(fail);
