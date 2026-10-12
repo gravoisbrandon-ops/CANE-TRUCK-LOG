@@ -2495,7 +2495,7 @@ async function sgFetch(){
     });
   });
   SG.loading=false;
-  SG.msg=(nLoads||nEnt) ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(farms.some(function(f){ return f.millStart && Object.keys(f.millStart).length; })?' Days before a mill\'s start date are left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
+  SG.msg=(nLoads||nEnt) ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
   sgSave(); sgRender();
 }
 document.addEventListener('input',function(e){
@@ -2745,9 +2745,7 @@ function dtFarmEntries(farm,day){ return (SG.dayTotals||[]).filter(function(e){ 
 /* an entry covers a load when every part the entry names (track, field, mill) matches the load */
 function dtCovers(e,x){ return (!e.track || (x.track||'')===e.track) && (!e.field || (x.field||'')===e.field) && (!e.mill || (x.mill||'')===e.mill); }
 /* one day of one farm: typed totals stand in for the loads they cover; every other load counts as logged */
-function millStartOf(farm,mill){ var f=farmById(farm), m=f&&f.millStart; if(!m||!mill) return ''; if(m[mill]) return m[mill]; var k=Object.keys(m).filter(function(x){ return x.trim().toLowerCase()===String(mill).trim().toLowerCase(); })[0]; return k?m[k]:''; }
-function dayCombine(farm,day,rows,noEntries){ return dayCombine0(farm,day,rows,noEntries).filter(function(it){ var st=millStartOf(farm,it.mill); return !(st && day<st); }); }
-function dayCombine0(farm,day,rows,noEntries){
+function dayCombine(farm,day,rows,noEntries){
   var ents=noEntries?[]:dtFarmEntries(farm,day), g={}, out=[];
   rows.forEach(function(x){
     if(ents.some(function(e){ return dtCovers(e,x); })) return;
@@ -3526,15 +3524,8 @@ async function renameMill(fid,old){
   ['haulerMills'].forEach(function(k){ if(f[k]) patch[k]=f[k].map(function(x){ return x===old?nv:x; }); });
   ['haulerMillCodes','millColors','millStart'].forEach(function(k){ if(f[k] && f[k][old]!=null){ var o=Object.assign({},f[k]); o[nv]=o[old]; delete o[old]; patch[k]=o; } });
   var before={}; Object.keys(patch).forEach(function(k){ before[k]=f[k]; f[k]=patch[k]; });
-  var tchg=S.trucks.filter(function(t){ return t.farm===fid && (t.mills||[]).indexOf(old)>=0; }), tbefore=tchg.map(function(t){ return t.mills; });
-  tchg.forEach(function(t){ t.mills=t.mills.map(function(x){ return x===old?nv:x; }); });
-  var dbefore=S.dest.mill; if(S.dest.mill===old) S.dest.mill=nv;
   last.board=''; last.report=''; schedule(); if(S.lists) renderLists();
-  try{
-    await dref('farms/'+fid).update(patch);
-    await Promise.all(tchg.map(function(t){ return dref('trucks/'+t.id).update({ mills:t.mills }); }));
-    toast(old+' is now '+nv+'. Trucks keep their mill. Loads already logged keep the old name.');
-  }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); tchg.forEach(function(t,i){ t.mills=tbefore[i]; }); S.dest.mill=dbefore; last.board=''; schedule(); fail(e); }
+  try{ await dref('farms/'+fid).update(patch); toast(old+' is now '+nv+'. Loads already logged keep the old name.'); }catch(e){ Object.keys(before).forEach(function(k){ f[k]=before[k]; }); fail(e); }
 }
 function renameItem(kind,old){
   var key=kind==='Field'?'fields':kind==='Variety'?'varieties':'tracks', f=farmById(S.farmId); if(!f) return;
