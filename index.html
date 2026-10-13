@@ -82,6 +82,9 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .holdbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .num:active:not([disabled]){transform:scale(.97)}
 .num[disabled]{opacity:.5;cursor:not-allowed}
+.num[data-needmill]{opacity:.5}
+@keyframes mflash{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 4px #d68910}}
+#selMill.flash{animation:mflash .6s 2}
 .big .num{min-height:120px} .big .num b{font-size:56px}
 
 /* loads list */
@@ -795,7 +798,7 @@ async function logLoad(t){
   if(rl && Date.now()-rl<S.route*60000 && !confirmTap('again:'+t.id)) return;
   var mill=truckMill(t);
   if(mill===null){
-    toast(S.dest.mill ? 'Truck '+t.no+' only goes to '+allowedMills(t).join(' or ')+'.' : 'Pick the mill first.'); return;
+    toast(S.dest.mill ? 'Truck '+t.no+' only goes to '+allowedMills(t).join(' or ')+'.' : 'Pick the mill first, at the top of the Board.'); var sm=$('#selMill'); if(sm&&!S.dest.mill){ sm.classList.add('flash'); try{ sm.scrollIntoView({block:'center'}); }catch(x){} setTimeout(function(){ sm.classList.remove('flash'); },1300); } return;
   }
   var now=Date.now();
   if(S.lastTap[t.id] && now-S.lastTap[t.id]<2000){ toast('Truck '+t.no+' was just logged.'); return; }
@@ -1058,7 +1061,7 @@ function renderBoard(){
     var needPick = !S.dest.mill && waiting.some(function(t){ return truckMill(t)===null; });
     var tile=function(t, recent){
       var p=per[t.id], again=recent && confirmKey==='again:'+t.id, rt=recent==='route';
-      var off=(!S.canWrite || (!S.boardEdit && !recent && truckMill(t)===null)) ? ' disabled' : '';
+      var off=!S.canWrite ? ' disabled' : ((!S.boardEdit && !recent && truckMill(t)===null) ? ' aria-disabled="true" data-needmill="1"' : '');
       var tag=isRestricted(t) ? allowedMills(t).join(' / ') : '', nd=truckNewDay(t,prev), isNew=!recent && nd, numNew=nd, numW=!!(p && p.w && recent), dim=!recent && !truckVisible(t,prev);
       var sub = recent ? (again ? 'Tap again to load again' : esc(timeOf(p.last))+(p.n>1?' · ×'+p.n:'')+(rt&&p.w?' · '+f1(p.tons)+' t':'')+(tag?' · '+esc(tag):'')) : (p ? '×'+p.n+' today' : (isNew?'New today':esc(tag)));
       return '<button type="button" class="num'+(rt?' route':(recent?' recent':''))+(again?' again':'')+'"'+(isNew?' style="border-color:'+newColor(t.farm)+';border-width:3px"':(dim?' style="opacity:.55"':''))+(rt?' style="'+(p.w ? millStyle(t.farm,p.mill)+';color:'+weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.55)' : millStyle(t.farm,p.mill))+'"':'')+' data-act="log" data-id="'+esc(t.id)+'" data-n="'+(p?p.n:0)+'"'+off+' aria-label="Truck '+esc(t.no)+(tag?', goes to '+esc(tag):'')+(recent?(rt?', on the way, loaded at ':', just loaded at ')+esc(timeOf(p.last))+', tap twice to load again':(p?', loaded '+p.n+' time'+(p.n>1?'s':'')+' today':''))+'"><b'+(numNew?' style="background:'+newColor(t.farm)+';color:'+(numW?weighedColor(t.farm)+';text-shadow:0 0 2px rgba(0,0,0,.7)':'#0E1511')+';border-radius:8px;padding:0 12px"':'')+'>'+esc(t.no)+'</b><span>'+sub+'</span></button>';
@@ -1799,13 +1802,14 @@ function pdfBurn(){
 }
 function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
+  var scope=vw==='*'?'all':vw, ck=sgCheck(scope), cl=SG.cmp[scope]&&SG.cmp[scope].label;
+  if(ck.run.length){ secs.push({ h:(cl?cl+' · ':'')+'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); }
   var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
   var rr2=[], tl=0, plan2=0, rem2=0, noE=false;
   S.farms.forEach(function(f){ if(vw!=='*' && f.id!==vw) return; var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(!r) return; plan2+=r.plan; rem2+=r.rem; if(r.left!=null) tl+=r.left; else noE=true; rr2.push([f.name,f1(r.plan),f1(r.done),f1(r.rem),r.est!=null?r.est.toFixed(2):'',r.left!=null?sgNf(r.left):'',(sgFin(r).finTpa!=null?r.finTpa.toFixed(2):''),(r.finLpa!=null?sgNf(r.finLpa):'')]); });
   if(rr2.length){ if(rr2.length>1) rr2.push(['All farms',f1(plan2),f1(plan2-rem2),f1(rem2),'',noE?'':sgNf(tl),'','']); secs.push({ h:'Left to harvest and ship' }); secs.push({ head:['Farm','Acres to harvest','Harvested','Remaining','Est. tons/acre','Est. tons left','Finish tons/acre','Finish lb sugar/acre'], rows:rr2, bold:rr2.length>1?[rr2.length-1]:undefined }); }
-  var scope=vw==='*'?'all':vw, ck=sgCheck(scope);
-  if(ck.run.length){ secs.push({ h:'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); secs.push({ h:'Running average, start to each checkpoint (newest first)' }); secs.push({ head:ck.runHead, rows:ck.run.filter(function(r){ return !/not saved/.test(r[0]); }) }); }
+  if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint (newest first)' }); secs.push({ head:ck.runHead, rows:ck.run.filter(function(r){ return !/not saved/.test(r[0]); }) }); }
   pdfShare('Cane Track',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('cane-track-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*');
 }
 function pdfReport(which){
@@ -2436,7 +2440,7 @@ function sgCmpOut(scope){
   var c=sgCheck(scope); if(!c.run.length && !c.items.some(function(x){ return !x.cur; })) return '<p class="small">Save a set at the end of a day to make the first checkpoint. Numbers typed on screen show here as the next checkpoint.</p>';
   var T=function(head,rows){ return '<div class="tablewrap"><table><thead><tr>'+head.map(function(h,i){ return '<th'+(i?' class="n"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+rows.map(function(r){ return '<tr>'+r.map(function(x,i){ return '<td'+(i?' class="n"':'')+'>'+esc(x)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>'; };
   var pr=c.pr, box=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+esc(v)+'</b></div>'; };
-  return '<div class="lbl">Results since '+esc(c.A.date)+(c.A.id==='zero'?' (start of harvest)':'')+' to '+esc(c.B.date)+(pr.days!=null?' · '+pr.days+' day'+(pr.days===1?'':'s'):'')+'</div>'+
+  return '<div class="lbl">'+((SG.cmp[scope]&&SG.cmp[scope].label)?esc(SG.cmp[scope].label)+' · ':'')+'Results since '+esc(c.A.date)+(c.A.id==='zero'?' (start of harvest)':'')+' to '+esc(c.B.date)+(pr.days!=null?' · '+pr.days+' day'+(pr.days===1?'':'s'):'')+'</div>'+
     '<div class="stats">'+box('New acres',pr.acres)+box('Tons hauled',pr.tons)+box('Avg TRS',pr.trs)+box('Tons per acre',pr.tpa)+box('Lb sugar per acre',pr.lpa)+'</div>'+
     '<p class="small">New acres and tons are the later total minus the earlier total. Tons per acre and lb sugar per acre divide the new tons and new sugar by the new acres. Period TRS = (new tons x new TRS minus old tons x old TRS) / new tons. A * means the acres did not change, so the total acres were used.</p>'+
     '<div class="lbl" style="margin-top:12px">Running average, start to each checkpoint (newest first)</div>'+T(c.runHead,c.run);
@@ -2444,11 +2448,20 @@ function sgCmpOut(scope){
 function sgMonths(scope){ var z=sgZeroDate(scope), t=today(), out=[], y=Number(z.slice(0,4)), m=Number(z.slice(5,7)), ty=Number(t.slice(0,4)), tm=Number(t.slice(5,7));
   while(y<ty || (y===ty && m<=tm)){ out.push(y+'-'+(m<10?'0':'')+m); m++; if(m>12){ m=1; y++; } if(out.length>24) break; } return out.reverse(); }
 function sgMonthName(ym){ var d=new Date(Number(ym.slice(0,4)),Number(ym.slice(5,7))-1,1); return d.toLocaleDateString([],{month:'long',year:'numeric'}); }
+function sgWeeks(scope){ var z=sgZeroDate(scope), t=today(), out=[], d=z; var dow=new Date(d+'T12:00:00').getDay(); d=addDays(d,-dow);
+  while(d<=t && out.length<60){ out.push(d); d=addDays(d,7); } return out.reverse(); }
+function sgWeekName(ws){ var f=function(x){ return new Date(x+'T12:00:00').toLocaleDateString([],{month:'short',day:'numeric'}); }; return 'Week of '+f(ws)+' to '+f(addDays(ws,6)); }
+function sgPickWeek(scope,ws){
+  var items=sgItems(scope).filter(function(x){ return !x.cur || x.valid; }), last=addDays(ws,6), z={ id:'zero', date:sgZeroDate(scope) };
+  var inW=items.filter(function(x){ return x.date<=last; }), B=inW[inW.length-1];
+  var before=items.filter(function(x){ return x.date<ws; }), A=before[before.length-1]||z;
+  var c=SG.cmp[scope]||(SG.cmp[scope]={}); c.a=A.id; c.b=B?B.id:undefined; c.label=sgWeekName(ws); if(!B) toast('No data saved for '+sgWeekName(ws).toLowerCase()+' yet.');
+}
 function sgPickMonth(scope,ym){
   var items=sgItems(scope).filter(function(x){ return !x.cur || x.valid; }), first=ym+'-01', last=ym+'-31', z={ id:'zero', date:sgZeroDate(scope) };
   var inM=items.filter(function(x){ return x.date<=last; }), B=inM[inM.length-1];
   var before=items.filter(function(x){ return x.date<first; }), A=before[before.length-1]||z;
-  var c=SG.cmp[scope]||(SG.cmp[scope]={}); c.a=A.id; c.b=B?B.id:undefined; if(!B) toast('No data logged in '+sgMonthName(ym)+' yet.');
+  var c=SG.cmp[scope]||(SG.cmp[scope]={}); c.a=A.id; c.b=B?B.id:undefined; delete c.label; if(!B) toast('No data logged in '+sgMonthName(ym)+' yet.');
 }
 function sgCmpRender(){
   var els=document.querySelectorAll('[data-sgcmp]');
@@ -2456,12 +2469,12 @@ function sgCmpRender(){
     var el=els[q], scope=el.getAttribute('data-sgcmp'), items=sgItems(scope), sel=sgSel(scope,items), z0=sgZeroDate(scope);
     var saved=items.filter(function(x){ return !x.cur; }).reverse();
     var opts=function(cur,from){ return (items[items.length-1]?'<option value="cur"'+(cur==='cur'?' selected':'')+'>Numbers on screen</option>':'')+saved.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===cur?' selected':'')+'>'+esc(x.date)+'</option>'; }).join('')+'<option value="zero"'+(cur==='zero'?' selected':'')+'>Start of harvest ('+esc(z0)+')</option>'; };
-    el.innerHTML='<div class="toolbar"><label class="f">By month<select data-sgcq="1" data-scope="'+esc(scope)+'"><option value="">Pick a month…</option>'+sgMonths(scope).map(function(m){ return '<option value="'+m+'">'+esc(sgMonthName(m))+'</option>'; }).join('')+'</select></label></div><div class="toolbar"><label class="f">Since<select data-sgcs="a" data-scope="'+esc(scope)+'">'+opts(sel.a.id)+'</select></label><label class="f">To<select data-sgcs="b" data-scope="'+esc(scope)+'">'+opts(sel.b.id)+'</select></label></div><div data-sgcmpout="'+esc(scope)+'"></div>';
+    el.innerHTML='<div class="toolbar"><label class="f">By month<select data-sgcq="1" data-scope="'+esc(scope)+'"><option value="">Pick a month…</option>'+sgMonths(scope).map(function(m){ return '<option value="'+m+'">'+esc(sgMonthName(m))+'</option>'; }).join('')+'</select></label><label class="f">By week<select data-sgcw="1" data-scope="'+esc(scope)+'"><option value="">Pick a week…</option>'+sgWeeks(scope).map(function(w){ return '<option value="'+w+'">'+esc(sgWeekName(w))+'</option>'; }).join('')+'</select></label></div><div class="toolbar"><label class="f">Since<select data-sgcs="a" data-scope="'+esc(scope)+'">'+opts(sel.a.id)+'</select></label><label class="f">To<select data-sgcs="b" data-scope="'+esc(scope)+'">'+opts(sel.b.id)+'</select></label></div><div data-sgcmpout="'+esc(scope)+'"></div>';
     sgCmpOutRender(scope);
   }
 }
 function sgCmpOutRender(scope){ var o=document.querySelector('[data-sgcmpout="'+scope+'"]'); if(o) o.innerHTML=sgCmpOut(scope); }
-document.addEventListener('change',function(e){ var el=e.target; if(el&&el.getAttribute&&el.getAttribute('data-sgcq')){ if(el.value){ sgPickMonth(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } var k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; sgCmpOutRender(sc); });
+document.addEventListener('change',function(e){ var el=e.target; if(el&&el.getAttribute&&el.getAttribute('data-sgcw')){ if(el.value){ sgPickWeek(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } if(el&&el.getAttribute&&el.getAttribute('data-sgcq')){ if(el.value){ sgPickMonth(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } var k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; delete SG.cmp[sc].label; sgCmpOutRender(sc); });
 function sgDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:sgCsv(list) }); }
 async function sgFetch(){
   if(!S.db){ toast('Sign in first.'); return; }
@@ -2869,11 +2882,12 @@ function renderSetup(){
       return '<article class="card farm'+(S.setupOpen['f'+f.id]===undefined?(S.farms.length===1?'':' col'):(S.setupOpen['f'+f.id]?'':' col'))+'" data-sk="f'+esc(f.id)+'"><header><h3>'+esc(f.name)+(lead?'':' · tracks and fields')+'</h3>'+(adm?'<button type="button" class="btn warn sm" data-act="delFarm" data-farm="'+esc(f.id)+'">'+(confirmKey===key?'Tap again to remove':'Remove farm')+'</button>':'')+'</header>'+
         (lead?'<p class="small">'+n+' truck'+(n===1?'':'s')+' on this farm</p>':'')+
         (lead?'<div class="lbl">Mills</div><div class="chips">'+chips(uniqMills(f.mills),'Mill','None yet. Add each mill this farm hauls to.')+'</div>'+
-        '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+orphanHtml(f)+(uniqMills(f.mills).length?'<div class="lbl">Mill start dates</div><p class="small">The day each mill starts grinding. The Board shows it next to the mill until that day arrives.</p>'+uniqMills(f.mills).map(function(m){ return '<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:4px 0"><span style="flex:1">'+esc(m)+'</span><input type="date" class="mstart" data-farm="'+esc(f.id)+'" data-v="'+esc(m)+'" value="'+esc((f.millStart&&f.millStart[m])||'')+'" aria-label="Start date for '+esc(m)+'" style="width:auto"></label>'; }).join(''):'')+'':'')+
+        '<form class="addrow" data-form="addMill" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Mill name" aria-label="New mill for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+orphanHtml(f)+(uniqMills(f.mills).length?'<div class="lbl">Mill start dates</div><p class="small">The day each mill starts grinding. Pick the date, then tap Set. Nothing is saved until you tap Set. The Board shows it next to the mill until that day arrives.</p>'+uniqMills(f.mills).map(function(m){ return '<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:4px 0"><span style="flex:1">'+esc(m)+'</span><input type="date" class="mstart" data-farm="'+esc(f.id)+'" data-v="'+esc(m)+'" value="'+esc((f.millStart&&f.millStart[m])||'')+'" aria-label="Start date for '+esc(m)+'" style="width:auto"><button class="btn sm" type="button" data-act="setMillStart" data-farm="'+esc(f.id)+'" data-v="'+esc(m)+'">Set</button>'+((f.millStart&&f.millStart[m])?'<button class="btn ghost sm" type="button" data-act="clearMillStart" data-farm="'+esc(f.id)+'" data-v="'+esc(m)+'">Clear</button>':'')+'</label>'; }).join(''):'')+'':'')+
         (lead?'<label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="wcolor" data-farm="'+esc(f.id)+'" value="'+weighedColor(f.id)+'" aria-label="Weighed number color"><span>Weighed number color <span class="small">(the truck keeps its mill color, and its number turns this color once its weight comes in)</span></span></label><label class="f" style="flex-direction:row;align-items:center;gap:10px;margin:10px 0"><input type="color" class="ncolor" data-farm="'+esc(f.id)+'" value="'+newColor(f.id)+'" aria-label="New truck number color"><span>New truck number color <span class="small">(a truck that is new for the day gets its number highlighted in this color)</span></span></label>':'')+
         (adm?'<div class="lbl">Truck ID at the mill</div><p class="small">Some mills (for example Lula Westfield and Lafourche) know a truck by the hauler number and the truck number, like 54-154. Enter the hauler number and tick those mills. The Board keeps the 3 digit number. The Report (by truck and load log) shows just 54-154 for loads going to the ticked mills, and the CSV has a Mill truck ID column. Each farm has its own hauler number, so another farm like Armant sets its own number on its own card.</p>'+
           '<label class="f">Hauler number<input type="text" maxlength="6" inputmode="numeric" data-hc="'+esc(f.id)+'" value="'+esc(f.haulerCode||'')+'" placeholder="e.g. 54"></label>'+
           '<div class="chips">'+((f.mills||[]).map(function(m){ return '<label class="chip" style="gap:6px"><input type="checkbox" data-hm="'+esc(f.id)+'" data-v="'+esc(m)+'"'+((f.haulerMills||[]).indexOf(m)>=0?' checked':'')+'>'+esc(m)+'</label>'; }).join('')||'<span class="small">Add the mills first.</span>')+'</div>'+(f.haulerMills||[]).filter(function(m){ return (f.mills||[]).indexOf(m)>=0; }).map(function(m){ return '<label class="f">Number for '+esc(m)+' <span class="small">(blank = hauler number above)</span><input type="text" maxlength="6" data-hmc="'+esc(f.id)+'" data-v="'+esc(m)+'" value="'+esc((f.haulerMillCodes||{})[m]||'')+'" placeholder="'+esc(f.haulerCode||'')+'"></label>'; }).join(''):'')+
+        (lead&&S.farms.length>1?'<div class="lbl">Copy from another farm</div><p class="small">Adds the other farm\'s tracks, fields or varieties to this one. Names already here are skipped. Nothing is removed from either farm.</p><div class="addrow"><select data-cpsrc="'+esc(f.id)+'" aria-label="Copy from farm">'+S.farms.filter(function(x){ return x.id!==f.id; }).map(function(x){ return '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>'; }).join('')+'</select></div><div class="addrow"><button class="btn ghost sm" type="button" data-act="cpList" data-key="tracks" data-farm="'+esc(f.id)+'">Copy tracks</button><button class="btn ghost sm" type="button" data-act="cpList" data-key="fields" data-farm="'+esc(f.id)+'">Copy fields</button><button class="btn ghost sm" type="button" data-act="cpList" data-key="varieties" data-farm="'+esc(f.id)+'">Copy varieties</button></div>':'')+
         '<div class="lbl">Tracks</div><div class="chips">'+chips(f.tracks,'Track','None yet. Tracks are optional.')+'</div>'+
         '<form class="addrow" data-form="addTrack" data-farm="'+esc(f.id)+'" autocomplete="off"><input type="text" maxlength="40" placeholder="Track, like Johnson" aria-label="New track for '+esc(f.name)+'"><button class="btn sm" type="submit">Add</button></form>'+
         (lead?'<div class="addrow" style="margin-top:6px"><button class="btn ghost sm" type="button" data-act="addEdgardTracts" data-farm="'+esc(f.id)+'">Add the Edgard tracts</button></div>':'')+
@@ -3793,6 +3807,19 @@ document.addEventListener('click', function(e){
       renderSetup(); $('#tFarm').value=t.farm||''; renderTruckMills(t.mills||[]); syncTruckForm();
       $('#truckForm').scrollIntoView({block:'center'}); $('#tNo').focus(); break;
     case 'cancelEdit': resetTruckForm(); break;
+    case 'cpList':
+      var cpf=el.getAttribute('data-farm'), cpk=el.getAttribute('data-key'), cps=document.querySelector('select[data-cpsrc="'+cpf+'"]'), cpo=cps&&farmById(cps.value);
+      if(!cpo){ toast('Pick a farm to copy from.'); break; }
+      var cpn=0; editList(cpf,cpk,function(arr){ var have=arr.map(function(x){ return String(x).toLowerCase(); }); (cpo[cpk]||[]).forEach(function(x){ if(have.indexOf(String(x).toLowerCase())<0){ arr.push(x); have.push(String(x).toLowerCase()); cpn++; } }); return arr; });
+      toast(cpn?cpn+' '+cpk+' copied from '+cpo.name:'Nothing new to copy from '+cpo.name); break;
+    case 'setMillStart': case 'clearMillStart':
+      var msf=farmById(el.getAttribute('data-farm')); if(!msf) break;
+      var msk=el.getAttribute('data-v'), msi=null; document.querySelectorAll('input.mstart').forEach(function(i){ if(i.getAttribute('data-farm')===msf.id && i.getAttribute('data-v')===msk) msi=i; });
+      var msv=a==='clearMillStart'?'':(msi&&msi.value)||''; if(a==='setMillStart' && !msv){ toast('Pick a date first.'); break; }
+      var msm=Object.assign({}, msf.millStart||{}); if(msv) msm[msk]=msv; else delete msm[msk];
+      msf.millStart=msm; last.board=''; last.farms=''; schedule();
+      dref('farms/'+msf.id).update({ millStart:msm }).then(function(){ toast(msv?msk+' starts '+msv:'Start date cleared'); }).catch(fail);
+      break;
     case 'batchOn': S.batch={sel:{},mills:{},hauler:'',farm:''}; last.roster=''; schedule(); break;
     case 'batchOff': S.batch=null; last.roster=''; schedule(); break;
     case 'batchPick': if(S.batch){ var bid=el.getAttribute('data-id'); S.batch.sel[bid]=!S.batch.sel[bid]; S.batch.mills={}; last.roster=''; schedule(); } break;
@@ -3832,12 +3859,6 @@ document.addEventListener('change', function(e){
     var wf=farmById(e.target.getAttribute('data-farm')); if(!wf) return;
     wf.weighedColor=e.target.value; last.board=''; schedule();
     dref('farms/'+wf.id).update({ weighedColor:e.target.value }).catch(fail);
-  }
-  else if(e.target.classList && e.target.classList.contains('mstart')){
-    var sf=farmById(e.target.getAttribute('data-farm')); if(!sf) return;
-    var ms=Object.assign({}, sf.millStart||{}), mk=e.target.getAttribute('data-v'); if(e.target.value) ms[mk]=e.target.value; else delete ms[mk];
-    sf.millStart=ms; last.board=''; schedule();
-    dref('farms/'+sf.id).update({ millStart:ms }).catch(fail);
   }
   else if(e.target.classList && e.target.classList.contains('mcolor')){
     var mf=farmById(e.target.getAttribute('data-farm')); if(!mf) return;
