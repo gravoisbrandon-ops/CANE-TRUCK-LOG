@@ -1712,14 +1712,14 @@ function pdfBuild(title, sub, secs, landscape){
   txt(M,y+8,pdfT(sub+'  ·  made '+new Date().toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})),false,9,0.35); y+=20;
   secs.forEach(function(sc){
     if(sc.img){ var iw=sc.w||240, ih=sc.hh||240; need(ih+6); imgs.push(sc.img); ops.push('q '+iw+' 0 0 '+ih+' '+M+' '+(PH-y-ih).toFixed(2)+' cm /Im'+(imgs.length-1)+' Do Q'); y+=ih+8; }
-    else if(sc.h!=null){ need(36); y+=8; txt(M,y+10,pdfT(sc.h),true,11,0); y+=18; }
+    else if(sc.h!=null){ need(40); y+=14; txt(M,y+10,pdfT(sc.h),true,11,0); y+=15; rect(M,y,CW,0.6,[0.8,0.82,0.8]); y+=6; }
     else if(sc.p!=null){ var ls=pdfWrap(pdfT(sc.p),false,8.5,CW); ls.forEach(function(l){ need(12); txt(M,y+9,l,false,8.5,0.35); y+=11; }); y+=4; }
     else if(sc.stats){
       var colW=CW/2;
       for(var i=0;i<sc.stats.length;i+=2){ need(16); [sc.stats[i],sc.stats[i+1]].forEach(function(st,k){ if(!st) return; var x=M+k*colW; txt(x,y+10,pdfT(st[0]),false,9,0.35); txt(x+colW-14,y+10,pdfT(st[1]),true,10,0,'r'); }); y+=16; }
       y+=6;
     } else if(sc.head){
-      var n=sc.head.length, head=sc.head.map(pdfT), rows=sc.rows.map(function(r){ return r.map(pdfT); }), bold=sc.bold||[], fs=8, pad=3, lh=10, numc=function(i){ return i>0 && sc.num!==false; };
+      var n=sc.head.length, head=sc.head.map(pdfT), rows=sc.rows.map(function(r){ return r.map(pdfT); }), bold=sc.bold||[], fs=8.5, pad=4, lh=11, numc=function(i){ return i>0 && sc.num!==false; };
       var maxw=[], minw=[];
       for(var c=0;c<n;c++){ var all=[head[c]].concat(rows.map(function(r){ return r[c]||''; })), mx=0, mn=0; all.forEach(function(t){ mx=Math.max(mx,pdfW(t,true,fs)); t.split(' ').forEach(function(w){ mn=Math.max(mn,pdfW(w,true,fs)); }); }); maxw.push(mx+2*pad); minw.push(Math.min(mn+2*pad,mx+2*pad)); }
       var sumMax=maxw.reduce(function(a,b){ return a+b; },0), sumMin=minw.reduce(function(a,b){ return a+b; },0), cw=[];
@@ -1729,14 +1729,14 @@ function pdfBuild(title, sub, secs, landscape){
       var drawRow=function(cells,isHead,isBold,shade){
         var lines=cells.map(function(t,i){ return pdfWrap(t||'',isHead||isBold,fs,cw[i]-2*pad); }), h=Math.max.apply(null,lines.map(function(l){ return l.length; }))*lh+2*pad;
         if(y+h>PH-M-14){ np(); if(!isHead) drawRow(head,true,true,false); }
-        if(isHead) rect(M,y,CW,h,[0.13,0.21,0.17]); else if(shade) rect(M,y,CW,h,[0.957,0.965,0.953]);
-        var x=M; lines.forEach(function(ls,i){ ls.forEach(function(l,li){ var ty=y+pad+9+li*lh; if(numc(i)) txt(x+cw[i]-pad,ty,l,isHead||isBold,fs,isHead?1:0,'r'); else txt(x+pad,ty,l,isHead||isBold,fs,isHead?1:0); }); x+=cw[i]; });
+        if(isHead) rect(M,y,CW,h,[0.93,0.945,0.935]); else rect(M,y+h-0.4,CW,0.4,[0.88,0.89,0.88]);
+        var x=M; lines.forEach(function(ls,i){ ls.forEach(function(l,li){ var ty=y+pad+9+li*lh; if(numc(i)) txt(x+cw[i]-pad,ty,l,isHead||isBold,fs,isHead?0.25:0,'r'); else txt(x+pad,ty,l,isHead||isBold,fs,isHead?0.25:0); }); x+=cw[i]; });
         y+=h;
       };
       need(40); drawRow(head,true,true,false);
-      if(!rows.length){ need(14); txt(M+pad,y+12,'Nothing logged.',false,8,0.35); y+=16; }
+      if(!rows.length){ need(14); txt(M+pad,y+12,'None.',false,8,0.35); y+=16; }
       rows.forEach(function(r,ri){ drawRow(r,false,bold.indexOf(ri)>=0,ri%2===1); });
-      y+=10;
+      y+=14;
     }
   });
   /* assemble the PDF file */
@@ -1769,7 +1769,7 @@ function pdfSections(root){
       }
       if(cl.contains('stats')){ var st=[].map.call(c.querySelectorAll('.stat'),function(x){ var l=x.querySelector('.lbl'), b=x.querySelector('b'); return [l?l.textContent:'', b?b.textContent:'']; }); if(st.length) out.push({ stats:st }); [].forEach.call(c.querySelectorAll(':scope > p'),function(p){ out.push({ p:p.textContent }); }); continue; }
       if(cl.contains('lbl') || /^H[1-4]$/.test(tag)){ out.push({ h:c.textContent }); continue; }
-      if(tag==='P' || cl.contains('small') && !c.children.length){ if(c.textContent.trim()) out.push({ p:c.textContent }); continue; }
+      if(tag==='P' || cl.contains('small') && !c.children.length){ if(c.textContent.trim() && c.textContent.trim().length<=90 && !cl.contains('rnote')) out.push({ p:c.textContent }); continue; }
       walk(c);
     }
   })(root);
@@ -1803,9 +1803,9 @@ function pdfBurn(){
 function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
   var scope=vw==='*'?'all':vw, ck=sgCheck(scope), cl=SG.cmp[scope]&&SG.cmp[scope].label;
-  if(ck.run.length){ secs.push({ h:(cl?cl+' · ':'')+'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); }
-  var sh=sgN(SG.share); secs.push({ p:'Each mill: tons hauled x TRS x liquidation. Mills combine into the farm'+(vw==='*'?', and the farms combine into the total':'')+'.'+(sh!=null?' Grower share '+sh+'%.':'') });
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
+  if(ck.run.length){ secs.push({ h:(cl?cl+' · ':'')+'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); }
+  var sh=sgN(SG.share); if(sh!=null) secs.push({ p:'Grower share '+sh+'%.' });
   var rr2=[], tl=0, plan2=0, rem2=0, noE=false;
   S.farms.forEach(function(f){ if(vw!=='*' && f.id!==vw) return; var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(!r) return; plan2+=r.plan; rem2+=r.rem; if(r.left!=null) tl+=r.left; else noE=true; rr2.push([f.name,f1(r.plan),f1(r.done),f1(r.rem),r.est!=null?r.est.toFixed(2):'',r.left!=null?sgNf(r.left):'',(sgFin(r).finTpa!=null?r.finTpa.toFixed(2):''),(r.finLpa!=null?sgNf(r.finLpa):'')]); });
   if(rr2.length){ if(rr2.length>1) rr2.push(['All farms',f1(plan2),f1(plan2-rem2),f1(rem2),'',noE?'':sgNf(tl),'','']); secs.push({ h:'Left to harvest and ship' }); secs.push({ head:['Farm','Acres to harvest','Harvested','Remaining','Est. tons/acre','Est. tons left','Finish tons/acre','Finish lb sugar/acre'], rows:rr2, bold:rr2.length>1?[rr2.length-1]:undefined }); }
@@ -3424,6 +3424,12 @@ function renderAll_(){
   per.forEach(function(s){ if(!(s.f.mills||[]).length) return; s.rows.forEach(function(x){ var k=s.f.name+' · '+(x.mill||'No mill set'); mk[k]=(mk[k]||0)+1; }); });
   var mrows=Object.keys(mk).sort().map(function(k){ return [esc(k),mk[k]]; });
   if(mrows.length) html+='<div class="lbl">'+esc(sLbl)+' by mill</div>'+tbl(['Farm · Mill','Loaded'],mrows);
+  var wsA=weighedOf(all)>0;
+  [['track','No track set','track','Track'],['field','No field set','field','Field'],['variety','No variety set','cane variety','Variety']].forEach(function(g){
+    if(!all.some(function(x){ return x[g[0]]; })) return;
+    var tl=tally(all,function(x){ return x[g[0]]||g[1]; });
+    html+='<div class="lbl">'+esc(sLbl)+' by '+g[2]+', all farms together</div>'+tbl([g[3],'Loaded'].concat(wsA?['Tons','Avg t/load']:[]),tl.map(function(r){ return [esc(r.k),r.n].concat(wsA?[f1(r.t),r.u?f1(r.t/r.u):'–']:[]); }));
+  });
   body.innerHTML=html;
 }
 async function exportCombCsv(){
