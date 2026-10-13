@@ -416,6 +416,12 @@ td.n,th.n{text-align:right}
         <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
+      <div class="card col" id="backupCard" data-sk="backupCard" hidden>
+        <h2>Backup</h2>
+        <p class="small">Saves a copy of everything to this phone as one file: farms, trucks, every logged load this harvest, and your saved sets, burn logs and other tools. Tap Prepare, wait for it to finish, then tap Save to phone. Keep the file somewhere safe, like Files or iCloud. Do this once a week.</p>
+        <div class="addrow"><button class="btn" type="button" data-act="bkPrep" id="bkPrep">Prepare backup</button><button class="btn" type="button" data-act="bkSave" id="bkSave" hidden>Save to phone</button></div>
+        <p class="small" id="bkMsg"></p>
+      </div>
       <div class="card col" id="trucksCard" data-sk="trucksCard">
         <h2>Trucks</h2>
         <p class="small">Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.</p>
@@ -2870,7 +2876,7 @@ function renderMe(){
 /* ---------- setup ---------- */
 function renderSetup(){
   var adm=isOffice(), lead=isLead();
-  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead;
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead; $('#backupCard').hidden=!S.isAdmin;
   var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm+':'+(t.mills||[]).join(','); }),confirmKey,S.loadOrph||{}]);
   if(fsig!==last.farms){
     last.farms=fsig;
@@ -3466,6 +3472,45 @@ async function editList(farmId, key, fn){
   if(S.lists) renderLists(); last.report=''; 
   try{ await dref('farms/'+farmId).update(patch); }catch(e){ f[key]=before; fail(e); }
 }
+var BK={ busy:false, blob:null, name:'' };
+async function bkPrepare(){
+  if(BK.busy || !S.isAdmin) return;
+  var msg=$('#bkMsg'), say=function(t){ if(msg) msg.textContent=t; };
+  BK.busy=true; BK.blob=null; $('#bkSave').hidden=true; $('#bkPrep').disabled=true; say('Reading farms and trucks...');
+  try{
+    var out={ app:'Cane Truck Log backup', made:new Date().toISOString(), by:(S.profile&&S.profile.name)||'', farms:S.farms, trucks:S.trucks, tools:[], loads:{} };
+    out.tools=docs(await col('tools').get());
+    var jobs=[], t=today();
+    S.farms.forEach(function(f){ var st=harvestStartFor(f); for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; jobs.push([f.id,d]); } });
+    var i=0, done=0, fails=0, nLoads=0;
+    async function w(){
+      while(i<jobs.length){
+        var j=jobs[i++];
+        try{ var rows=docs(await col(loadsPath(j[0],j[1])).limit(1000).get()); if(rows.length){ (out.loads[j[0]]=out.loads[j[0]]||{})[j[1]]=rows; nLoads+=rows.length; } }catch(e){ fails++; }
+        done++; if(done%5===0 || done===jobs.length) say('Reading loads... '+done+' of '+jobs.length+' days');
+      }
+    }
+    await Promise.all([w(),w(),w(),w()]);
+    if(fails){ say(fails+' day'+(fails===1?'':'s')+' could not be read. Tap Prepare backup to try again.'); }
+    else{
+      BK.name='cane-truck-log-backup-'+t+'.json';
+      BK.blob=new Blob([JSON.stringify(out)],{type:'application/json'});
+      say('Ready: '+S.farms.length+' farm'+(S.farms.length===1?'':'s')+', '+S.trucks.length+' trucks, '+nLoads+' loads. Tap Save to phone.');
+      $('#bkSave').hidden=false;
+    }
+  }catch(e){ say('Could not make the backup. Check your connection and try again.'); }
+  BK.busy=false; $('#bkPrep').disabled=false;
+}
+async function bkSavePhone(){
+  if(!BK.blob) return;
+  var file=null; try{ file=new File([BK.blob],BK.name,{type:'application/json'}); }catch(e){}
+  try{
+    if(file && navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:'Cane Truck Log backup'}); toast('Backup saved'); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  var a=document.createElement('a'), url=URL.createObjectURL(BK.blob);
+  a.href=url; a.download=BK.name; document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); },1000); toast('Backup downloaded');
+}
 async function saveTruck(){
   var raw=$('#tNo').value.trim(), farm=$('#tFarm').value, hauler=$('#tHauler').value.trim();
   if(!raw){ toast('Enter a truck number.'); return; }
@@ -3817,6 +3862,8 @@ document.addEventListener('click', function(e){
       renderSetup(); $('#tFarm').value=t.farm||''; renderTruckMills(t.mills||[]); syncTruckForm();
       $('#truckForm').scrollIntoView({block:'center'}); $('#tNo').focus(); break;
     case 'cancelEdit': resetTruckForm(); break;
+    case 'bkPrep': bkPrepare(); break;
+    case 'bkSave': bkSavePhone(); break;
     case 'approvePerson':
       if(!S.isAdmin) break;
       rpc('person_set',{ p_user:el.getAttribute('data-user'), p_role:'crew', p_farm:el.getAttribute('data-farm'), p_mill:'' }).then(function(){ toast('Approved. They are in.'); loadPeople(); }).catch(fail); break;
