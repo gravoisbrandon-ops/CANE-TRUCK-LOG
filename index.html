@@ -421,6 +421,16 @@ td.n,th.n{text-align:right}
         <p class="small">Saves a copy of everything to this phone as one file: farms, trucks, every logged load this harvest, and your saved sets, burn logs and other tools. Tap Prepare, wait for it to finish, then tap Save to phone. Keep the file somewhere safe, like Files or iCloud. Do this once a week.</p>
         <div class="addrow"><button class="btn" type="button" data-act="bkPrep" id="bkPrep">Prepare backup</button><button class="btn" type="button" data-act="bkSave" id="bkSave" hidden>Save to phone</button></div>
         <p class="small" id="bkMsg"></p>
+        <div class="lbl" style="margin-top:12px">Restore from a backup</div>
+        <p class="small">Pick a backup file from this phone. You will see what is in it before anything changes.</p>
+        <label class="f">Backup file<input type="file" id="bkFile" accept=".json,application/json"></label>
+        <div id="bkRestoreBox" hidden>
+          <p class="small" id="bkPreview"></p>
+          <label class="small" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="bkOver"> Also replace items that exist now with the backup version</label>
+          <p class="small">Unchecked, only what is missing is put back and nothing current is touched. Nothing is ever deleted either way.</p>
+          <div class="addrow"><button class="btn warn" type="button" data-act="bkRestore" id="bkRestore">Restore</button></div>
+        </div>
+        <p class="small" id="bkRMsg"></p>
       </div>
       <div class="card col" id="trucksCard" data-sk="trucksCard">
         <h2>Trucks</h2>
@@ -3501,6 +3511,56 @@ async function bkPrepare(){
   }catch(e){ say('Could not make the backup. Check your connection and try again.'); }
   BK.busy=false; $('#bkPrep').disabled=false;
 }
+var BKR=null;
+function bkRead(file){
+  BKR=null; $('#bkRestoreBox').hidden=true; $('#bkRMsg').textContent='';
+  if(!file) return;
+  var rd=new FileReader();
+  rd.onerror=function(){ $('#bkRMsg').textContent='Could not read that file.'; };
+  rd.onload=function(){
+    var d=null; try{ d=JSON.parse(rd.result); }catch(e){}
+    if(!d || d.app!=='Cane Truck Log backup' || !Array.isArray(d.farms) || !Array.isArray(d.trucks)){ $('#bkRMsg').textContent='That is not a Cane Truck Log backup file.'; return; }
+    var n=0, days=0; Object.keys(d.loads||{}).forEach(function(f){ Object.keys(d.loads[f]).forEach(function(day){ days++; n+=d.loads[f][day].length; }); });
+    BKR=d;
+    $('#bkPreview').textContent='Backup made '+new Date(d.made).toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})+': '+d.farms.length+' farm'+(d.farms.length===1?'':'s')+', '+d.trucks.length+' trucks, '+n+' loads over '+days+' farm-days, '+(d.tools||[]).length+' saved tool sets.';
+    $('#bkOver').checked=false; $('#bkRestoreBox').hidden=false; $('#bkRestore').textContent='Restore';
+  };
+  rd.readAsText(file);
+}
+async function bkRestoreRun(){
+  if(!BKR || !S.isAdmin || BK.busy) return;
+  if(!confirmTap('bkRestore')){ $('#bkRestore').textContent='Tap again to restore'; return; }
+  var over=$('#bkOver').checked, say=function(t){ $('#bkRMsg').textContent=t; }, d=BKR, put=0, skip=0, fails=0;
+  BK.busy=true; $('#bkRestore').disabled=true;
+  var clean=function(o){ var c=Object.assign({},o); delete c.id; return c; };
+  async function setDoc(path,id,o,exists){
+    if(exists && !over){ skip++; return; }
+    try{ await dref(path).set(clean(o)); put++; }catch(e){ fails++; }
+  }
+  try{
+    say('Restoring farms and trucks...');
+    var haveF={}, haveT={}; S.farms.forEach(function(f){ haveF[f.id]=1; }); S.trucks.forEach(function(t){ haveT[t.id]=1; });
+    for(var i=0;i<d.farms.length;i++) await setDoc('farms/'+d.farms[i].id,d.farms[i].id,d.farms[i],haveF[d.farms[i].id]);
+    for(var j=0;j<d.trucks.length;j++) await setDoc('trucks/'+d.trucks[j].id,d.trucks[j].id,d.trucks[j],haveT[d.trucks[j].id]);
+    var haveTool={}; try{ docs(await col('tools').get()).forEach(function(x){ haveTool[x.id]=1; }); }catch(e){}
+    for(var k=0;k<(d.tools||[]).length;k++) await setDoc('tools/'+d.tools[k].id,d.tools[k].id,d.tools[k],haveTool[d.tools[k].id]);
+    var jobs=[]; Object.keys(d.loads||{}).forEach(function(f){ Object.keys(d.loads[f]).forEach(function(day){ jobs.push([f,day]); }); });
+    var q=0, dn=0;
+    async function w(){
+      while(q<jobs.length){
+        var jb=jobs[q++], rows=d.loads[jb[0]][jb[1]], have={};
+        try{ docs(await col(loadsPath(jb[0],jb[1])).limit(1000).get()).forEach(function(x){ have[x.id]=1; }); }catch(e){}
+        for(var r=0;r<rows.length;r++) await setDoc(loadsPath(jb[0],jb[1])+'/'+rows[r].id,rows[r].id,rows[r],have[rows[r].id]);
+        dn++; if(dn%3===0 || dn===jobs.length) say('Restoring loads... '+dn+' of '+jobs.length+' days');
+      }
+    }
+    await Promise.all([w(),w(),w()]);
+    say('Done. '+put+' item'+(put===1?'':'s')+' put back'+(skip?', '+skip+' already here and left alone':'')+(fails?', '+fails+' could not be restored':'')+'.');
+    last.board=''; last.farms=''; last.roster=''; last.report=''; schedule();
+  }catch(e){ say('Restore stopped. Check your connection and try again. It is safe to run it again.'); }
+  BK.busy=false; $('#bkRestore').disabled=false; $('#bkRestore').textContent='Restore';
+}
+document.addEventListener('change',function(e){ if(e.target && e.target.id==='bkFile') bkRead(e.target.files&&e.target.files[0]); });
 async function bkSavePhone(){
   if(!BK.blob) return;
   var file=null; try{ file=new File([BK.blob],BK.name,{type:'application/json'}); }catch(e){}
@@ -3864,6 +3924,7 @@ document.addEventListener('click', function(e){
     case 'cancelEdit': resetTruckForm(); break;
     case 'bkPrep': bkPrepare(); break;
     case 'bkSave': bkSavePhone(); break;
+    case 'bkRestore': bkRestoreRun(); break;
     case 'approvePerson':
       if(!S.isAdmin) break;
       rpc('person_set',{ p_user:el.getAttribute('data-user'), p_role:'crew', p_farm:el.getAttribute('data-farm'), p_mill:'' }).then(function(){ toast('Approved. They are in.'); loadPeople(); }).catch(fail); break;
