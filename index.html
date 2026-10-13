@@ -305,6 +305,7 @@ td.n,th.n{text-align:right}
     <section id="view-pending" hidden aria-label="Waiting for approval">
       <div class="card empty">
         <h2>Waiting for approval</h2>
+        <p id="pendNote" class="small" hidden></p>
         <p>Your account is made. To join a farm, paste the invite code or link your crew manager or farm owner sent you. Or start your own portal for your own farms.</p>
         <label class="f">Have an invite code or link?<input type="text" id="joinCode" maxlength="200" placeholder="Paste it here" autocomplete="off"></label>
         <button class="btn" type="button" data-act="joinCode">Join my farm</button>
@@ -874,7 +875,8 @@ function loadLocalProfile(){
 function saveProfile(){ lsSet('cane-truck-log:profile', JSON.stringify(S.profile)); }
 function applyWho(w, nm){
   S.authed=true;
-  S.pending = w.status!=='ok';
+  S.pending = w.status!=='ok'; S.pendFarm = (w.status!=='ok' && w.farm) ? (w.farm_name||'the farm') : '';
+  var pnote=$('#pendNote'); if(pnote){ pnote.hidden=!S.pendFarm; pnote.textContent=S.pendFarm?('Your request to join '+S.pendFarm+' was sent. An administrator has to approve it. This page checks on its own, so you can leave it open.'):''; }
   S.portal = w.portal||''; S.isOwner = !!w.owner; S.platform = !!w.platform; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
@@ -3210,7 +3212,7 @@ async function loadPeople(){
   if(!isLead()) return;
   try{
     P=await rpc('people_list',{});
-    if(S.isOwner){
+    if(S.isAdmin){
       var pn=P.filter(function(p){ return p.role==='pending'; }), ids=pn.map(function(p){ return p.user_id; });
       if(S.seenPend){ var fresh=pn.filter(function(p){ return S.seenPend.indexOf(p.user_id)<0; }); if(fresh.length) toast(fresh.length===1?((fresh[0].name||fresh[0].email)+' is waiting to join.'):(fresh.length+' people are waiting to join.')); }
       S.seenPend=ids;
@@ -3317,7 +3319,7 @@ function personRow(p, adm, view){
   var locked=(!adm && p.role==='admin') || p.owner;
   return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+(p.owner?' <span class="edited">main administrator</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
     (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+millSel+'</div>')+'</div>'+
-    (locked?'':'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':'Remove')+'</button>')+'</div>';
+    (locked?'':'<div style="display:flex;flex-direction:column;gap:6px">'+(adm&&p.role==='pending'&&p.farm?'<button class="btn sm" type="button" data-act="approvePerson" data-user="'+esc(p.user_id)+'" data-farm="'+esc(p.farm)+'">Approve</button>':'')+'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':(p.role==='pending'?'Decline':'Remove'))+'</button></div>')+'</div>';
 }
 function allMills(){ var o=[]; S.farms.forEach(function(f){ o=o.concat(f.mills||[]); }); return uniqMills(o).sort(); }
 function roleName(r){ return r==='mill'?'Mill field manager':r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
@@ -3343,6 +3345,8 @@ function renderAccess(){
   } else if(adm){
     var cf=farmById(S.farmId), crewAll=P.filter(function(p){ return p.role==='crew'||p.role==='manager'; });
     h+='<div class="lbl">Assigned to '+esc(cf?cf.name:'this farm')+'</div><p class="small"><span class="on-dot"></span>= logged on right now. Use the farm switcher at the top to see another farm.</p>';
+    var wtA=P.filter(function(p){ return p.role==='pending'; });
+    if(wtA.length) h='<div class="lbl">Waiting to join</div>'+wtA.map(rowEdit).join('')+h;
     var mine=cf?crewAll.filter(function(p){ return p.farm===cf.id; }):[];
     h+= mine.length ? mine.map(rowEdit).join('') : '<p class="small">No one is assigned to this farm yet.</p>';
     var others=S.farms.filter(function(f){ return !cf || f.id!==cf.id; });
@@ -3813,6 +3817,9 @@ document.addEventListener('click', function(e){
       renderSetup(); $('#tFarm').value=t.farm||''; renderTruckMills(t.mills||[]); syncTruckForm();
       $('#truckForm').scrollIntoView({block:'center'}); $('#tNo').focus(); break;
     case 'cancelEdit': resetTruckForm(); break;
+    case 'approvePerson':
+      if(!S.isAdmin) break;
+      rpc('person_set',{ p_user:el.getAttribute('data-user'), p_role:'crew', p_farm:el.getAttribute('data-farm'), p_mill:'' }).then(function(){ toast('Approved. They are in.'); loadPeople(); }).catch(fail); break;
     case 'cpList':
       var cpf=el.getAttribute('data-farm'), cpk=el.getAttribute('data-key'), cps=document.querySelector('select[data-cpsrc="'+cpf+'"]'), cpo=cps&&farmById(cps.value);
       if(!cpo){ toast('Pick a farm to copy from.'); break; }
