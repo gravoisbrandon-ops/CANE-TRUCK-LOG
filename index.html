@@ -1567,7 +1567,7 @@ window.addEventListener('message',function(ev){
 function ycToday0(){ var d=new Date(), p=function(n){ return (n<10?'0':'')+n; }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 var YC={ farm:'', field:'', variety:'', stub:'', yr:String(new Date().getFullYear()), date:'', fyr:'', w:'72', rows:'1', ft:0, st:'idle', last:null, wid:null, unit:'ton', wt:'', acres:'', samples:[], lock:null, msg:'', on:false };
 try{ YC.samples=JSON.parse(lsGet('cane-truck-log:yield')||'[]')||[]; var _yp=JSON.parse(lsGet('cane-truck-log:yieldset')||'{}'); if(_yp.w) YC.w=_yp.w; if(_yp.rows) YC.rows=_yp.rows; if(_yp.unit) YC.unit=_yp.unit; if(_yp.acres) YC.acres=_yp.acres; if(_yp.variety) YC.variety=_yp.variety; if(_yp.stub) YC.stub=_yp.stub; if(_yp.field) YC.field=_yp.field; if(_yp.farm) YC.farm=_yp.farm; if(_yp.ft>0){ YC.ft=_yp.ft; YC.st=(_yp.st==='run'||_yp.st==='pause')?'pause':(_yp.st||'idle'); if(YC.st==='pause') YC.msg='Distance held. Press Resume to keep measuring, or Mark B to finish.'; } if(_yp.wt) YC.wt=_yp.wt; if(_yp.date && _yp.date===ycToday0()) YC.date=_yp.date; if(_yp.yr) YC.yr=_yp.yr; }catch(e){}
-function ycSave(){ lsSet('cane-truck-log:yield',JSON.stringify(YC.samples)); lsSet('cane-truck-log:yieldset',JSON.stringify({w:YC.w,rows:YC.rows,unit:YC.unit,acres:YC.acres,variety:YC.variety,stub:YC.stub,field:YC.field,farm:YC.farm,ft:YC.ft,st:YC.st,wt:YC.wt,date:YC.date,yr:YC.yr})); }
+function ycSave(){ lsSet('cane-truck-log:yield',JSON.stringify(YC.samples)); if(YCS.loaded) ycPersist(); lsSet('cane-truck-log:yieldset',JSON.stringify({w:YC.w,rows:YC.rows,unit:YC.unit,acres:YC.acres,variety:YC.variety,stub:YC.stub,field:YC.field,farm:YC.farm,ft:YC.ft,st:YC.st,wt:YC.wt,date:YC.date,yr:YC.yr})); }
 var YC_STUB=[['','Not set'],['Plant cane','Plant cane'],['1st stubble','1st stubble'],['2nd stubble','2nd stubble'],['3rd stubble','3rd stubble'],['4th stubble or older','4th stubble or older']];
 function ycToday(){ var d=new Date(), p=function(n){ return (n<10?'0':'')+n; }; return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
 function ycMeta(){
@@ -1583,7 +1583,30 @@ function ycMeta(){
 function ycArea(){ var w=Number(YC.w), r=Number(YC.rows)||1; return (w>0 && YC.ft>0) ? YC.ft*(w/12)*r/43560 : 0; }
 function ycTons(){ var v=Number(YC.wt); if(!(v>0)) return 0; return YC.unit==='lb' ? v/2000 : v; }
 function ycFmt(n,d){ return isFinite(n) ? n.toLocaleString(undefined,{minimumFractionDigits:d,maximumFractionDigits:d}) : '–'; }
-function ycShow(){ if(!$('#ycRoot').firstChild) ycRender(); }
+var YCS={ loaded:false, sig:'', docs:{}, t:null };
+/* Yield passes are shared per farm, so administrators see every farm's passes */
+function ycPersist(){
+  if(!S.db || !S.authed || S.pending) return;
+  var sig=JSON.stringify(YC.samples.map(function(x){ return [x.at,x.farm]; })); if(sig===YCS.sig) return; YCS.sig=sig;
+  clearTimeout(YCS.t); YCS.t=setTimeout(function(){
+    var by={}; YC.samples.forEach(function(x){ if(x.farm) (by[x.farm]=by[x.farm]||[]).push(x); });
+    var jobs=[];
+    if(S.isAdmin){ S.farms.forEach(function(f){ if(by[f.id] || YCS.docs[f.id]){ YCS.docs[f.id]=1; jobs.push(dref('tools/yield-'+f.id).set({ entries:by[f.id]||[] })); } }); }
+    else if(S.crewFarm && (S.isMgr)){ jobs.push(dref('tools/yield-'+S.crewFarm).set({ entries:by[S.crewFarm]||[] })); }
+    Promise.all(jobs).catch(function(){});
+  },800);
+}
+async function ycLoad(){
+  YCS.loaded=true;
+  try{
+    var all=docs(await col('tools').get()), m={}, add=0;
+    YC.samples.forEach(function(x){ m[x.at+'|'+x.farm]=1; });
+    all.filter(function(x){ return x.id.indexOf('yield-')===0; }).forEach(function(d){ YCS.docs[d.id.slice(6)]=1; (d.entries||[]).forEach(function(e){ var k=e.at+'|'+e.farm; if(!m[k]){ m[k]=1; YC.samples.push(e); add++; } }); });
+    if(add){ lsSet('cane-truck-log:yield',JSON.stringify(YC.samples)); if($('#ycList')) ycList(); }
+    YCS.sig=''; ycPersist();
+  }catch(e){}
+}
+function ycShow(){ if(!$('#ycRoot').firstChild) ycRender(); if(!YCS.loaded && S.authed && !S.pending) ycLoad(); }
 function ycRender(){
   var h='<div class="card"><h2>Yield check</h2><p class="small">Press Mark A to take the phone location, then drive to point B and press Mark B. Pause for the headland turn so it is not counted. If you leave to check the weight in another app, the distance is held until you come back. Distance times row width is the area cut. Weight divided by that area is the tons per acre.</p>'+ycMeta()+
    '<div class="toolbar"><label class="f">Row width (inches)<input type="number" inputmode="decimal" step="any" list="ycWidths" data-ycf="w" value="'+esc(YC.w)+'"><datalist id="ycWidths"><option value="60"><option value="66"><option value="72"><option value="78"><option value="80"><option value="84"></datalist></label>'+
