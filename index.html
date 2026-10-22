@@ -1848,7 +1848,7 @@ function pdfBurn(){
     if(e.smoke.desc) bsecs.push({ p:e.smoke.desc }); });
   pdfShare('Burn log',(fm&&fm.name)||'',bsecs,pdfName('burn-log-'+((fm&&fm.name)||'')),true);
 }
-function pdfSugar(){
+async function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
   var scope=vw==='*'?'all':vw, ck=sgCheck(scope), cl=SG.cmp[scope]&&SG.cmp[scope].label;
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
@@ -1858,6 +1858,7 @@ function pdfSugar(){
   S.farms.forEach(function(f){ if(vw!=='*' && f.id!==vw) return; var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(!r) return; plan2+=r.plan; rem2+=r.rem; haul2+=r.hauled; if(r.left!=null) tl+=r.left; else noE=true; if(r.proj!=null&&r.per!=null) sug2+=r.proj*r.per; else noS=true; rr2.push([f.name,f1(r.plan),f1(r.done),f1(r.rem),r.est!=null?r.est.toFixed(2):'',f1(r.hauled),r.left!=null?sgNf(r.left):'',r.proj!=null?sgNf(r.proj):'',(sgFin(r).finTpa!=null?r.finTpa.toFixed(2):''),(r.finLpa!=null?sgNf(r.finLpa):'')]); });
   if(rr2.length){ if(rr2.length>1) rr2.push(['All farms combined',f1(plan2),f1(plan2-rem2),f1(rem2),(!noE&&rem2>0)?(tl/rem2).toFixed(2):'',f1(haul2),noE?'':sgNf(tl),noE?'':sgNf(haul2+tl),(!noE&&plan2>0)?((haul2+tl)/plan2).toFixed(2):'',(!noS&&!noE&&plan2>0&&haul2+tl>0)?sgNf((sug2/(haul2+tl))*((haul2+tl)/plan2)):'']); secs.push({ h:'Left to harvest and ship' }); secs.push({ head:['Farm','Acres to harvest','Harvested','Remaining','Remainder est. tons/acre','Tons hauled','Est. tons left','Projected total tons','Finish tons/acre','Finish lb sugar/acre'], rows:rr2, bold:rr2.length>1?[rr2.length-1]:undefined }); }
   if(ck.run.length){ secs.push({ h:'Running average, start to each checkpoint (newest first)' }); secs.push({ head:ck.runHead, rows:ck.run.filter(function(r){ return !/not saved/.test(r[0]); }) }); }
+  secs=secs.concat(await pdfChartSecs(vw==='*'?'*':vw,'How we compare to prior years'));
   pdfShare('Cane Track',vw==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('cane-track-'+(vw==='*'?'all-farms':(fm&&fm.name))),vw==='*'||rr2.length>0);
 }
 function pdfReport(which){
@@ -2254,7 +2255,7 @@ function sgOut(){
     var o=sgFarm(f.id), c=sgCalc(o.rows), ac=sgN(o.acres);
     o.rows.forEach(function(r,i){ var e=$('#sgL_'+f.id+'_'+i); if(e) e.textContent=c.rows[i]!=null ? sgNf(c.rows[i])+' lb sugar' : ''; });
     var el=$('#sgO_'+f.id); if(el) el.innerHTML=sgBoxes(c,ac,sh);
-    var rr=sgRemain(o,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
+    var rr=sgRemain(o,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var cel=$('#sgC_'+f.id); if(cel){ var cs0=swChartsHtml(f.id); if(cel.getAttribute('data-s')!==cs0){ cel.setAttribute('data-s',cs0); cel.innerHTML=cs0; } } var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
     if(rr){ remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; if(rr.proj!=null&&rr.per!=null) remAll.sug+=rr.proj*rr.per; else remAll.noSug=true; remAll.rows.push([f.name,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',f1(rr.hauled),rr.left!=null?sgNf(rr.left):'–',rr.proj!=null?sgNf(rr.proj):'–',sgFin(rr).finTpa!=null?rr.finTpa.toFixed(2):'–',rr.finLpa!=null?sgNf(rr.finLpa):'–']); remAll.n++; }
     all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
     if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
@@ -2341,7 +2342,8 @@ function sgRender(){
       '<label class="f">Remainder est. tons per acre<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="est" data-fid="'+esc(f.id)+'" value="'+esc(o.est||'')+'" placeholder="blank = tons per acre so far"></label>'+
       '<label class="f">Remainder est. TRS<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="estTrs" data-fid="'+esc(f.id)+'" value="'+esc(o.estTrs||'')+'" placeholder="blank = TRS so far"></label></div>'+
       '<div class="stats" id="sgR_'+esc(f.id)+'"></div>'+
-      '<h2 style="margin-top:16px">Projections</h2><div class="stats" id="sgP_'+esc(f.id)+'"></div>'+sgSaveBox(f.id,o.date)+'</div>';
+      '<h2 style="margin-top:16px">Projections</h2><div class="stats" id="sgP_'+esc(f.id)+'"></div>'+
+      '<h2 style="margin-top:16px">How we compare to prior years</h2><div id="sgC_'+esc(f.id)+'"></div>'+sgSaveBox(f.id,o.date)+'</div>';
   });
   if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2><div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined, harvested to date</h2><div class="stats" id="sgAll"></div><h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
   h+='<div class="card"><div class="toolbar"><button class="btn" type="button" data-pdf="sugar">Share PDF report</button><button class="btn ghost" type="button" data-pdf="sugar" data-view="1">View PDF</button></div><p class="small">A PDF of the numbers on this screen, to send by text, email or print.</p></div>';
@@ -2654,19 +2656,79 @@ function seProj(scope){
 }
 function seFmt(v,d){ return v==null||!isFinite(v)?'–':(d?Number(v).toFixed(d):Math.round(v).toLocaleString()); }
 function seChgHtml(cur,prev){ if(cur==null||prev==null||!prev) return ''; var p=(cur-prev)/prev*100; return ' <span class="small" style="color:'+(p>=0?'#2E7D32':'#C62828')+'">'+(p>=0?'+':'')+p.toFixed(1)+'%</span>'; }
-function seChart(items,title,d){
+function seChartSvg(items,title,d,raster){
   var vals=items.filter(function(x){ return x.v!=null; }); if(!vals.length) return '';
   var W=320,H=150,pl=8,pb=26,pt=18,mx=Math.max.apply(null,vals.map(function(x){ return x.v; }))*1.1||1, n=items.length, bw=Math.min(44,(W-pl*2)/n*0.62), step=(W-pl*2)/n;
   var avgs=vals.filter(function(x){ return !x.live; }), av=avgs.length?avgs.reduce(function(s,x){ return s+x.v; },0)/avgs.length:null;
-  var g='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(title)+'" style="width:100%;height:auto;max-width:480px;display:block">';
+  var cc=raster?'#222':'currentColor', g=raster?'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" width="'+(W*3)+'" height="'+(H*3)+'" font-family="Helvetica,Arial,sans-serif"><rect width="'+W+'" height="'+H+'" fill="#fff"/>':'<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(title)+'" style="width:100%;height:auto;max-width:480px;display:block">';
   items.forEach(function(x,i){
     var cx=pl+step*i+step/2; if(x.v==null) return; var bh=(H-pb-pt)*x.v/mx, y=H-pb-bh;
     g+='<rect x="'+(cx-bw/2).toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="3" fill="'+(x.live?'#E0A100':'#2F6FB5')+'"/>'+
-       '<text x="'+cx.toFixed(1)+'" y="'+(y-4).toFixed(1)+'" text-anchor="middle" font-size="9" fill="currentColor">'+esc(seFmt(x.v,d))+'</text>'+
-       '<text x="'+cx.toFixed(1)+'" y="'+(H-10)+'" text-anchor="middle" font-size="9" fill="currentColor">'+esc(x.label)+'</text>';
+       '<text x="'+cx.toFixed(1)+'" y="'+(y-4).toFixed(1)+'" text-anchor="middle" font-size="9" fill="'+cc+'">'+esc(seFmt(x.v,d))+'</text>'+
+       '<text x="'+cx.toFixed(1)+'" y="'+(H-10)+'" text-anchor="middle" font-size="9" fill="'+cc+'">'+esc(x.label)+'</text>';
   });
-  if(av!=null){ var ya=H-pb-(H-pb-pt)*av/mx; g+='<line x1="'+pl+'" x2="'+(W-pl)+'" y1="'+ya.toFixed(1)+'" y2="'+ya.toFixed(1)+'" stroke="currentColor" stroke-dasharray="4 3" stroke-width="1" opacity=".55"/><text x="'+(W-pl)+'" y="'+(ya-3).toFixed(1)+'" text-anchor="end" font-size="8" fill="currentColor" opacity=".8">avg '+esc(seFmt(av,d))+'</text>'; }
-  return '<div class="lbl" style="margin-top:12px">'+esc(title)+'</div>'+g+'</svg>';
+  if(av!=null){ var ya=H-pb-(H-pb-pt)*av/mx; g+='<line x1="'+pl+'" x2="'+(W-pl)+'" y1="'+ya.toFixed(1)+'" y2="'+ya.toFixed(1)+'" stroke="'+cc+'" stroke-dasharray="4 3" stroke-width="1" opacity=".55"/><text x="'+(W-pl)+'" y="'+(ya-3).toFixed(1)+'" text-anchor="end" font-size="8" fill="'+cc+'" opacity=".8">avg '+esc(seFmt(av,d))+'</text>'; }
+  return g+'</svg>';
+}
+function seChart(items,title,d){ var g=seChartSvg(items,title,d,false); return g?'<div class="lbl" style="margin-top:12px">'+esc(title)+'</div>'+g:''; }
+
+function seLineSvg(series,raster){
+  series=series.filter(function(x){ return x.pts.length>1; }); if(!series.length) return '';
+  var W=320,H=200,pl=44,pr=12,pt=30,pb=34, cc=raster?'#222':'currentColor', mxX=0, mxY=0;
+  series.forEach(function(x){ x.pts.forEach(function(q){ if(q[0]>mxX) mxX=q[0]; if(q[1]>mxY) mxY=q[1]; }); }); mxX=mxX||1; mxY=(mxY||1)*1.05;
+  var X=function(v){ return pl+(W-pl-pr)*v/mxX; }, Y=function(v){ return H-pb-(H-pb-pt)*v/mxY; };
+  var g=raster?'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+W+' '+H+'" width="'+(W*3)+'" height="'+(H*3)+'" font-family="Helvetica,Arial,sans-serif"><rect width="'+W+'" height="'+H+'" fill="#fff"/>':'<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Cumulative tons by day of harvest" style="width:100%;height:auto;max-width:480px;display:block">';
+  var i, step=mxX>150?30:mxX>70?14:7;
+  for(i=0;i<=4;i++){ var yv=mxY*i/4; g+='<line x1="'+pl+'" x2="'+(W-pr)+'" y1="'+Y(yv).toFixed(1)+'" y2="'+Y(yv).toFixed(1)+'" stroke="'+cc+'" stroke-width=".5" opacity=".25"/><text x="'+(pl-4)+'" y="'+(Y(yv)+3).toFixed(1)+'" text-anchor="end" font-size="8" fill="'+cc+'">'+esc(seFmt(yv))+'</text>'; }
+  for(i=0;i<=mxX;i+=step) g+='<text x="'+X(i).toFixed(1)+'" y="'+(H-pb+12)+'" text-anchor="middle" font-size="8" fill="'+cc+'">'+i+'</text>';
+  g+='<text x="'+((pl+W-pr)/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="8" fill="'+cc+'" opacity=".8">Days since harvest start</text>';
+  var lx=pl;
+  series.forEach(function(x){
+    g+='<polyline fill="none" stroke="'+x.color+'" stroke-width="'+(x.cur?2.6:1.8)+'" points="'+x.pts.map(function(q){ return X(q[0]).toFixed(1)+','+Y(q[1]).toFixed(1); }).join(' ')+'"/>';
+    var lp=x.pts[x.pts.length-1]; g+='<circle cx="'+X(lp[0]).toFixed(1)+'" cy="'+Y(lp[1]).toFixed(1)+'" r="3" fill="'+x.color+'"/>';
+    g+='<rect x="'+lx+'" y="8" width="10" height="4" fill="'+x.color+'"/><text x="'+(lx+13)+'" y="13" font-size="8.5" fill="'+cc+'">'+esc(x.name)+'</text>'; lx+=13+x.name.length*5+14;
+  });
+  return g+'</svg>';
+}
+function swSeasonKey(date){ var y=Number(date.slice(0,4)), m=Number(date.slice(5,7)); return m<7?y-1:y; }
+/* tons hauled so far by day of harvest: this season against earlier ones */
+function swSeries(sc){
+  if(sc==='*'||sc==='all'||!farmById(sc)) return [];
+  var z=sgZeroDate(sc), curKey=Number(z.slice(0,4)), by={};
+  SG.weekly.filter(function(r){ return r.farm===sc; }).sort(function(a,b){ return a.date<b.date?-1:1; }).forEach(function(r){ var k=swSeasonKey(r.date); (by[k]=by[k]||[]).push({ date:r.date, tons:r.tons }); });
+  var o=sgFarm(sc), c=sgCalc(o.rows); if(c.tons>0){ var cr=by[curKey]=by[curKey]||[], lt=cr.length?cr[cr.length-1]:null; if(!lt || c.tons>lt.tons) cr.push({ date:today(), tons:c.tons }); }
+  var keys=Object.keys(by).map(Number).sort(function(a,b){ return b-a; }).slice(0,3), cols=['#E0A100','#2F6FB5','#8A8F98'];
+  return keys.map(function(k,i){ var st=k+z.slice(4); return { name:k===curKey?(k+' this season'):String(k), color:cols[i%3], cur:k===curKey, pts:[[0,0]].concat(by[k].map(function(r){ return [Math.max(0,sgDays(st,r.date)||0),r.tons]; })) }; });
+}
+/* the charts that show how this season compares: totals by year with this year's projection, and the pace so far */
+function swCharts(sc,raster){
+  var out=[], years=seYears(sc), yd=years.map(function(y){ return seYear(sc,y); }).reverse(), proj=seProj(sc);
+  var mk=function(key,fn){ var it=yd.map(function(x){ return { label:String(x.year), v:fn(x) }; }); if(proj){ var pv=fn(proj); if(pv!=null) it.push({ label:proj.year+' proj', v:pv, live:true }); } return it; };
+  var t=mk('tons',function(x){ return x.tons>0?x.tons:null; }), tp=mk('tpa',function(x){ return x.tpa; }), lp=mk('lpa',function(x){ return x.lpa; });
+  var line=seLineSvg(swSeries(sc),raster);
+  if(line) out.push({ title:'Tons hauled so far, by day of harvest', svg:line, W:320, H:200 });
+  [[t,'Total tons by year',0],[tp,'Tons per acre by year',2],[lp,'Lb sugar per acre by year',0]].forEach(function(c){ var sv=seChartSvg(c[0],c[1],c[2],raster); if(sv) out.push({ title:c[1], svg:sv, W:320, H:150 }); });
+  return out;
+}
+function swChartsHtml(sc){
+  var cs=swCharts(sc,false); if(!cs.length) return '<p class="small">Import your past seasons and weekly history in Tools, Seasons, to compare this season with earlier ones.</p>';
+  return cs.map(function(c){ return '<div class="lbl" style="margin-top:12px">'+esc(c.title)+'</div>'+c.svg; }).join('');
+}
+function svgToJpeg(svg,w,h){
+  return new Promise(function(res){
+    var done=false, fin=function(v){ if(!done){ done=true; res(v); } };
+    try{
+      var img=new Image(), url=URL.createObjectURL(new Blob([svg],{type:'image/svg+xml'}));
+      img.onload=function(){ try{ var cv=document.createElement('canvas'); cv.width=w; cv.height=h; var cx=cv.getContext('2d'); cx.fillStyle='#fff'; cx.fillRect(0,0,w,h); cx.drawImage(img,0,0,w,h); var u=cv.toDataURL('image/jpeg',0.92); URL.revokeObjectURL(url); fin(u.indexOf('data:image/jpeg;base64,')===0?{ bin:atob(u.slice(23)), w:w, h:h }:null); }catch(e){ fin(null); } };
+      img.onerror=function(){ fin(null); }; img.src=url; setTimeout(function(){ fin(null); },4000);
+    }catch(e){ fin(null); }
+  });
+}
+async function pdfChartSecs(sc,heading){
+  var out=[], cs=swCharts(sc,true); if(!cs.length) return out;
+  out.push({ h:heading });
+  for(var i=0;i<cs.length;i++){ var im=await svgToJpeg(cs[i].svg,cs[i].W*3,cs[i].H*3); if(im){ out.push({ p:cs[i].title }); out.push({ img:im, w:340, hh:Math.round(340*cs[i].H/cs[i].W) }); } }
+  return out;
 }
 function seTpl(){ return 'year,farm,acres,tons,trs,liquidation,lb_sugar,notes\n2024,'+((S.farms[0]&&S.farms[0].name)||'My Farm')+',250,7200,205,96,,example row: delete this line\n2023,'+((S.farms[0]&&S.farms[0].name)||'My Farm')+',250,6900,198,96,,\n'; }
 /* read a pasted or uploaded table of past years */
@@ -2778,8 +2840,9 @@ function swHtml(sc){
   var z=sgZeroDate(sc), cur=recs.filter(function(r){ return r.date>=z; }), prev=recs.filter(function(r){ return r.date<z; });
   var n=function(v,d){ return v==null||!isFinite(v)?'–':seFmt(v,d); }, tpa=function(r){ return r.acres>0&&r.tons>0?r.tons/r.acres:null; }, lpa=function(r){ return r.acres>0&&r.tons>0&&r.trs>0?r.tons*r.trs/r.acres:null; };
   var near=function(r){ var t=addDays(r.date,-364), best=null, bd=99; prev.forEach(function(q){ var d=Math.abs(sgDays(t,q.date)); if(d<=4 && d<bd){ bd=d; best=q; } }); return best; };
+  var pace=seLineSvg(swSeries(sc),false); if(pace) box+='<div class="lbl">Tons hauled so far, by day of harvest</div>'+pace;
   if(cur.length){
-    box+='<div class="lbl">This season, with last year at the same week</div>'+tbl(['Week','Acres cut','Tons hauled','Tons/acre','TRS','Lb sugar/acre','Remainder est. TRS','Projected total tons','Last yr tons/acre','Last yr TRS','Last yr projected tons'],cur.map(function(r){ var q=near(r); return [esc(r.date),n(r.acres,1),n(r.tons),n(tpa(r),2),n(r.trs,1),n(lpa(r)),n(r.estTrs,1),r.proj!=null?'<b>'+n(r.proj)+'</b>':'–',q?n(tpa(q),2):'–',q?n(q.trs,1):'–',q&&q.proj!=null?n(q.proj):'–']; }));
+    box+='<div class="lbl" style="margin-top:12px">This season, with last year at the same week</div>'+tbl(['Week','Acres cut','Tons hauled','Tons/acre','TRS','Lb sugar/acre','Remainder est. TRS','Projected total tons','Last yr tons/acre','Last yr TRS','Last yr projected tons'],cur.map(function(r){ var q=near(r); return [esc(r.date),n(r.acres,1),n(r.tons),n(tpa(r),2),n(r.trs,1),n(lpa(r)),n(r.estTrs,1),r.proj!=null?'<b>'+n(r.proj)+'</b>':'–',q?n(tpa(q),2):'–',q?n(q.trs,1):'–',q&&q.proj!=null?n(q.proj):'–']; }));
   }
   if(prev.length){
     var lastY=prev[0], fin=lastY.date.slice(0,4);
@@ -2860,12 +2923,13 @@ document.addEventListener('click',function(e){
   else if(a==='import'){ if(!SE.imp||!SE.imp.ok.length) return; var c0=SE.imp.ok.length; SE.imp.ok.forEach(function(r){ r.src='import'; seSaveRec(Object.assign({},r)); }); SG.logLoaded=true; sgPersist(); SE.msg='Imported '+c0+' row'+(c0===1?'':'s')+'.'; SE.imp=null; SE.impText=''; SE.sig=''; seRender(); toast('Imported '+c0+' row'+(c0===1?'':'s')); }
   else if(a==='tpl'){ if(S.dl) S.dl.save({ filename:'seasons-template.csv', data:seTpl() }); else toast('Download is not available here.'); }
 });
-function pdfSeasons(){
+async function pdfSeasons(){
   var sc=seScope(), years=seYears(sc), yd=years.map(function(y){ return seYear(sc,y); }), fm=farmById(sc);
   if(!yd.length && !seProj(sc)){ toast('No seasons saved yet.'); return; }
   var pj=seProj(sc);
   var secs=[{ h:'By year' },{ head:['Year','Acres','Tons','Tons/acre','TRS','Lb sugar','Lb sugar/acre'], rows:(pj?[[pj.year+' projected',seFmt(pj.acres,1),seFmt(pj.tons),seFmt(pj.tpa,2),seFmt(pj.trs,1),pj.sgT>0?seFmt(pj.sugar):'',seFmt(pj.lpa)]]:[]).concat(yd.map(function(x){ return [String(x.year),seFmt(x.acres,1),seFmt(x.tons),seFmt(x.tpa,2),seFmt(x.trs,1),x.sugar>0?seFmt(x.sugar):'',seFmt(x.lpa)]; })) }];
   if(sc==='*'){ var fl=S.farms.filter(function(f){ return years.some(function(y){ return seYear(f.id,y).n; }); }), ys=years.slice(0,8); secs.push({ h:'Lb sugar per acre, each farm by year' }); secs.push({ head:['Farm'].concat(ys.map(String)), rows:fl.map(function(f){ return [f.name].concat(ys.map(function(y){ var r=seYear(f.id,y); return r.n?seFmt(r.lpa):''; })); }) }); }
+  secs=(await pdfChartSecs(sc,'Charts')).concat(secs);
   pdfShare('Seasons compared',sc==='*'?'All farms':((fm&&fm.name)||''),secs,pdfName('seasons-'+(sc==='*'?'all-farms':(fm&&fm.name))),true);
 }
 
