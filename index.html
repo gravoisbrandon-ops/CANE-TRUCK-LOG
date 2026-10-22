@@ -2260,6 +2260,7 @@ function sgOut(){
     all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
     if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
   });
+  var cal=$('#sgCAll'); if(cal){ var ca0=swChartsHtml('*'); if(cal.getAttribute('data-s')!==ca0){ cal.setAttribute('data-s',ca0); cal.innerHTML=ca0; } }
   var br=$('#sgBreak'); if(br) br.innerHTML=sgBreakHtml();
   var rall=$('#sgRemAll'); if(rall){
     if(!remAll.n) rall.innerHTML='<p class="small">Enter the total acres to harvest on each farm to see what is left.</p>';
@@ -2345,7 +2346,7 @@ function sgRender(){
       '<h2 style="margin-top:16px">Projections</h2><div class="stats" id="sgP_'+esc(f.id)+'"></div>'+
       '<h2 style="margin-top:16px">How we compare to prior years</h2><div id="sgC_'+esc(f.id)+'"></div>'+sgSaveBox(f.id,o.date)+'</div>';
   });
-  if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2><div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined, harvested to date</h2><div class="stats" id="sgAll"></div><h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
+  if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2><div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined, harvested to date</h2><div class="stats" id="sgAll"></div><h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div><h2 style="margin-top:16px">How we compare to prior years</h2><div id="sgCAll"></div>'+sgSaveBox('all',SG.gdate)+'</div>';
   h+='<div class="card"><div class="toolbar"><button class="btn" type="button" data-pdf="sugar">Share PDF report</button><button class="btn ghost" type="button" data-pdf="sugar" data-view="1">View PDF</button></div><p class="small">A PDF of the numbers on this screen, to send by text, email or print.</p></div>';
   root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender(); sgMark();
 }
@@ -2693,10 +2694,19 @@ function seLineSvg(series,raster){
 function swSeasonKey(date){ var y=Number(date.slice(0,4)), m=Number(date.slice(5,7)); return m<7?y-1:y; }
 /* tons hauled so far by day of harvest: this season against earlier ones */
 function swSeries(sc){
-  if(sc==='*'||sc==='all'||!farmById(sc)) return [];
-  var z=sgZeroDate(sc), curKey=Number(z.slice(0,4)), by={};
-  SG.weekly.filter(function(r){ return r.farm===sc; }).sort(function(a,b){ return a.date<b.date?-1:1; }).forEach(function(r){ var k=swSeasonKey(r.date); (by[k]=by[k]||[]).push({ date:r.date, tons:r.tons }); });
-  var o=sgFarm(sc), c=sgCalc(o.rows); if(c.tons>0){ var cr=by[curKey]=by[curKey]||[], lt=cr.length?cr[cr.length-1]:null; if(!lt || c.tons>lt.tons) cr.push({ date:today(), tons:c.tons }); }
+  var comb=(sc==='*'||sc==='all'); if(comb) sc='*'; else if(!farmById(sc)) return [];
+  var fl=comb?S.farms.map(function(f){ return f.id; }):[sc]; if(!fl.length) return [];
+  var z=sgZeroDate(comb?'all':sc), curKey=Number(z.slice(0,4)), by={}, cum={};
+  fl.forEach(function(fid){
+    var per={};
+    SG.weekly.filter(function(r){ return r.farm===fid; }).forEach(function(r){ var k=swSeasonKey(r.date); (per[k]=per[k]||[]).push({ date:r.date, tons:r.tons }); });
+    var o=sgFarm(fid), c=sgCalc(o.rows); if(c.tons>0){ var cr=per[curKey]=per[curKey]||[]; cr.sort(function(a,b){ return a.date<b.date?-1:1; }); var lt=cr.length?cr[cr.length-1]:null; if(!lt || c.tons>lt.tons) cr.push({ date:today(), tons:c.tons }); }
+    Object.keys(per).forEach(function(k){ per[k].sort(function(a,b){ return a.date<b.date?-1:1; }); (cum[k]=cum[k]||{})[fid]=per[k]; });
+  });
+  Object.keys(cum).forEach(function(k){
+    var dates={}; fl.forEach(function(fid){ (cum[k][fid]||[]).forEach(function(r){ dates[r.date]=1; }); });
+    by[k]=Object.keys(dates).sort().map(function(d){ var t=0; fl.forEach(function(fid){ var arr=cum[k][fid]||[], v=0; arr.forEach(function(r){ if(r.date<=d) v=r.tons; }); t+=v; }); return { date:d, tons:t }; });
+  });
   var keys=Object.keys(by).map(Number).sort(function(a,b){ return b-a; }).slice(0,3), cols=['#E0A100','#2F6FB5','#8A8F98'];
   return keys.map(function(k,i){ var st=k+z.slice(4); return { name:k===curKey?(k+' this season'):String(k), color:cols[i%3], cur:k===curKey, pts:[[0,0]].concat(by[k].map(function(r){ return [Math.max(0,sgDays(st,r.date)||0),r.tons]; })) }; });
 }
