@@ -384,6 +384,7 @@ td.n,th.n{text-align:right}
           <button type="button" class="fchip" data-act="toolPick" data-tool="tank" aria-pressed="false">Tank mix</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="burn" aria-pressed="false">Burn log</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="yield" aria-pressed="false">Yield check</button>
+          <button type="button" class="fchip" data-act="toolPick" data-tool="days" aria-pressed="false">Day counter</button>
           <button type="button" class="fchip" data-act="toolPick" data-tool="smoke" id="smokeChip" aria-pressed="false" hidden>Smoke map (trial)</button>
         </div>
       </div>
@@ -392,6 +393,7 @@ td.n,th.n{text-align:right}
       <div id="toolTank" class="tm" hidden><div id="tmRoot"></div></div>
       <div id="toolBurn" class="tm" hidden><div id="bnRoot"></div><div id="bnSmoke"></div><div id="bnRoot2"></div></div>
       <div id="toolYield" class="tm" hidden><div id="ycRoot"></div></div>
+      <div id="toolDays" class="tm" hidden><div id="dcRoot"></div></div>
       <div id="toolSmoke" class="tm" hidden></div>
     </section>
 
@@ -1712,9 +1714,30 @@ document.addEventListener('click',function(e){
   document.addEventListener('mouseup',function(e){ if(pend && e.target===pend){ e.preventDefault(); } pend=null; },true);
   document.addEventListener('touchend',function(e){ if(pend && e.target===pend){ e.preventDefault(); } },true);
 })();
+/* Day counter: days between two dates, and a date plus or minus some days */
+var DC={ a:'', b:'', d:'', n:'' };
+function dcFmt(iso){ var t=Date.parse(iso+'T12:00:00'); return isFinite(t)?new Date(t).toLocaleDateString(undefined,{ weekday:'short', month:'short', day:'numeric', year:'numeric' }):''; }
+function dcAdd(iso,n){ var t=Date.parse(iso+'T12:00:00'); return isFinite(t)?ymd(new Date(t+n*86400000)):''; }
+function dcOut(){
+  var o=$('#dcOut'), o2=$('#dcOut2'); if(!o) return;
+  var n=sgDays(DC.a,DC.b);
+  if(n==null) o.innerHTML='<p class="small">Pick both dates.</p>';
+  else { var ab=Math.abs(n), w=Math.floor(ab/7), r=ab%7, b=function(l,v){ return '<div class="stat"><span class="lbl">'+l+'</span><b>'+v+'</b></div>'; };
+    o.innerHTML='<div class="stats">'+b(n<0?'Days (second date is earlier)':'Days between',ab.toLocaleString())+b('Weeks and days',w+' wk '+r+' d')+b('Counting both dates',(ab+1).toLocaleString())+'</div>'; }
+  var k=parseInt(DC.n,10), r2=DC.d&&isFinite(k)?dcAdd(DC.d,k):'';
+  o2.innerHTML=r2?'<div class="stats"><div class="stat"><span class="lbl">'+(k>=0?'Date after '+k:'Date before '+(-k))+' days</span><b>'+esc(dcFmt(r2))+'</b></div></div>':'<p class="small">Pick a date and a number of days (use a minus sign to go back).</p>';
+}
+function dcRender(){
+  var el=$('#dcRoot'); if(!el) return; if(!DC.a){ DC.a=today(); DC.b=today(); DC.d=today(); }
+  if(el.getAttribute('data-ok')) { dcOut(); return; } el.setAttribute('data-ok','1');
+  el.innerHTML='<div class="card"><h2>Days between two dates</h2><div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label>From<input type="date" id="dcA" value="'+DC.a+'"></label><label>To<input type="date" id="dcB" value="'+DC.b+'"></label></div><div id="dcOut" style="margin-top:12px"></div></div>'+
+    '<div class="card"><h2>Add or take away days</h2><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><label>Start date<input type="date" id="dcD" value="'+DC.d+'"></label><label>Days<input type="number" inputmode="numeric" id="dcN" placeholder="e.g. 30 or -30"></label></div><div id="dcOut2" style="margin-top:12px"></div></div>';
+  var f=function(id,k){ $(id).addEventListener('input',function(e){ DC[k]=e.target.value; dcOut(); }); $(id).addEventListener('change',function(e){ DC[k]=e.target.value; dcOut(); }); };
+  f('#dcA','a'); f('#dcB','b'); f('#dcD','d'); f('#dcN','n'); dcOut();
+}
 function toolsShow(){
   var t=S.tool||'sugar';
-  $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn'); $('#toolYield').hidden=(t!=='yield');
+  $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn'); $('#toolYield').hidden=(t!=='yield'); $('#toolDays').hidden=(t!=='days');
   var sm=$('#smokeChip'); if(sm) sm.hidden=!S.isAdmin; if(t==='smoke' && !S.isAdmin){ S.tool='sugar'; t='sugar'; $('#toolSugar').hidden=false; } $('#toolSmoke').hidden=(t!=='smoke');
   if(t==='smoke'){ var ts=$('#toolSmoke'), src=S.smokeSrc||'smoke-trial.html'; if(ts.getAttribute('data-src')!==src){ ts.setAttribute('data-src',src); ts.innerHTML='<iframe id="smokeFrame" title="Smoke map trial" src="'+esc(src)+'" allow="geolocation" style="width:100%;height:calc(100vh - 230px);min-height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'; } }
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
@@ -1723,6 +1746,7 @@ function toolsShow(){
   if(t==='seasons') seShow();
   if(t==='burn') bnShow();
   if(t==='yield') ycShow();
+  if(t==='days') dcRender();
 }
 
 
