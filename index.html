@@ -1876,6 +1876,7 @@ async function pdfSugar(){
   var vw=sgView(), fm=farmById(vw), d=sgBreakData(vw==='*'?'':vw), secs=[];
   var scope=vw==='*'?'all':vw, ck=sgCheck(scope), cl=SG.cmp[scope]&&SG.cmp[scope].label;
   if(d.rows.length) secs.push({ head:d.head, rows:d.rows, bold:d.bold }); else secs.push({ p:'No tons or acres entered yet.' });
+  secs=secs.concat(pdfWeekSecs(vw==='*'?'*':vw));
   if(ck.run.length){ secs.push({ h:(cl?cl+' · ':'')+'Results since '+ck.perRow[0]+' to '+ck.perRow[1] }); secs.push({ head:ck.perHead, rows:[ck.perRow] }); }
   var sh=sgN(SG.share); if(sh!=null) secs.push({ p:'Grower share '+sh+'%.' });
   var rr2=[], tl=0, plan2=0, rem2=0, haul2=0, noE=false, sug2=0, noS=false;
@@ -2778,12 +2779,23 @@ function svgToJpeg(svg,w,h){
     }catch(e){ fin(null); }
   });
 }
+/* week to week tables (text, no pictures) for the PDF */
+function pdfWeekSecs(sc){
+  var out=[];
+  try{
+    if(sc==='*'){ var fw=swFarmWeeks(false); if(fw.some(function(x){ return x.w; })) out.push({ h:'Week to week, against the same day last season' }); fw.forEach(function(x){ if(!x.w) return; out.push({ p:x.name }); out.push({ head:swWeekHead(x.w), rows:swWeekCells(x.w) }); }); }
+    else { var ww=swWeekRows(sc); if(ww){ out.push({ h:'Week to week, against the same day last season' }); out.push({ head:swWeekHead(ww), rows:swWeekCells(ww) }); } }
+  }catch(e){ try{ console.warn('week',e); }catch(x){} }
+  return out;
+}
 async function pdfChartSecs(sc,heading){
-  var out=[], cs=swCharts(sc,true), fw=sc==='*'?swFarmWeeks(true):[]; if(!cs.length && !fw.length) return out;
-  out.push({ h:heading });
-  if(sc==='*'){ for(var j=0;j<fw.length;j++){ var x=fw[j]; out.push({ p:x.name+', week to week against the same day last season' }); if(x.w) out.push({ head:swWeekHead(x.w), rows:swWeekCells(x.w) }); if(x.svg){ var im0=await svgToJpeg(x.svg,960,600); if(im0) out.push({ img:im0, w:340, hh:213 }); } } }
-  else { var ww=swWeekRows(sc); if(ww) out.push({ head:swWeekHead(ww), rows:swWeekCells(ww) }); }
-  for(var i=0;i<cs.length;i++){ var im=await svgToJpeg(cs[i].svg,cs[i].W*3,cs[i].H*3); if(im){ out.push({ p:cs[i].title+(sc==='*'?' (all farms)':'') }); out.push({ img:im, w:340, hh:Math.round(340*cs[i].H/cs[i].W) }); } }
+  var out=[];
+  try{
+    var cs=swCharts(sc,true), fw=sc==='*'?swFarmWeeks(true):[]; if(!cs.length && !fw.length) return out;
+    out.push({ h:heading });
+    for(var j=0;j<fw.length;j++){ var x=fw[j]; if(x.svg){ var im0=await svgToJpeg(x.svg,960,600); if(im0){ out.push({ p:x.name+', tons hauled by day of harvest' }); out.push({ img:im0, w:340, hh:213 }); } } }
+    for(var i=0;i<cs.length;i++){ var im=await svgToJpeg(cs[i].svg,cs[i].W*3,cs[i].H*3); if(im){ out.push({ p:cs[i].title+(sc==='*'?' (all farms)':'') }); out.push({ img:im, w:340, hh:Math.round(340*cs[i].H/cs[i].W) }); } }
+  }catch(e){ try{ console.warn('charts',e); }catch(x){} }
   return out;
 }
 function seTpl(){ return 'year,farm,acres,tons,trs,liquidation,lb_sugar,notes\n2024,'+((S.farms[0]&&S.farms[0].name)||'My Farm')+',250,7200,205,96,,example row: delete this line\n2023,'+((S.farms[0]&&S.farms[0].name)||'My Farm')+',250,6900,198,96,,\n'; }
