@@ -2384,7 +2384,7 @@ function sgShow(){
   if(!SG.logLoaded) sgLoad();
 }
 function sgAggM(ms){ var t=0,sg=0,st=0,tw=0; ms.forEach(function(m){ var n=sgN(m.tons), r=sgN(m.trs), l=sgN(m.liq); if(n!=null&&n>0){ t+=n; if(r!=null&&r>0){ sg+=n*r*(l==null?100:l)/100; st+=n; tw+=n*r; } } }); return { tons:t, sugar:sg, sTons:st, trsW:tw }; }
-function sgDateBox(scope,date){ return '<label class="f">Date<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||today())+'"></label>'; }
+function sgDateBox(scope,date){ return '<label class="f">Date of this data set<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||today())+'"></label>'; }
 function sgSaveBox(scope,date){
   return '<div class="sgsave" style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px"><div class="toolbar">'+
     '<button class="btn" type="button" data-sg="save" data-scope="'+esc(scope)+'">Save as new set</button>'+
