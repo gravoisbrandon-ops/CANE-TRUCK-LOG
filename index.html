@@ -2786,7 +2786,7 @@ function pdfFarmWeek(fid){
   if(!cur.length) return null;
   var n=function(v,d){ return v==null||!isFinite(v)?'–':seFmt(v,d); }, tpa=function(r){ return r.acres>0&&r.tons>0?r.tons/r.acres:null; };
   var near=function(r){ var t=addDays(r.date,-364), best=null, bd=99; prev.forEach(function(q){ var d=Math.abs(sgDays(t,q.date)); if(d<=4 && d<bd){ bd=d; best=q; } }); return best; };
-  var any=cur.some(function(r){ return near(r); }), pt=0;
+  var any=true, pt=0; /* same columns for every farm */
   var rows=cur.map(function(r){ var wk=r.tons!=null?r.tons-pt:null; if(r.tons!=null) pt=r.tons; var q=near(r);
     var row=[r.date,n(r.acres,1),n(r.tons),wk!=null?((wk>=0?'+':'')+seFmt(wk)):'–',n(tpa(r),2),n(r.trs,1),r.proj!=null?n(r.proj):'–']; if(any) row.push(q?n(q.tons):'–',q&&q.tons>0&&r.tons!=null?((r.tons-q.tons>=0?'+':'')+seFmt(r.tons-q.tons)):'–'); return row; });
   return { head:['Week','Acres cut','Tons hauled','This week','Tons/acre','TRS','Projected total tons'].concat(any?['Last yr tons','Ahead / behind']:[]), rows:rows.reverse() };
