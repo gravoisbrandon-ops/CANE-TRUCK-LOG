@@ -2779,12 +2779,23 @@ function svgToJpeg(svg,w,h){
     }catch(e){ fin(null); }
   });
 }
-/* week to week tables (text, no pictures) for the PDF */
+/* week to week tables (text, no pictures) for the PDF: one per farm, each farm on its own */
+function pdfFarmWeek(fid){
+  var z=sgZeroDate(fid), recs=SG.weekly.filter(function(r){ return r.farm===fid; }).sort(function(a,b){ return a.date<b.date?-1:1; });
+  var cur=recs.filter(function(r){ return r.date>=z; }), prev=recs.filter(function(r){ return r.date<z; });
+  if(!cur.length) return null;
+  var n=function(v,d){ return v==null||!isFinite(v)?'–':seFmt(v,d); }, tpa=function(r){ return r.acres>0&&r.tons>0?r.tons/r.acres:null; };
+  var near=function(r){ var t=addDays(r.date,-364), best=null, bd=99; prev.forEach(function(q){ var d=Math.abs(sgDays(t,q.date)); if(d<=4 && d<bd){ bd=d; best=q; } }); return best; };
+  var any=cur.some(function(r){ return near(r); }), pt=0;
+  var rows=cur.map(function(r){ var wk=r.tons!=null?r.tons-pt:null; if(r.tons!=null) pt=r.tons; var q=near(r);
+    var row=[r.date,n(r.acres,1),n(r.tons),wk!=null?((wk>=0?'+':'')+seFmt(wk)):'–',n(tpa(r),2),n(r.trs,1),r.proj!=null?n(r.proj):'–']; if(any) row.push(q?n(q.tons):'–',q&&q.tons>0&&r.tons!=null?((r.tons-q.tons>=0?'+':'')+seFmt(r.tons-q.tons)):'–'); return row; });
+  return { head:['Week','Acres cut','Tons hauled','This week','Tons/acre','TRS','Projected total tons'].concat(any?['Last yr tons','Ahead / behind']:[]), rows:rows.reverse() };
+}
 function pdfWeekSecs(sc){
   var out=[];
   try{
-    if(sc==='*'){ var fw=swFarmWeeks(false); if(fw.some(function(x){ return x.w; })) out.push({ h:'Week to week, against the same day last season' }); fw.forEach(function(x){ if(!x.w) return; out.push({ p:x.name }); out.push({ head:swWeekHead(x.w), rows:swWeekCells(x.w) }); }); }
-    else { var ww=swWeekRows(sc); if(ww){ out.push({ h:'Week to week, against the same day last season' }); out.push({ head:swWeekHead(ww), rows:swWeekCells(ww) }); } }
+    var fl=sc==='*'?S.farms:[farmById(sc)].filter(Boolean), first=true;
+    fl.forEach(function(f){ var t=pdfFarmWeek(f.id); if(!t) return; if(first){ out.push({ h:'Week to week' }); first=false; } if(sc==='*') out.push({ p:f.name }); out.push({ head:t.head, rows:t.rows }); });
   }catch(e){ try{ console.warn('week',e); }catch(x){} }
   return out;
 }
