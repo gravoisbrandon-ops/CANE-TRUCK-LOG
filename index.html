@@ -1784,7 +1784,7 @@ function pdfBuild(title, sub, secs, landscape){
   txt(M,y+8,pdfT(sub+'  ·  made '+new Date().toLocaleString([],{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'})),false,9,0.35); y+=20;
   secs.forEach(function(sc){
     if(sc.img){ var iw=sc.w||240, ih=sc.hh||240; need(ih+6); imgs.push(sc.img); ops.push('q '+iw+' 0 0 '+ih+' '+M+' '+(PH-y-ih).toFixed(2)+' cm /Im'+(imgs.length-1)+' Do Q'); y+=ih+8; }
-    else if(sc.h!=null){ need(40); y+=14; txt(M,y+10,pdfT(sc.h),true,11,0); y+=15; rect(M,y,CW,0.6,[0.8,0.82,0.8]); y+=6; }
+    else if(sc.h!=null){ need(Math.max(40,sc.keep||0)); y+=14; txt(M,y+10,pdfT(sc.h),true,11,0); y+=15; rect(M,y,CW,0.6,[0.8,0.82,0.8]); y+=6; }
     else if(sc.p!=null){ var ls=pdfWrap(pdfT(sc.p),false,8.5,CW); ls.forEach(function(l){ need(12); txt(M,y+9,l,false,8.5,0.35); y+=11; }); y+=4; }
     else if(sc.stats){
       var colW=CW/2;
@@ -2794,19 +2794,26 @@ function pdfFarmWeek(fid){
 function pdfWeekSecs(sc){
   var out=[];
   try{
-    var fl=sc==='*'?S.farms:[farmById(sc)].filter(Boolean), rows=[], T={ ac:0, tn:0, tw:0, wk:0, pj:0, pjn:0, ly:0, lyn:0, n:0 };
+    var fl=sc==='*'?S.farms:[farmById(sc)].filter(Boolean), rows=[], T={ ac:0, tn:0, tw:0, sT:0, wk:0, wkn:0, pj:0, pjn:0, ly:0, lyn:0, dt:'' };
     var n=function(v,d){ return v==null||!isFinite(v)?'–':seFmt(v,d); }, sg=function(v){ return (v>=0?'+':'')+seFmt(v); };
     fl.forEach(function(f){
-      var zf=sgZeroDate(f.id), recs=SG.weekly.filter(function(r){ return r.farm===f.id; }).sort(function(a,b){ return a.date<b.date?-1:1; }), cur=recs.filter(function(r){ return r.date>=zf; }), prev=recs.filter(function(r){ return r.date<zf; });
-      if(!cur.length) return; var r=cur[cur.length-1], before=cur.length>1?cur[cur.length-2]:null, tn=r.tons>0?r.tons:0, wk=tn-(before&&before.tons>0?before.tons:0);
-      var t=addDays(r.date,-364), q=null, bd=99; prev.forEach(function(x){ var d=Math.abs(sgDays(t,x.date)); if(d<=4 && d<bd){ bd=d; q=x; } });
-      var ly=q&&q.tons>0?q.tons:null;
-      rows.push([f.name,r.date,n(r.acres,1),n(tn||null),sg(wk),r.acres>0&&tn>0?n(tn/r.acres,2):'–',r.trs>0?n(r.trs,1):'–',r.proj!=null?n(r.proj):'–',ly!=null?n(ly):'–',ly!=null&&tn>0?sg(tn-ly):'–']);
-      T.n++; if(r.acres>0) T.ac+=r.acres; T.tn+=tn; T.wk+=wk; if(tn>0&&r.trs>0) T.tw+=tn*r.trs; if(r.proj!=null){ T.pj+=r.proj; T.pjn++; } if(ly!=null){ T.ly+=ly; T.lyn++; }
+      var zf=sgZeroDate(f.id), recs=SG.weekly.filter(function(x){ return x.farm===f.id; });
+      /* every checkpoint this season: saved sets, saved weeks, and what is on screen now */
+      var pts={};
+      recs.filter(function(x){ return x.date>=zf && x.tons>0; }).forEach(function(x){ pts[x.date]={ date:x.date, ac:x.acres, tons:x.tons, trs:x.trs, proj:x.proj }; });
+      var items=sgItems(f.id); items.forEach(function(it){ if(it.cur && !it.valid) return; if(!(it.tons>0) || it.date<zf) return; var old=pts[it.date]; pts[it.date]={ date:it.date, ac:it.ac, tons:it.tons, trs:it.trs, proj:old?old.proj:null, live:!!it.cur }; });
+      var list=Object.keys(pts).sort().map(function(k){ return pts[k]; }); if(!list.length) return;
+      var L=list[list.length-1], lim=addDays(L.date,-6), base=null; list.forEach(function(x){ if(x.date<=lim) base=x; });
+      var wk=base?L.tons-base.tons:((sgDays(zf,L.date)||0)<=8?L.tons:null);
+      if(L.live){ var o=sgFarm(f.id), r=sgRemain(o,sgCalc(o.rows)); if(r&&r.left!=null) L.proj=r.hauled+r.left; }
+      var t=addDays(L.date,-364), q=null, bd=99; recs.filter(function(x){ return x.date<zf; }).forEach(function(x){ var d=Math.abs(sgDays(t,x.date)); if(d<=4 && d<bd){ bd=d; q=x; } });
+      var ly=q&&q.tons>0?q.tons:null, ac=L.ac>0?L.ac:null;
+      rows.push([f.name,L.date,n(ac,1),n(L.tons),wk!=null?sg(wk):'–',ac?n(L.tons/ac,2):'–',L.trs>0?n(L.trs,1):'–',L.proj!=null?n(L.proj):'–',ly!=null?n(ly):'–',ly!=null?sg(L.tons-ly):'–']);
+      if(ac) T.ac+=ac; T.tn+=L.tons; if(L.trs>0){ T.tw+=L.tons*L.trs; T.sT+=L.tons; } if(wk!=null){ T.wk+=wk; T.wkn++; } if(L.proj!=null){ T.pj+=L.proj; T.pjn++; } if(ly!=null){ T.ly+=ly; T.lyn++; } if(L.date>T.dt) T.dt=L.date;
     });
     if(!rows.length) return out;
-    var bold=[]; if(rows.length>1){ rows.push(['All farms combined','',n(T.ac,1),n(T.tn||null),sg(T.wk),T.ac>0&&T.tn>0?n(T.tn/T.ac,2):'–',T.tn>0&&T.tw>0?n(T.tw/T.tn,1):'–',T.pjn?n(T.pj):'–',T.lyn?n(T.ly):'–',T.lyn&&T.tn>0?sg(T.tn-T.ly):'–']); bold=[rows.length-1]; }
-    out.push({ h:'Last week' }); out.push({ head:['Farm','Week','Acres cut','Tons hauled','This week','Tons/acre','TRS','Projected total tons','Last yr tons','Ahead / behind'], rows:rows, bold:bold });
+    var bold=[]; if(rows.length>1){ var k=rows.length; rows.push(['All farms combined',T.dt,n(T.ac,1),n(T.tn),T.wkn===k?sg(T.wk):'–',T.ac>0?n(T.tn/T.ac,2):'–',T.sT>0?n(T.tw/T.sT,1):'–',T.pjn===k?n(T.pj):'–',T.lyn===k?n(T.ly):'–',T.lyn===k?sg(T.tn-T.ly):'–']); bold=[rows.length-1]; }
+    out.push({ h:'Last week', keep:(rows.length+3)*24+30 }); out.push({ head:['Farm','Week','Acres cut','Tons hauled','This week','Tons/acre','TRS','Projected total tons','Last yr tons','Ahead / behind'], rows:rows, bold:bold });
   }catch(e){ try{ console.warn('week',e); }catch(x){} }
   return out;
 }
