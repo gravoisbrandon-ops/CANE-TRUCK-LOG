@@ -2794,8 +2794,19 @@ function pdfFarmWeek(fid){
 function pdfWeekSecs(sc){
   var out=[];
   try{
-    var fl=sc==='*'?S.farms:[farmById(sc)].filter(Boolean), first=true;
-    fl.forEach(function(f){ var t=pdfFarmWeek(f.id); if(!t) return; if(first){ out.push({ h:'Week to week' }); first=false; } if(sc==='*') out.push({ p:f.name }); out.push({ head:t.head, rows:t.rows }); });
+    var fl=sc==='*'?S.farms:[farmById(sc)].filter(Boolean), rows=[], T={ ac:0, tn:0, tw:0, wk:0, pj:0, pjn:0, ly:0, lyn:0, n:0 };
+    var n=function(v,d){ return v==null||!isFinite(v)?'–':seFmt(v,d); }, sg=function(v){ return (v>=0?'+':'')+seFmt(v); };
+    fl.forEach(function(f){
+      var zf=sgZeroDate(f.id), recs=SG.weekly.filter(function(r){ return r.farm===f.id; }).sort(function(a,b){ return a.date<b.date?-1:1; }), cur=recs.filter(function(r){ return r.date>=zf; }), prev=recs.filter(function(r){ return r.date<zf; });
+      if(!cur.length) return; var r=cur[cur.length-1], before=cur.length>1?cur[cur.length-2]:null, tn=r.tons>0?r.tons:0, wk=tn-(before&&before.tons>0?before.tons:0);
+      var t=addDays(r.date,-364), q=null, bd=99; prev.forEach(function(x){ var d=Math.abs(sgDays(t,x.date)); if(d<=4 && d<bd){ bd=d; q=x; } });
+      var ly=q&&q.tons>0?q.tons:null;
+      rows.push([f.name,r.date,n(r.acres,1),n(tn||null),sg(wk),r.acres>0&&tn>0?n(tn/r.acres,2):'–',r.trs>0?n(r.trs,1):'–',r.proj!=null?n(r.proj):'–',ly!=null?n(ly):'–',ly!=null&&tn>0?sg(tn-ly):'–']);
+      T.n++; if(r.acres>0) T.ac+=r.acres; T.tn+=tn; T.wk+=wk; if(tn>0&&r.trs>0) T.tw+=tn*r.trs; if(r.proj!=null){ T.pj+=r.proj; T.pjn++; } if(ly!=null){ T.ly+=ly; T.lyn++; }
+    });
+    if(!rows.length) return out;
+    var bold=[]; if(rows.length>1){ rows.push(['All farms combined','',n(T.ac,1),n(T.tn||null),sg(T.wk),T.ac>0&&T.tn>0?n(T.tn/T.ac,2):'–',T.tn>0&&T.tw>0?n(T.tw/T.tn,1):'–',T.pjn?n(T.pj):'–',T.lyn?n(T.ly):'–',T.lyn&&T.tn>0?sg(T.tn-T.ly):'–']); bold=[rows.length-1]; }
+    out.push({ h:'Last week' }); out.push({ head:['Farm','Week','Acres cut','Tons hauled','This week','Tons/acre','TRS','Projected total tons','Last yr tons','Ahead / behind'], rows:rows, bold:bold });
   }catch(e){ try{ console.warn('week',e); }catch(x){} }
   return out;
 }
