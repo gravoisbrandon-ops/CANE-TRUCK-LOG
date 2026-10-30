@@ -2280,7 +2280,7 @@ function sgOut(){
     var o=sgFarm(f.id), c=sgCalc(o.rows), ac=sgN(o.acres);
     o.rows.forEach(function(r,i){ var e=$('#sgL_'+f.id+'_'+i); if(e) e.textContent=c.rows[i]!=null ? sgNf(c.rows[i])+' lb sugar' : ''; });
     var el=$('#sgO_'+f.id); if(el) el.innerHTML=sgBoxes(c,ac,sh);
-    var rr=sgRemain(o,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var cel=$('#sgC_'+f.id); if(cel){ var cs0=swChartsHtml(f.id); if(cel.getAttribute('data-s')!==cs0){ cel.setAttribute('data-s',cs0); cel.innerHTML=cs0; } } var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
+    var rr=sgRemain(o,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var cel=$('#sgC_'+f.id); if(cel){ var cs0=swChartsHtml(f.id)||''; if(cel.getAttribute('data-s')!==cs0){ cel.setAttribute('data-s',cs0); cel.innerHTML=cs0; } } var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
     if(rr){ remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; if(rr.proj!=null&&rr.per!=null) remAll.sug+=rr.proj*rr.per; else remAll.noSug=true; remAll.rows.push([f.name,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',f1(rr.hauled),rr.left!=null?sgNf(rr.left):'–',rr.proj!=null?sgNf(rr.proj):'–',sgFin(rr).finTpa!=null?rr.finTpa.toFixed(2):'–',rr.finLpa!=null?sgNf(rr.finLpa):'–']); remAll.n++; }
     all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
     if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
@@ -2717,15 +2717,16 @@ function seLineSvg(series,raster){
   });
   return g+'</svg>';
 }
-function swSeasonKey(date){ var y=Number(date.slice(0,4)), m=Number(date.slice(5,7)); return m<7?y-1:y; }
+function swSeasonKey(date){ var d=String(date||''), y=Number(d.slice(0,4)), m=Number(d.slice(5,7)); return m<7?y-1:y; }
 /* tons hauled so far by day of harvest: this season against earlier ones */
-function swSeries(sc){
+function swSeries(sc){ try{ return swSeries_(sc); }catch(e){ try{ console.warn('swSeries',e); }catch(x){} return []; } }
+function swSeries_(sc){
   var comb=(sc==='*'||sc==='all'); if(comb) sc='*'; else if(!farmById(sc)) return [];
   var fl=comb?S.farms.map(function(f){ return f.id; }):[sc]; if(!fl.length) return [];
   var z=sgZeroDate(comb?'all':sc), curKey=Number(z.slice(0,4)), by={}, cum={};
   fl.forEach(function(fid){
     var per={};
-    SG.weekly.filter(function(r){ return r.farm===fid; }).forEach(function(r){ var k=swSeasonKey(r.date); (per[k]=per[k]||[]).push({ date:r.date, tons:r.tons }); });
+    SG.weekly.filter(function(r){ return r.farm===fid && /^\d{4}-\d\d-\d\d/.test(String(r.date||'')) && isFinite(r.tons); }).forEach(function(r){ var k=swSeasonKey(r.date); (per[k]=per[k]||[]).push({ date:r.date, tons:r.tons }); });
     var o=sgFarm(fid), c=sgCalc(o.rows); if(c.tons>0){ var cr=per[curKey]=per[curKey]||[]; cr.sort(function(a,b){ return a.date<b.date?-1:1; }); var lt=cr.length?cr[cr.length-1]:null; if(!lt || c.tons>lt.tons) cr.push({ date:today(), tons:c.tons }); }
     Object.keys(per).forEach(function(k){ per[k].sort(function(a,b){ return a.date<b.date?-1:1; }); (cum[k]=cum[k]||{})[fid]=per[k]; });
   });
@@ -2737,7 +2738,8 @@ function swSeries(sc){
   return keys.map(function(k,i){ var st=k+z.slice(4); return { name:k===curKey?(k+' this season'):String(k), color:cols[i%3], cur:k===curKey, pts:[[0,0]].concat(by[k].map(function(r){ return [Math.max(0,sgDays(st,r.date)||0),r.tons]; })) }; });
 }
 /* the charts that show how this season compares: totals by year with this year's projection, and the pace so far */
-function swCharts(sc,raster){
+function swCharts(sc,raster){ try{ return swCharts_(sc,raster); }catch(e){ try{ console.warn('swCharts',e); }catch(x){} return []; } }
+function swCharts_(sc,raster){
   var out=[], years=seYears(sc), yd=years.map(function(y){ return seYear(sc,y); }).reverse(), proj=seProj(sc);
   var mk=function(fn){ var it=yd.map(function(x){ return { label:String(x.year), v:fn(x) }; }).filter(function(x){ return x.v!=null; }); if(!it.length) return []; if(proj){ var pv=fn(proj); if(pv!=null) it.push({ label:proj.year+' proj', v:pv, live:true }); } return it.length>1?it:[]; };
   var ser=sc==='*'?[]:swSeries(sc).filter(function(x){ return x.pts.length>1; }), line=ser.length>1?seLineSvg(ser,raster):'';
@@ -2746,7 +2748,8 @@ function swCharts(sc,raster){
   return out;
 }
 /* week to week: each week this season against the same day of harvest last season */
-function swWeekRows(sc){
+function swWeekRows(sc){ try{ return swWeekRows_(sc); }catch(e){ try{ console.warn('swWeekRows',e); }catch(x){} return null; } }
+function swWeekRows_(sc){
   var ser=swSeries(sc).filter(function(x){ return x.pts.length>1; }), cur=ser.filter(function(x){ return x.cur; })[0], prev=ser.filter(function(x){ return !x.cur; })[0];
   if(!cur||!prev) return null;
   var at=function(pts,d){ for(var i=1;i<pts.length;i++){ if(pts[i][0]>=d){ var a=pts[i-1], b=pts[i]; return b[0]===a[0]?b[1]:a[1]+(b[1]-a[1])*(d-a[0])/(b[0]-a[0]); } } return pts[pts.length-1][1]; };
@@ -2762,7 +2765,8 @@ function swFarmWeeks(raster){
   var out=[]; S.farms.forEach(function(f){ var w=swWeekRows(f.id), ser=swSeries(f.id).filter(function(x){ return x.pts.length>1; }); if(!w && ser.length<2) return; out.push({ name:f.name, w:w, svg:ser.length>1?seLineSvg(ser,raster):'' }); });
   return out;
 }
-function swChartsHtml(sc){
+function swChartsHtml(sc){ try{ return swChartsHtml_(sc); }catch(e){ try{ console.warn('swChartsHtml',e); }catch(x){} return ''; } }
+function swChartsHtml_(sc){
   var cs=swCharts(sc,false), fw=sc==='*'?swFarmWeeks(false):[]; if(!cs.length && !fw.length) return '';
   var h='<h2 style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">How we compare to prior years</h2>';
   if(sc==='*') h+=fw.map(function(x){ return '<div class="lbl" style="margin-top:12px">'+esc(x.name)+', week to week against the same day last season</div>'+(x.w?tbl(swWeekHead(x.w),swWeekCells(x.w)):'')+(x.svg||''); }).join('');
@@ -3602,7 +3606,7 @@ function personRow(p, adm, view){
   var locked=(!adm && p.role==='admin') || p.owner;
   return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:end"><div class="info"><span class="l1" style="font-size:16px">'+dot+esc(p.name||'No name')+(p.role==='pending'?' <span class="edited">waiting</span>':'')+(p.owner?' <span class="edited">main administrator</span>':'')+'</span><span class="l2">'+esc(p.email)+'</span>'+
     (locked?'':'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'+roleSel+farmSel+millSel+'</div>')+'</div>'+
-    (locked?'':'<div style="display:flex;flex-direction:column;gap:6px">'+(adm&&p.role==='pending'&&p.farm?'<button class="btn sm" type="button" data-act="approvePerson" data-user="'+esc(p.user_id)+'" data-farm="'+esc(p.farm)+'">Approve</button>':'')+'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':(p.role==='pending'?'Decline':'Remove'))+'</button></div>')+'</div>';
+    (locked?'':'<div style="display:flex;flex-direction:column;gap:6px">'+(adm&&p.role==='pending'&&p.farm?'<button class="btn sm" type="button" data-act="approvePerson" data-user="'+esc(p.user_id)+'" data-farm="'+esc(p.farm)+'">Approve</button>':'')+(!locked&&p.role!=='pending'?'<button class="btn ghost sm" type="button" data-act="pwPerson" data-user="'+esc(p.user_id)+'" data-name="'+esc(p.name||p.email||'')+'">'+(confirmKey==='pwPerson:'+p.user_id?'Sure?':'Reset password')+'</button>':'')+'<button class="btn warn sm" type="button" data-act="rmPerson" data-user="'+esc(p.user_id)+'">'+(confirmKey===key?'Sure?':(p.role==='pending'?'Decline':'Remove'))+'</button></div>')+'</div>';
 }
 function allMills(){ var o=[]; S.farms.forEach(function(f){ o=o.concat(f.mills||[]); }); return uniqMills(o).sort(); }
 function roleName(r){ return r==='mill'?'Mill field manager':r==='admin'?'Administrator':r==='manager'?'Crew manager':r==='pending'?'Waiting':'Crew'; }
@@ -4165,6 +4169,10 @@ document.addEventListener('click', function(e){
     case 'newInvite':
       var nf=el.getAttribute('data-farm');
       if(confirmTap('newInvite:'+nf)) rpc('invite_new',{ p_farm:nf }).then(function(c){ INV[nf]=c; last.access=''; toast('New link made. The old one no longer works.'); schedule(); }).catch(fail);
+      break;
+    case 'pwPerson':
+      var pu=el.getAttribute('data-user'), pn=el.getAttribute('data-name')||'this person';
+      if(confirmTap('pwPerson:'+pu)) rpc('person_password',{ p_user:pu }).then(function(pw){ try{ window.prompt('Temporary password for '+pn+'. Send it to them. Their old password stops working.',pw); }catch(x){} toast('Temporary password: '+pw); loadPeople(); }).catch(fail);
       break;
     case 'rmPerson':
       var rp=el.getAttribute('data-user');
