@@ -418,6 +418,12 @@ td.n,th.n{text-align:right}
         <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
+      <div class="card" id="joinOtherCard" hidden>
+        <h2>Join a farm instead</h2>
+        <p class="small">Made your own portal by mistake? While it has no farms yet, paste the invite link or code you were given and you will ask to join that farm instead.</p>
+        <label class="f">Invite link or code<input type="text" id="joinCode2" maxlength="200" placeholder="Paste it here" autocomplete="off"></label>
+        <button class="btn" type="button" data-act="joinOther">Join that farm</button>
+      </div>
       <div class="card col" id="backupCard" data-sk="backupCard" hidden>
         <h2>Backup</h2>
         <p class="small">Saves a copy of everything to this phone as one file: farms, trucks, every logged load this harvest, and your saved sets, burn logs and other tools. Tap Prepare, wait for it to finish, then tap Save to phone. Keep the file somewhere safe, like Files or iCloud. Do this once a week.</p>
@@ -3157,7 +3163,7 @@ function renderMe(){
 /* ---------- setup ---------- */
 function renderSetup(){
   var adm=isOffice(), lead=isLead();
-  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead; $('#backupCard').hidden=!S.isAdmin;
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead; $('#backupCard').hidden=!S.isAdmin; $('#joinOtherCard').hidden=!(S.isAdmin && !S.farms.length);
   var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm+':'+(t.mills||[]).join(','); }),confirmKey,S.loadOrph||{}]);
   if(fsig!==last.farms){
     last.farms=fsig;
@@ -4155,6 +4161,10 @@ document.addEventListener('click', function(e){
     case 'portalRename':
       var rn=($('#portalName').value||'').trim(); if(!rn){ toast('Type a name first.'); break; }
       rpc('portal_rename',{ p_name:rn }).then(function(){ S.portal=rn; toast('Portal renamed.'); last.me=''; renderMe(); }).catch(function(){ toast('Could not rename it.'); });
+      break;
+    case 'joinOther':
+      var jo=($('#joinCode2').value||'').trim(); if(!jo){ toast('Paste the link or code first.'); break; }
+      rpc('join_farm',{ p_code:jo.replace(/^.*join=/i,'') }).then(function(w){ applyWho(w); if(S.pending) toast('Asked to join. Wait for approval.'); else toast('That did not work. The portal must have no farms yet.'); schedule(); }).catch(function(er){ toast('That code did not work.'); });
       break;
     case 'joinCode':
       var jc=($('#joinCode').value||'').trim(); if(!jc){ toast('Type the code first.'); break; }
