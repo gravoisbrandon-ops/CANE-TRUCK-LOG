@@ -420,7 +420,7 @@ td.n,th.n{text-align:right}
       </div>
       <div class="card" id="joinOtherCard" hidden>
         <h2>Join a farm instead</h2>
-        <p class="small">Made your own portal by mistake? While it has no farms yet, paste the invite link or code you were given and you will ask to join that farm instead.</p>
+        <p class="small">Made your own portal by mistake? If you are the only person in it and it is new, paste the invite link or code you were given. You will ask to join that farm instead, and the farm you made here is left behind.</p>
         <label class="f">Invite link or code<input type="text" id="joinCode2" maxlength="200" placeholder="Paste it here" autocomplete="off"></label>
         <button class="btn" type="button" data-act="joinOther">Join that farm</button>
       </div>
@@ -3163,7 +3163,7 @@ function renderMe(){
 /* ---------- setup ---------- */
 function renderSetup(){
   var adm=isOffice(), lead=isLead();
-  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead; $('#backupCard').hidden=!S.isAdmin; $('#joinOtherCard').hidden=!(S.isAdmin && !S.farms.length);
+  $('#farmsCard').hidden=!adm; $('#peopleCard').hidden=!lead; $('#scaleCard').hidden=!lead; $('#backupCard').hidden=!S.isAdmin; $('#joinOtherCard').hidden=!(S.isAdmin && S.farms.length<=2);
   var fsig=JSON.stringify([adm,lead,S.farms,S.trucks.map(function(t){ return t.farm+':'+(t.mills||[]).join(','); }),confirmKey,S.loadOrph||{}]);
   if(fsig!==last.farms){
     last.farms=fsig;
@@ -4164,7 +4164,7 @@ document.addEventListener('click', function(e){
       break;
     case 'joinOther':
       var jo=($('#joinCode2').value||'').trim(); if(!jo){ toast('Paste the link or code first.'); break; }
-      rpc('join_farm',{ p_code:jo.replace(/^.*join=/i,'') }).then(function(w){ applyWho(w); if(S.pending) toast('Asked to join. Wait for approval.'); else toast('That did not work. The portal must have no farms yet.'); schedule(); }).catch(function(er){ toast('That code did not work.'); });
+      rpc('join_farm',{ p_code:jo.replace(/^.*join=/i,'') }).then(function(w){ applyWho(w); if(S.pending) toast('Asked to join. Wait for approval.'); else toast('That did not work. Only a new portal with just you in it can move.'); schedule(); }).catch(function(er){ toast('That code did not work.'); });
       break;
     case 'joinCode':
       var jc=($('#joinCode').value||'').trim(); if(!jc){ toast('Type the code first.'); break; }
