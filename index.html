@@ -1628,7 +1628,7 @@ async function ycLoad(){
     YCS.sig=''; ycPersist();
   }catch(e){}
 }
-function ycShow(){ if(!$('#ycRoot').firstChild) ycRender(); if(!YCS.loaded && S.authed && !S.pending) ycLoad(); }
+function ycShow(){ if(!YC.dtTouched && YC.date && YC.date!==ycToday()){ YC.date=ycToday(); if($('#ycRoot').firstChild) ycRender(); } if(!$('#ycRoot').firstChild) ycRender(); if(!YCS.loaded && S.authed && !S.pending) ycLoad(); }
 function ycRender(){
   var h='<div class="card"><h2>Yield check</h2><p class="small">Press Mark A to take the phone location, then drive to point B and press Mark B. Pause for the headland turn so it is not counted. If you leave to check the weight in another app, the distance is held until you come back. Distance times row width is the area cut. Weight divided by that area is the tons per acre.</p>'+ycMeta()+
    '<div class="toolbar"><label class="f">Row width (inches)<input type="number" inputmode="decimal" step="any" list="ycWidths" data-ycf="w" value="'+esc(YC.w)+'"><datalist id="ycWidths"><option value="60"><option value="66"><option value="72"><option value="78"><option value="80"><option value="84"></datalist></label>'+
@@ -1702,7 +1702,7 @@ document.addEventListener('visibilitychange',function(){
 });
 document.addEventListener('input',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-ycf'); if(!f) return;
-  if(f==='ft'){ YC.ft=Number(el.value)||0; } else YC[f]=el.value;
+  if(f==='ft'){ YC.ft=Number(el.value)||0; } else { YC[f]=el.value; if(f==='date') YC.dtTouched=true; }
   ycSave(); ycOut(); 
 });
 document.addEventListener('change',function(e){ if(e.target&&e.target.getAttribute&&e.target.getAttribute('data-ycv')){ YC.view=e.target.value; ycList(); return; } var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-ycf'); if(f==='unit'){ YC.unit=el.value; ycSave(); ycOut(); } if(f==='stub'){ YC.stub=el.value; ycSave(); } if(f==='farm'){ YC.farm=el.value; YC.variety=''; YC.view='all'; ycSave(); ycRender(); } });
@@ -2179,7 +2179,7 @@ async function bnLoad(){
   if(!bnTyping()) bnRender(); else bnLogRender();
 }
 function bnTyping(){ var a=document.activeElement, r=$('#bnRoot'); return !!(a && r && r.contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)); }
-function bnShow(){ if(!$('#bnRoot').firstChild) bnRender(); if(!BN.loaded) bnLoad(); }
+function bnShow(){ if(!BN.edit && !BN.dtTouched && !BN.auto){ var n0=bnNow(); if(BN.date!==n0.date||BN.time!==n0.time){ BN.date=n0.date; BN.time=n0.time; if($('#bnRoot').firstChild) bnRender(); } } if(!$('#bnRoot').firstChild) bnRender(); if(!BN.loaded) bnLoad(); }
 function bnEntry(){
   var fm=farmById(BN.farm), w=BN.wx||{}, now=Date.now();
   var e={ farm:BN.farm, farmName:fm?fm.name:'', track:(BN.track||'').trim(), field:(BN.field||'').trim(), catDay:BN.catDay||'', date:BN.date, time:BN.time, burnedAt:bnMs(), acres:BN.acres, notes:(BN.notes||'').trim(), loggedAt:now, by:(S.profile&&S.profile.name)||'',
@@ -2190,7 +2190,7 @@ function bnEntry(){
 }
 document.addEventListener('input',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-bnf'), w=el&&el.getAttribute&&el.getAttribute('data-bnw');
-  if(f){ if(f==='farm'||f==='viewFarm') return; BN[f]=el.value; if(f==='station'||f==='lat'||f==='lon'){ if(f==='station') BN.stationName=''; if(f==='lat'||f==='lon'){ BN.cwa=''; BN.fz=''; BN.grid=''; } bnSaveLocal(); } }
+  if(f){ if(f==='farm'||f==='viewFarm') return; BN[f]=el.value; if(f==='date'||f==='time') BN.dtTouched=true; if(f==='station'||f==='lat'||f==='lon'){ if(f==='station') BN.stationName=''; if(f==='lat'||f==='lon'){ BN.cwa=''; BN.fz=''; BN.grid=''; } bnSaveLocal(); } }
   else if(w){ BN.wx=BN.wx||{}; BN.wx[w]=el.value; BN.wx.src='manual';
     if(w==='windDeg'){ BN.wx.windDir=el.value===''?'':bnCompass(Number(el.value)); var sel=$('[data-bnw=windDir]'); if(sel) sel.value=BN.wx.windDir; }
     if(w==='windDir'){ var ix=BN_PTS.indexOf(el.value); BN.wx.windDeg=ix<0?'':String(Math.round(ix*22.5*10)/10); var di=$('[data-bnw=windDeg]'); if(di) di.value=BN.wx.windDeg; } }
@@ -2223,7 +2223,7 @@ document.addEventListener('click',function(e){
     var en=bnEntry(), old=a==='save' && BN.edit ? BN.log.filter(function(x){ return x.id===BN.edit; })[0] : null;
     if(old){ en.id=old.id; en.loggedAt=old.loggedAt; en.by=old.by; en.editedAt=Date.now(); if(!en.smoke && old.smoke) en.smoke=old.smoke; if(!en.lat && old.lat){ en.lat=old.lat; en.lon=old.lon; } BN.log=BN.log.map(function(x){ return x.id===old.id?en:x; }); }
     else { en.id='b'+Date.now(); BN.log.push(en); }
-    BN.auto=false; BN.fromActive=false; BN.edit=''; BN.track=''; BN.field=''; BN.catDay=''; BN.acres=''; BN.notes=''; BN.wx={}; BN.smoke=null; BN.msg=old?'Burn updated.':'Burn saved.'; bnPersist(); bnRender(); toast(BN.msg);
+    BN.dtTouched=false; BN.auto=false; BN.fromActive=false; BN.edit=''; BN.track=''; BN.field=''; BN.catDay=''; BN.acres=''; BN.notes=''; BN.wx={}; BN.smoke=null; BN.msg=old?'Burn updated.':'Burn saved.'; bnPersist(); bnRender(); toast(BN.msg);
   }
   else if(a==='edit'){
     var x=BN.log.filter(function(r){ return r.id===el.getAttribute('data-id'); })[0]; if(!x) return;
@@ -2236,7 +2236,7 @@ document.addEventListener('click',function(e){
 });
 /* ---- Sugar per acre: per mill, then combined per farm and for all farms ---- */
 var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'', gdate:'', edit:{}, log:[], logLoaded:false, shared:true, sig:'', confirm:'' };
-(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; SG.liq=d.liq||''; SG.share=d.share||''; SG.gdate=d.gdate||''; } }catch(e){} })();
+(function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; Object.keys(SG.f).forEach(function(k){ if(SG.f[k]) SG.f[k].date=''; }); SG.liq=d.liq||''; SG.share=d.share||''; SG.gdate=''; /* the date is today each time it is opened, until edited */ } }catch(e){} })();
 function sgSave(){ lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share, gdate:SG.gdate })); }
 function sgFarm(id){
   var o=SG.f[id];
