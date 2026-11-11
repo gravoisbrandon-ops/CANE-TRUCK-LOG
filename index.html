@@ -2237,7 +2237,30 @@ document.addEventListener('click',function(e){
 /* ---- Sugar per acre: per mill, then combined per farm and for all farms ---- */
 var SG={ f:{}, liq:'', share:'', pick:'', loading:false, msg:'', gdate:'', edit:{}, log:[], logLoaded:false, shared:true, sig:'', confirm:'' };
 (function(){ try{ var d=JSON.parse(lsGet('cane-truck-log:sugar2')||'null'); if(d){ SG.f=d.f||{}; Object.keys(SG.f).forEach(function(k){ if(SG.f[k]) SG.f[k].date=''; }); SG.liq=d.liq||''; SG.share=d.share||''; SG.gdate=''; /* the date is today each time it is opened, until edited */ } }catch(e){} })();
-function sgSave(){ lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share, gdate:SG.gdate })); }
+function sgLiveOf(o){ return JSON.stringify({ a:o.acres||'', p:o.plan||'', e:o.est||'', t:o.estTrs||'', r:o.rows||[], x:o.ext||[] }); }
+var SGL={ sig:{}, timer:null, dirty:{} };
+function sgSave(){
+  lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share, gdate:SG.gdate }));
+  Object.keys(SG.f).forEach(function(fid){ var o=SG.f[fid]; if(!o) return; var g=sgLiveOf(o); if(SGL.sig[fid]===undefined){ SGL.sig[fid]=g; return; } if(SGL.sig[fid]!==g){ SGL.sig[fid]=g; o.at=Date.now(); SGL.dirty[fid]=1; } });
+  if(Object.keys(SGL.dirty).length){ clearTimeout(SGL.timer); SGL.timer=setTimeout(sgLivePush,1500); }
+}
+/* share each farm's numbers entered in Cane Track, so another phone sees them */
+function sgLivePush(){
+  var ids=Object.keys(SGL.dirty); SGL.dirty={}; if(!S.authed||S.pending) return; SG.lastP=Date.now();
+  ids.forEach(function(fid){ var o=SG.f[fid]; if(!o || !farmById(fid)) return; if(!S.isAdmin && fid!==S.farmId && fid!==S.crewFarm) return;
+    var live={ acres:o.acres||'', plan:o.plan||'', est:o.est||'', estTrs:o.estTrs||'', rows:o.rows||[], ext:o.ext||[], at:o.at||Date.now() };
+    dref('tools/sugarlog-'+fid).update({ live:live }).then(function(){ SG.docFarms[fid]=1; }).catch(function(){ dref('tools/sugarlog-'+fid).set({ entries:[], seasons:[], dayTotals:[], weekly:[], live:live }).catch(function(){}); }); });
+}
+function sgTyping(){ var a=document.activeElement; return !!(a && a.closest && a.closest('#sgRoot') && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)); }
+function sgLiveApply(fd){
+  var changed=false;
+  fd.forEach(function(d){ var fid=d.id.slice(9), L=d.live; if(!L || !farmById(fid)) return; var o=sgFarm(fid); if((L.at||0)<=(o.at||0)) return;
+    o.acres=L.acres||''; o.plan=L.plan||''; o.est=L.est||''; o.estTrs=L.estTrs||''; o.rows=Array.isArray(L.rows)?L.rows:o.rows; o.ext=Array.isArray(L.ext)?L.ext:[]; o.at=L.at; SGL.sig[fid]=sgLiveOf(o); changed=true; });
+  var have={}; fd.forEach(function(d){ if(d.live) have[d.id.slice(9)]=1; });
+  Object.keys(SG.f).forEach(function(fid){ var o=SG.f[fid]; if(!o || have[fid] || !farmById(fid)) return; if((sgN(o.acres)||0)>0 || (o.rows||[]).some(function(r){ return sgN(r.tons)>0; })){ o.at=o.at||Date.now(); SGL.dirty[fid]=1; clearTimeout(SGL.timer); SGL.timer=setTimeout(sgLivePush,1500); } });
+  if(changed) lsSet('cane-truck-log:sugar2', JSON.stringify({ f:SG.f, liq:SG.liq, share:SG.share, gdate:SG.gdate }));
+  return changed;
+}
 function sgFarm(id){
   var o=SG.f[id];
   if(!o){ o=SG.f[id]={ acres:'', rows:[] }; var fm=farmById(id); ((fm&&fm.mills)||[]).forEach(function(m){ o.rows.push({ mill:m, tons:'', trs:'', liq:'', src:'' }); }); }
@@ -2506,14 +2529,16 @@ function sgPersist(){
 }
 async function sgLoad(){
   SG.logLoaded=true; var local=[]; try{ local=JSON.parse(lsGet('cane-truck-log:sugarlog')||'[]')||[]; }catch(e){}
+  var fdAll=[];
   try{
-    var all=docs(await col('tools').get()), legacy=all.filter(function(x){ return x.id==='sugarlog'; })[0], fd=all.filter(function(x){ return x.id.indexOf('sugarlog-')===0; });
+    var all=docs(await col('tools').get()), legacy=all.filter(function(x){ return x.id==='sugarlog'; })[0], fd=all.filter(function(x){ return x.id.indexOf('sugarlog-')===0; }); fdAll=fd;
     var sm={}; fd.forEach(function(d){ (d.seasons||[]).forEach(function(r){ sm[r.id]=r; }); }); SG.seasons=Object.keys(sm).map(function(k){ return sm[k]; });
     var dm={}; fd.forEach(function(d){ (d.dayTotals||[]).forEach(function(r){ dm[r.id]=r; }); }); SG.dayTotals=Object.keys(dm).map(function(k){ return dm[k]; });
     var wm={}; fd.forEach(function(d){ (d.weekly||[]).forEach(function(r){ wm[r.id]=r; }); }); SG.weekly=Object.keys(wm).map(function(k){ return wm[k]; });
     if(legacy || fd.length){ var m={}; (legacy&&legacy.entries||[]).forEach(function(e){ m[e.id]=e; }); fd.forEach(function(d){ SG.docFarms[d.id.slice(9)]=1; (d.entries||[]).forEach(function(e){ m[e.id]=e; }); }); SG.log=Object.keys(m).map(function(k){ return m[k]; }); }
     else { SG.log=local; if(local.length) sgPersist(); }
   }catch(e){ SG.shared=false; SG.log=local; try{ SG.seasons=JSON.parse(lsGet('cane-truck-log:seasons')||'[]')||[]; SG.dayTotals=JSON.parse(lsGet('cane-truck-log:daytotals')||'[]')||[]; SG.weekly=JSON.parse(lsGet('cane-truck-log:weekly')||'[]')||[]; }catch(x){} }
+  var lv=false; try{ lv=sgLiveApply(fdAll); }catch(e){} if(lv && !sgTyping() && $('#sgRoot') && $('#sgRoot').firstChild) sgRender();
   sgLogRender(); sgFoot(); SE.sig=''; if($('#seRoot') && $('#seRoot').firstChild && !seFocused()) seRender(); last.report=''; DT.sig=''; schedule();
 }
 function sgProgress(asc){
