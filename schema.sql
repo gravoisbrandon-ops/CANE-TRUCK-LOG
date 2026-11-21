@@ -1063,7 +1063,8 @@ begin
         perform _doc_put('farms/' || k.farm_id || '/harvest/' || sid, (coalesce(old, jsonb_build_object('checks', '[]'::jsonb, 'openedAt', coalesce((e->>'utc')::bigint, nowms), 'openedBy', k.harvester || ' (Edge 101)', 'day', day)) - 'closedAt')
           || jsonb_strip_nulls(jsonb_build_object('harvester', k.harvester, 'track', coalesce(f->>'tr', ''), 'field', coalesce(nullif(f->>'f', ''), f->>'l'),
                'variety', coalesce(f->>'v', ''), 'stubble', to_jsonb(_stub(f->>'s')), 'burned', case when f ? 'b' then (f->>'b') = '1' end,
-               'acres', case when old->'acres' is null and coalesce((f->>'a')::numeric, 0) > 0 then (f->>'a')::numeric end,
+               -- the field's full size goes in fieldAcres; acres actually cut come with the tons (tot 'ac' -> cutAcres)
+               'fieldAcres', case when coalesce((f->>'a')::numeric, 0) > 0 then (f->>'a')::numeric end,
                'edge', true, 'rec', e->>'rec', 'label', f->>'l')));
         perform _farm_list_add(k.farm_id, 'fields', coalesce(nullif(f->>'f', ''), f->>'l'));
         perform _farm_list_add(k.farm_id, 'tracks', f->>'tr');
@@ -1074,9 +1075,11 @@ begin
     elsif e->>'e' = 'field' then
       perform _edge_set_active(k.farm_id, k.harvester, _edge_sid(k.key_hash, e->>'rec', e->>'l'));
     elsif e->>'e' in ('close', 'wagon', 'tot') then
-      -- the recorder's own field totals: set, never added, so a field reopened is not counted twice
+      -- the recorder's own field totals: set, never added, so a field reopened is not counted twice.
+      -- 'ac' = acres cut in that field so far (the recorder's per-field acres), kept as cutAcres next to its tons.
       for x in select * from jsonb_array_elements(coalesce(e->'tot', '[]'::jsonb)) loop
-        update docs set data = data || jsonb_build_object('monitorTons', round((x->>'t')::numeric, 3)), updated_at = now()
+        update docs set data = data || jsonb_build_object('monitorTons', round((x->>'t')::numeric, 3))
+                                    || case when x ? 'ac' and (x->>'ac') ~ '^[0-9.]+$' then jsonb_build_object('cutAcres', round((x->>'ac')::numeric, 3)) else '{}'::jsonb end, updated_at = now()
          where path = 'farms/' || k.farm_id || '/harvest/' || _edge_sid(k.key_hash, e->>'rec', x->>'l');
       end loop;
       if e->>'e' = 'close' then

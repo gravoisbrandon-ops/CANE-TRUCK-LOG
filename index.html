@@ -4805,6 +4805,7 @@ function hfGroups(){
     if(r.monitorTons!=null){ x.mon+=Number(r.monitorTons)||0; x.monN++; }
     if(!r.closedAt) x.open++;
     if(r.acres!=null && (x.acres==null || r.acres>x.acres)) x.acres=Number(r.acres);
+    if(r.cutAcres!=null){ x.cut=(x.cut||0)+(Number(r.cutAcres)||0); x.cutN=(x.cutN||0)+1; }   /* Edge 101: acres actually cut, added up over its times in the field */
     if(!x.first || r.openedAt<x.first) x.first=r.openedAt; var lc=r.closedAt||r.openedAt; if(lc>x.last) x.last=lc;
     var fk=r.farm+'|'+r.year; fw[fk]=fw[fk]||{ w:0, m:0 };
     (r.checks||[]).forEach(function(c){ x.wAll+=c.w; x.nW++; if(c.m>0){ x.w+=c.w; x.m+=c.m; fw[fk].w+=c.w; fw[fk].m+=c.m; } });
@@ -4814,6 +4815,7 @@ function hfGroups(){
     if(x.m>0){ x.factor=x.w/x.m; x.cal='Field'; }
     else if(f && f.m>0){ x.factor=f.w/f.m; x.cal='Farm avg'; }
     else { x.factor=1; x.cal='None yet'; }
+    if(x.cutN) x.acres=x.cut;   /* an Edge 101 field: its tons go with the acres cut, not the whole field */
     x.tons=x.monN ? x.mon*x.factor : null;
     x.tpa=(x.tons!=null && x.acres>0) ? x.tons/x.acres : null;
     x.wagon=x.nW ? x.wAll/x.nW : null;
@@ -4860,7 +4862,7 @@ function hfRender(){
     var x=list[Number(HF.edit)];
     if(x){
       h+='<div class="card"><h2>'+esc(x.field||x.track)+' · '+esc(x.variety||'')+'</h2><p class="small">One line per time a harvester had this field open. Fix monitor tons or acres here.</p>'+
-        x.sess.map(function(r){ return '<div class="row" style="grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end"><div class="small"><b>'+esc(r.harvester||'')+'</b><br>'+esc(new Date(r.openedAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+'</div>'+
+        x.sess.map(function(r){ return '<div class="row" style="grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end"><div class="small"><b>'+esc(r.harvester||'')+'</b><br>'+esc(new Date(r.openedAt).toLocaleString([],{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))+(r.cutAcres!=null?'<br>'+f1(r.cutAcres)+' ac cut (Edge 101)':'')+'</div>'+
           '<label class="f">Monitor t<input type="number" step="0.1" min="0" inputmode="decimal" data-hfs="monitorTons" data-farm="'+esc(r.farm)+'" data-id="'+esc(r.id)+'" value="'+esc(r.monitorTons==null?'':r.monitorTons)+'"></label>'+
           '<label class="f">Acres<input type="number" step="0.01" min="0" inputmode="decimal" data-hfs="acres" data-farm="'+esc(r.farm)+'" data-id="'+esc(r.id)+'" value="'+esc(r.acres==null?'':r.acres)+'"></label></div>'; }).join('')+
         '<p class="small">Changes save when you leave each box. Acres for a field are the largest number entered on any of its lines.</p><button class="btn ghost sm" type="button" data-hfa="editDone">Done</button></div>';
