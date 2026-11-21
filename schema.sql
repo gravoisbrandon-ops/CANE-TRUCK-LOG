@@ -813,3 +813,350 @@ grant execute on function
 grant execute on function
   public.scale_weight(text, text, numeric, numeric, text, text, numeric), public.scale_final(text, text, numeric, numeric, text), public.scale_quota(text, numeric, text, date, int, text)
   to anon, authenticated;
+
+-- ---------- Edge 101 field recorder: harvester keys and recorder reports ----------
+-- A harvester with an Edge 101 gets a secret key (Tools > Harvest by field, administrators and the farm's manager).
+-- The recorder sends its events over Wi-Fi to edge_report with that key, no sign-in:
+--   open  (a record started: its fields, variety, stubble, burnt), field (the field the GPS says it is cutting),
+--   close (the record closed, with each field's tons), wagon (a wagon cleared), undo (that wagon undone).
+-- Every event has its own id; an id already received is skipped, so the recorder can always send again.
+-- A harvester without an Edge 101 keeps working by hand, as before.
+create table if not exists public.harv_keys (
+  key_hash   text primary key,
+  farm_id    text not null,
+  harvester  text not null,
+  created_at timestamptz not null default now(),
+  last_at    timestamptz,
+  unique (farm_id, harvester)
+);
+create table if not exists public.edge_seen (
+  key_hash text not null,
+  eid      text not null,
+  at       timestamptz not null default now(),
+  primary key (key_hash, eid)
+);
+alter table public.harv_keys enable row level security;
+alter table public.edge_seen enable row level security;
+revoke all on public.harv_keys, public.edge_seen from anon, authenticated;
+
+-- same as the page's hvKey(): 'h_' + the name in lower case, other characters as '-'
+create or replace function public._hkey(p_name text) returns text
+language sql immutable as $$
+  select 'h_' || left(trim(both '-' from regexp_replace(lower(coalesce(p_name, '')), '[^a-z0-9]+', '-', 'g')), 40)
+$$;
+-- stubble text from the recorder ("Plant", "1st", "2", "3rd stubble") as the page's number (0 = plant cane)
+create or replace function public._stub(p text) returns int
+language sql immutable as $$
+  select case when coalesce(p, '') ~* '(plant|^\s*p\s*$)' then 0
+              when substring(coalesce(p, '') from '[0-9]+') is not null then least(substring(p from '[0-9]+')::int, 6)
+              else null end
+$$;
+create or replace function public._doc_put(p_path text, p_data jsonb) returns void
+language sql security definer set search_path = public as $$
+  insert into docs (path, parent, id, data)
+    values (p_path, regexp_replace(p_path, '/[^/]+$', ''), regexp_replace(p_path, '^.*/', ''), p_data)
+    on conflict (path) do update set data = excluded.data, updated_at = now();
+$$;
+create or replace function public._edge_sid(p_hash text, p_rec text, p_label text) returns text
+language sql immutable as $$
+  select 'e_' || substr(p_hash, 1, 8) || '_' || regexp_replace(coalesce(p_rec, ''), '[^A-Za-z0-9]+', '', 'g')
+         || '_' || trim(both '-' from regexp_replace(lower(coalesce(p_label, '')), '[^a-z0-9]+', '-', 'g'))
+$$;
+-- add a name to one of the farm's lists (fields, tracks, varieties) if it is not there yet
+create or replace function public._farm_list_add(p_farm text, p_key text, p_val text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if coalesce(trim(p_val), '') = '' then return; end if;
+  update docs set data = jsonb_set(data, array[p_key], coalesce(data->p_key, '[]'::jsonb) || to_jsonb(trim(p_val))), updated_at = now()
+   where path = 'farms/' || p_farm
+     and not exists (select 1 from jsonb_array_elements_text(coalesce(data->p_key, '[]'::jsonb)) x where lower(trim(x)) = lower(trim(p_val)));
+end $$;
+-- the harvester's open field: the page's own document, keeping its letter and any waiting wagons
+create or replace function public._edge_set_active(p_farm text, p_harv text, p_sid text) returns void
+language plpgsql security definer set search_path = public as $$
+declare s jsonb; old jsonb; nowms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  select data into s from docs where path = 'farms/' || p_farm || '/harvest/' || p_sid;
+  if s is null then return; end if;
+  select data into old from docs where path = 'farms/' || p_farm || '/active/' || _hkey(p_harv);
+  perform _doc_put('farms/' || p_farm || '/active/' || _hkey(p_harv), jsonb_strip_nulls(jsonb_build_object(
+    'harvester', p_harv, 'session', p_sid, 'track', coalesce(s->>'track', ''), 'field', coalesce(s->>'field', ''),
+    'variety', coalesce(s->>'variety', ''), 'stubble', s->'stubble', 'openedAt', coalesce((s->>'openedAt')::bigint, nowms),
+    'by', p_harv || ' (Edge 101)', 'at', nowms, 'edge', true, 'code', old->'code', 'queue', old->'queue')));
+end $$;
+-- a truck's 3 wagons are full: log it as loaded, like a tap on its number (the mill must be known)
+create or replace function public._edge_log_truck(p_farm text, p_truck text, p_d jsonb, p_harv text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare t jsonb; f jsonb; mills jsonb; v_mill text; day text := to_char(now() at time zone 'America/Chicago', 'YYYY-MM-DD');
+  lid text := 'le' || substr(replace(gen_random_uuid()::text, '-', ''), 1, 14); best jsonb; nmix int; rec jsonb; pd record;
+  lpath text; nowms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  select data into t from docs where path = 'trucks/' || p_truck;
+  select data into f from docs where path = 'farms/' || p_farm;
+  if t is null or f is null then return jsonb_build_object('logged', false, 'why', 'truck or farm missing'); end if;
+  -- the truck's own mill(s) that are still on the farm (as the Board reads them), else all the farm's mills
+  mills := coalesce((select jsonb_agg(distinct x) from jsonb_array_elements_text(case when jsonb_typeof(t->'mills') = 'array' then t->'mills' else '[]'::jsonb end) x
+                      where x in (select y from jsonb_array_elements_text(coalesce(f->'mills', '[]'::jsonb)) y)), '[]'::jsonb);
+  if jsonb_array_length(mills) = 0 then
+    mills := coalesce((select jsonb_agg(distinct x) from jsonb_array_elements_text(coalesce(f->'mills', '[]'::jsonb)) x), '[]'::jsonb);
+  end if;
+  if jsonb_array_length(mills) = 1 then v_mill := mills->>0;
+  elsif jsonb_array_length(mills) = 0 then v_mill := '';
+  else
+    update docs set data = data || jsonb_build_object('needTap', true), updated_at = now() where path = 'farms/' || p_farm || '/active/w_' || p_truck;
+    return jsonb_build_object('logged', false, 'why', 'pick the mill: tap the truck number');
+  end if;
+  -- the load follows the field most of its wagons came from (first wagon on a tie)
+  select x.v into best from (
+    select e.v, e.i, count(*) over (partition by e.v->>'s') c
+      from jsonb_array_elements(p_d) with ordinality e(v, i) where jsonb_typeof(e.v) = 'object') x
+    order by x.c desc, x.i limit 1;
+  select count(distinct e->>'s') into nmix from jsonb_array_elements(p_d) e where jsonb_typeof(e) = 'object';
+  rec := jsonb_build_object('truck', p_truck, 'no', t->>'no', 'farm', p_farm, 'hauler', coalesce(t->>'hauler', ''),
+    'track', coalesce(best->>'track', ''), 'field', coalesce(best->>'field', ''), 'variety', coalesce(best->>'variety', ''),
+    'stubble', coalesce(best->'stubble', '""'::jsonb), 'mill', v_mill, 'loadedAt', nowms, 'loadedBy', p_harv || ' (Edge 101)',
+    'day', day, 'dumps', p_d, 'mixed', nmix > 1, 'edge', true);
+  lpath := 'farms/' || p_farm || '/days/' || day || '/loads/' || lid;
+  perform _doc_put(lpath, rec);
+  -- a weight that came in before the truck was logged goes onto the new load (as in db_set)
+  select * into pd from scale_pending
+    where (farm_id = p_farm or (farm_id is null and (org is null or org = f->>'org') and lower(mill) = lower(coalesce(rec->>'mill', ''))))
+      and (hauler is null or hauler = f->>'haulerCode'
+           or hauler in (select e.value from jsonb_each_text(coalesce(f->'haulerMillCodes', '{}'::jsonb)) e))
+      and upper(truck_no) = upper(coalesce(t->>'no', '')) and at > now() - interval '12 hours'
+    order by at limit 1;
+  if found then
+    update docs set data = data || jsonb_strip_nulls(jsonb_build_object(
+        'tons', pd.tons, 'trs', pd.trs, 'brix', pd.brix, 'ticket', pd.ticket, 'weighedAt', (extract(epoch from pd.at) * 1000)::bigint))
+      where path = lpath;
+    delete from scale_pending where id = pd.id;
+  end if;
+  update docs set data = data || jsonb_build_object('lastUsed', day), updated_at = now() where path = 'trucks/' || p_truck;
+  delete from docs where path = 'farms/' || p_farm || '/active/w_' || p_truck;
+  return jsonb_build_object('logged', true, 'load', lid, 'mill', v_mill);
+end $$;
+
+-- Administrators, and the farm's manager: make, list and turn off harvester keys. The key is shown once.
+create or replace function public.harv_key_new(p_farm text, p_harvester text) returns text
+language plpgsql security definer set search_path = public as $$
+declare w record; k text := 'hk_' || replace(gen_random_uuid()::text, '-', ''); h text := left(trim(coalesce(p_harvester, '')), 40);
+begin
+  select * into w from _who();
+  if not (w.o_role = 'admin' or (w.o_role = 'manager' and w.o_farm = p_farm)) or not _farm_in(w.o_org, p_farm) or h = '' then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  delete from harv_keys where farm_id = p_farm and harvester = h;
+  insert into harv_keys (key_hash, farm_id, harvester) values (encode(sha256(convert_to(k, 'utf8')), 'hex'), p_farm, h);
+  return k;
+end $$;
+create or replace function public.harv_key_list(p_farm text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if not (w.o_role = 'admin' or (w.o_role = 'manager' and w.o_farm = p_farm)) or not _farm_in(w.o_org, p_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('harvester', harvester, 'created_at', created_at, 'last_at', last_at) order by harvester), '[]'::jsonb)
+            from harv_keys where farm_id = p_farm);
+end $$;
+create or replace function public.harv_key_off(p_farm text, p_harvester text) returns void
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if not (w.o_role = 'admin' or (w.o_role = 'manager' and w.o_farm = p_farm)) or not _farm_in(w.o_org, p_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  delete from harv_keys where farm_id = p_farm and harvester = p_harvester;
+end $$;
+
+-- One wagon box on one truck, set safely (signed-in crew on their own farm). p_from_queue takes the oldest
+-- wagon an Edge 101 reported that is waiting for a truck. Returns the truck's 3 boxes.
+drop function if exists public.wag_set(text, text, int, jsonb, boolean);
+create or replace function public.wag_set(p_farm text, p_truck text, p_i int, p_slot jsonb default null, p_from_queue boolean default false, p_harvester text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; wpath text := 'farms/' || p_farm || '/active/w_' || p_truck; cur jsonb; d jsonb; q record; used jsonb;
+  nowms bigint := (extract(epoch from now()) * 1000)::bigint;
+begin
+  select * into w from _who();
+  if w.o_role = 'mill' or not (w.o_role = 'admin' or w.o_farm = p_farm) or not _farm_in(w.o_org, p_farm) or p_i not between 0 and 2 then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  perform 1 from docs where path = 'farms/' || p_farm for update;   -- one change to the farm's boxes at a time
+  select data into cur from docs where path = wpath;
+  d := case when cur is not null and jsonb_typeof(cur->'d') = 'array' and coalesce((cur->>'at')::bigint, 0) > nowms - 16 * 3600000
+            then cur->'d' else '[null,null,null]'::jsonb end;
+  while jsonb_array_length(d) < 3 loop d := d || 'null'::jsonb; end loop;
+  if p_from_queue and jsonb_typeof(d->p_i) is distinct from 'object' then
+    select a.path, a.data into q from docs a
+      where a.parent = 'farms/' || p_farm || '/active' and a.id like 'h\_%' and jsonb_typeof(a.data->'queue') = 'array' and jsonb_array_length(a.data->'queue') > 0
+      order by (p_harvester is not null and a.id = _hkey(p_harvester)) desc, (a.data->'queue'->0->>'at')::bigint nulls last limit 1;
+    if found then
+      used := q.data->'queue'->0;
+      update docs set data = jsonb_set(data, '{queue}', (data->'queue') - 0), updated_at = now() where path = q.path;
+      d := jsonb_set(d, array[p_i::text], used - 'at');
+    end if;
+  end if;
+  if used is null then d := jsonb_set(d, array[p_i::text], coalesce(p_slot, 'null'::jsonb)); end if;
+  perform _doc_put(wpath, jsonb_build_object('d', d, 'at', nowms, 'by', (select name from profiles where user_id = auth.uid())));
+  return jsonb_build_object('d', d, 'fromQueue', used is not null);
+end $$;
+
+-- A full wagon waiting for a truck (the evening round): saved with the field it was cut in, placed in the
+-- morning with a tap on a box. p_slot is the wagon (harvester, field session, track, field, variety, stubble).
+create or replace function public.wag_queue_add(p_farm text, p_harvester text, p_slot jsonb) returns int
+language plpgsql security definer set search_path = public as $$
+declare w record; hp text := 'farms/' || p_farm || '/active/' || _hkey(p_harvester); old jsonb; q jsonb;
+begin
+  select * into w from _who();
+  if w.o_role = 'mill' or not (w.o_role = 'admin' or w.o_farm = p_farm) or not _farm_in(w.o_org, p_farm) or jsonb_typeof(p_slot) <> 'object' then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  perform 1 from docs where path = 'farms/' || p_farm for update;
+  select data into old from docs where path = hp;
+  q := coalesce(old->'queue', '[]'::jsonb) || ((p_slot - 'at') || jsonb_build_object('h', p_harvester, 'at', (extract(epoch from now()) * 1000)::bigint, 'by', (select name from profiles where user_id = auth.uid())));
+  while jsonb_array_length(q) > 12 loop q := q - 0; end loop;
+  perform _doc_put(hp, coalesce(old, jsonb_build_object('harvester', p_harvester, 'closed', true)) || jsonb_build_object('queue', q));
+  return jsonb_array_length(q);
+end $$;
+create or replace function public.wag_queue_drop(p_farm text, p_harvester text) returns int
+language plpgsql security definer set search_path = public as $$
+declare w record; hp text := 'farms/' || p_farm || '/active/' || _hkey(p_harvester); q jsonb;
+begin
+  select * into w from _who();
+  if w.o_role = 'mill' or not (w.o_role = 'admin' or w.o_farm = p_farm) or not _farm_in(w.o_org, p_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  perform 1 from docs where path = 'farms/' || p_farm for update;
+  select data->'queue' into q from docs where path = hp;
+  if jsonb_typeof(q) <> 'array' or jsonb_array_length(q) = 0 then return 0; end if;
+  q := q - (jsonb_array_length(q) - 1);   -- the last one added
+  update docs set data = jsonb_set(data, '{queue}', q), updated_at = now() where path = hp;
+  return jsonb_array_length(q);
+end $$;
+
+-- The recorder's report. No sign-in: the harvester key is checked here.
+create or replace function public.edge_report(p_key text, p_events jsonb) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare k record; e jsonb; f jsonb; x jsonb; eid text; rc int; done int := 0; skipped int := 0; sid text; s jsonb; slot jsonb;
+  tr record; d jsonb; i int; q jsonb; old jsonb; nowms bigint := (extract(epoch from now()) * 1000)::bigint; res jsonb; wid text;
+  day text := to_char(now() at time zone 'America/Chicago', 'YYYY-MM-DD'); notes jsonb := '[]'::jsonb;
+begin
+  select * into k from harv_keys where key_hash = encode(sha256(convert_to(coalesce(p_key, ''), 'utf8')), 'hex');
+  if not found then perform pg_sleep(0.6); raise exception 'bad key' using errcode = '42501'; end if;
+  if not exists (select 1 from docs where path = 'farms/' || k.farm_id) then raise exception 'farm missing' using errcode = '42501'; end if;
+  if jsonb_typeof(p_events) is distinct from 'array' or jsonb_array_length(p_events) > 50 then raise exception 'bad events' using errcode = '22023'; end if;
+  perform 1 from docs where path = 'farms/' || k.farm_id for update;   -- one change to the farm's boxes at a time
+  for e in select * from jsonb_array_elements(p_events) loop
+    eid := left(e->>'id', 80);
+    if eid is null or eid = '' then continue; end if;
+    insert into edge_seen (key_hash, eid) values (k.key_hash, eid) on conflict do nothing;
+    get diagnostics rc = row_count;
+    if rc = 0 then skipped := skipped + 1; continue; end if;
+    done := done + 1;
+    if e->>'e' = 'open' then
+      -- a record with its fields: one field session per field, the harvester's open field = the first (or the one named)
+      for f in select * from jsonb_array_elements(coalesce(e->'fields', '[]'::jsonb)) loop
+        sid := _edge_sid(k.key_hash, e->>'rec', f->>'l');
+        select data into old from docs where path = 'farms/' || k.farm_id || '/harvest/' || sid;
+        perform _doc_put('farms/' || k.farm_id || '/harvest/' || sid, (coalesce(old, jsonb_build_object('checks', '[]'::jsonb, 'openedAt', coalesce((e->>'utc')::bigint, nowms), 'openedBy', k.harvester || ' (Edge 101)', 'day', day)) - 'closedAt')
+          || jsonb_strip_nulls(jsonb_build_object('harvester', k.harvester, 'track', coalesce(f->>'tr', ''), 'field', coalesce(nullif(f->>'f', ''), f->>'l'),
+               'variety', coalesce(f->>'v', ''), 'stubble', to_jsonb(_stub(f->>'s')), 'burned', case when f ? 'b' then (f->>'b') = '1' end,
+               'acres', case when old->'acres' is null and coalesce((f->>'a')::numeric, 0) > 0 then (f->>'a')::numeric end,
+               'edge', true, 'rec', e->>'rec', 'label', f->>'l')));
+        perform _farm_list_add(k.farm_id, 'fields', coalesce(nullif(f->>'f', ''), f->>'l'));
+        perform _farm_list_add(k.farm_id, 'tracks', f->>'tr');
+        perform _farm_list_add(k.farm_id, 'varieties', f->>'v');
+      end loop;
+      sid := _edge_sid(k.key_hash, e->>'rec', coalesce(e->>'l', e->'fields'->0->>'l'));
+      perform _edge_set_active(k.farm_id, k.harvester, sid);
+    elsif e->>'e' = 'field' then
+      perform _edge_set_active(k.farm_id, k.harvester, _edge_sid(k.key_hash, e->>'rec', e->>'l'));
+    elsif e->>'e' in ('close', 'wagon', 'tot') then
+      -- the recorder's own field totals: set, never added, so a field reopened is not counted twice
+      for x in select * from jsonb_array_elements(coalesce(e->'tot', '[]'::jsonb)) loop
+        update docs set data = data || jsonb_build_object('monitorTons', round((x->>'t')::numeric, 3)), updated_at = now()
+         where path = 'farms/' || k.farm_id || '/harvest/' || _edge_sid(k.key_hash, e->>'rec', x->>'l');
+      end loop;
+      if e->>'e' = 'close' then
+        update docs set data = data || jsonb_build_object('closedAt', coalesce((e->>'utc')::bigint, nowms), 'closedBy', k.harvester || ' (Edge 101)'), updated_at = now()
+         where parent = 'farms/' || k.farm_id || '/harvest' and data->>'rec' = e->>'rec' and data->>'harvester' = k.harvester;
+        select data into old from docs where path = 'farms/' || k.farm_id || '/active/' || _hkey(k.harvester);
+        if old is not null and (old->>'session') in (select id from docs where parent = 'farms/' || k.farm_id || '/harvest' and data->>'rec' = e->>'rec') then
+          perform _doc_put('farms/' || k.farm_id || '/active/' || _hkey(k.harvester), jsonb_strip_nulls(jsonb_build_object(
+            'harvester', k.harvester, 'closed', true, 'lastField', old->>'field', 'lastTrack', old->>'track', 'at', nowms,
+            'by', k.harvester || ' (Edge 101)', 'edge', true, 'code', old->'code', 'queue', old->'queue')));
+        end if;
+      end if;
+      if e->>'e' = 'wagon' and false then   -- wagon boxes: off for now (the wagon's field totals above still count)
+        -- the wagon belongs to the field most of its tons came from
+        select r, l into tr from (
+          select sp1->>'r' r, sp1->>'l' l, sum((sp1->>'t')::numeric) t from jsonb_array_elements(coalesce(e->'sp', '[]'::jsonb)) sp1 group by 1, 2) z
+          order by t desc limit 1;
+        sid := case when tr.l is not null then _edge_sid(k.key_hash, coalesce(tr.r, e->>'rec'), tr.l) end;
+        select data into s from docs where path = 'farms/' || k.farm_id || '/harvest/' || sid;
+        if s is null then  -- not a field it reported: the harvester's open field
+          select a.data->>'session' into sid from docs a where a.path = 'farms/' || k.farm_id || '/active/' || _hkey(k.harvester);
+          select data into s from docs where path = 'farms/' || k.farm_id || '/harvest/' || sid;
+        end if;
+        if s is null then
+          notes := notes || to_jsonb('wagon ' || coalesce(e->>'n', '?') || ': no field known for it');
+        else
+          wid := coalesce(e->>'rec', '') || ':' || coalesce(e->>'n', '');
+          slot := jsonb_strip_nulls(jsonb_build_object('h', k.harvester, 's', sid, 'track', coalesce(s->>'track', ''), 'field', coalesce(s->>'field', ''),
+            'variety', coalesce(s->>'variety', ''), 'stubble', coalesce(s->'stubble', '""'::jsonb), 'wid', wid,
+            't', round((e->>'t')::numeric, 3), 'sc', round((e->>'sc')::numeric, 3), 'edge', true));
+          -- the truck this harvester is already filling (one of its wagons in it, not full, last 3 hours)
+          select a.path, a.id, a.data into tr from docs a
+            where a.parent = 'farms/' || k.farm_id || '/active' and a.id like 'w\_%' and jsonb_typeof(a.data->'d') = 'array'
+              and coalesce((a.data->>'at')::bigint, 0) > nowms - 3 * 3600000
+              and exists (select 1 from jsonb_array_elements(a.data->'d') y where jsonb_typeof(y) = 'object' and y->>'h' = k.harvester)
+              and exists (select 1 from generate_series(0, 2) g where jsonb_typeof(a.data->'d'->g) is distinct from 'object')
+            order by (a.data->>'at')::bigint desc limit 1;
+          if found then
+            d := tr.data->'d'; while jsonb_array_length(d) < 3 loop d := d || 'null'::jsonb; end loop;
+            select min(g) into i from generate_series(0, 2) g where jsonb_typeof(d->g) is distinct from 'object';
+            d := jsonb_set(d, array[i::text], slot);
+            perform _doc_put(tr.path, (tr.data - 'needTap') || jsonb_build_object('d', d, 'at', nowms));
+            if (select count(*) from generate_series(0, 2) g where jsonb_typeof(d->g) = 'object') = 3 then
+              res := _edge_log_truck(k.farm_id, substr(tr.id, 3), d, k.harvester);
+              notes := notes || to_jsonb('truck ' || coalesce((select data->>'no' from docs where path = 'trucks/' || substr(tr.id, 3)), '?') || ': ' ||
+                         case when (res->>'logged')::boolean then 'loaded' else res->>'why' end);
+            end if;
+          else
+            -- no truck yet: the wagon waits on the Board until the logger taps a box of the truck it went into
+            select data into old from docs where path = 'farms/' || k.farm_id || '/active/' || _hkey(k.harvester);
+            q := coalesce(old->'queue', '[]'::jsonb) || (slot || jsonb_build_object('at', nowms));
+            while jsonb_array_length(q) > 12 loop q := q - 0; end loop;
+            if old is null then old := jsonb_build_object('harvester', k.harvester, 'closed', true); end if;
+            perform _doc_put('farms/' || k.farm_id || '/active/' || _hkey(k.harvester), old || jsonb_build_object('queue', q));
+          end if;
+        end if;
+      end if;
+    elsif e->>'e' = 'undo' then
+      wid := coalesce(e->>'rec', '') || ':' || coalesce(e->>'n', '');
+      for tr in select a.path, a.id, a.data from docs a where a.parent = 'farms/' || k.farm_id || '/active' and a.id like 'w\_%' and jsonb_typeof(a.data->'d') = 'array' loop
+        if exists (select 1 from jsonb_array_elements(tr.data->'d') y where y->>'wid' = wid) then
+          update docs set data = jsonb_set(data, '{d}', (select jsonb_agg(case when y->>'wid' = wid then 'null'::jsonb else y end order by o) from jsonb_array_elements(tr.data->'d') with ordinality z(y, o))), updated_at = now()
+           where path = tr.path;
+        end if;
+      end loop;
+      update docs set data = jsonb_set(data, '{queue}', coalesce((select jsonb_agg(y) from jsonb_array_elements(data->'queue') y where y->>'wid' is distinct from wid), '[]'::jsonb)), updated_at = now()
+       where path = 'farms/' || k.farm_id || '/active/' || _hkey(k.harvester) and jsonb_typeof(data->'queue') = 'array';
+    end if;
+  end loop;
+  update harv_keys set last_at = now() where key_hash = k.key_hash;
+  delete from edge_seen where at < now() - interval '60 days';
+  return jsonb_build_object('ok', true, 'done', done, 'skipped', skipped, 'harvester', k.harvester, 'notes', notes);
+end $$;
+
+revoke execute on function public._hkey(text), public._stub(text), public._doc_put(text, jsonb), public._edge_sid(text, text, text),
+  public._farm_list_add(text, text, text), public._edge_set_active(text, text, text), public._edge_log_truck(text, text, jsonb, text)
+  from public, anon, authenticated;
+revoke execute on function public.harv_key_new(text, text), public.harv_key_list(text), public.harv_key_off(text, text),
+  public.wag_set(text, text, int, jsonb, boolean, text), public.wag_queue_add(text, text, jsonb), public.wag_queue_drop(text, text), public.edge_report(text, jsonb) from public, anon;
+grant execute on function public.harv_key_new(text, text), public.harv_key_list(text), public.harv_key_off(text, text),
+  public.wag_set(text, text, int, jsonb, boolean, text), public.wag_queue_add(text, text, jsonb), public.wag_queue_drop(text, text) to authenticated;
+-- the recorder has no sign-in: it uses its harvester key, checked inside edge_report
+grant execute on function public.edge_report(text, jsonb) to anon, authenticated;

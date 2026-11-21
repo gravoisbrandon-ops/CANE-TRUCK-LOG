@@ -157,5 +157,17 @@ Every truck is logged as **3 wagons**. Tapping the truck number still logs it ri
 
 Run the new `schema.sql` before uploading the matching `index.html`. Each harvester's open field is stored at `farms/<farm>/active/h_<name>` and each field it cuts at `farms/<farm>/harvest/<id>`, so the Edge 101 can open fields later the same way.
 
+## For now: field and track per harvester (wagons off)
+Wagon boxes, waiting wagons and the weigh wagon button are turned off for now (`HV_WAGONS = false` in `index.html`; `edge_report` ignores the wagon boxes too). Each harvester just has its open field and track: by hand with **Open field / Next field / Close field**, or by itself from its Edge 101. With two harvesters open, pick the one the truck is loading from under **Trucks loading from**, then tap the truck number: the load gets that harvester's field, track, variety and stubble (shown with its letter in Today's loads). With one open, every truck goes to its field. The Edge 101's wagon messages still send each field's tons to Harvest by field. The sections below describe the wagon features for when they are turned back on.
+
+## Edge 101 field recorder (automatic harvester)
+A harvester with an Edge 101 (firmware v0.4.0.36 or later) can run itself on the Board. A harvester without one keeps working by hand, side by side.
+1. **Make its key:** Tools > Harvest by field > Edge 101 connection > **Make key** next to the harvester (administrators and the farm's manager). Copy the three lines shown: truck log address, public key, harvester key. The harvester key is shown only once; **New key** replaces it and **Turn off** disconnects it.
+2. **On the Edge 101:** join the iPad's Personal Hotspot on the Network tab (turn on Maximize Compatibility on the iPad), then on the **Truck log** tab paste the three lines and turn it On.
+3. **What happens:** when the recorder starts a record, the harvester's field opens on the Board with its variety and stubble (new field, track and variety names are added to the farm's lists). Each wagon the recorder clears goes into the next box of the truck that harvester is filling, in its color and letter, and the 3rd wagon logs the truck (when the truck or the farm has only one mill; otherwise the boxes stay full and the truck shows "Pick the mill, tap ..."). An Edge wagon never goes into a truck the other harvester is filling: when its harvester has no truck started, the wagon waits ("1 wagon waiting") and the logger taps an empty box on the truck it went into. The recorder's field tons go into Harvest by field as totals (a field reopened is not counted twice).
+4. Every box tap is now saved one box at a time in the database (`wag_set`), so a tap and a wagon from the recorder at the same moment never overwrite each other.
+
+Run the new `schema.sql` before uploading the matching `index.html` (new: `harv_keys`, `edge_seen`, `harv_key_new/list/off`, `wag_set`, `edge_report`).
+
 ## Housekeeping
 `index2.html` is an old unused page and can be deleted. `config.js` holds your own Supabase address and key, so never replace it with a file from anyone else.

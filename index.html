@@ -861,14 +861,15 @@ async function logLoad(t){
   S.lastTap[t.id]=now;
   var wd=today(), ref=col(loadsPath(t.farm,wd)).doc();
   var rec={ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', variety:S.active.variety||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd };
-  var dm=hvDefaultDumps(), nOpen=hvOpen().length, wgs=S.wag[t.id], tapped=!!(wgs && (wgs.d||[]).some(Boolean));
-  if(dm && tapped) dm=dm.map(function(x,i){ return wgs.d[i] ? Object.assign({}, wgs.d[i]) : x; });
-  if(dm){ rec.dumps=dm; hvFill(rec); }
+  var dm=hvDefaultDumps(), nOpen=hvOpen().length, wgd=hvWagons(t.id), tapped=!!(wgd && wgd.some(Boolean));
+  if(dm && tapped) dm=dm.map(function(x,i){ return wgd[i] ? Object.assign({}, wgd[i]) : x; });
+  if(dm && HV_WAGONS){ rec.dumps=dm; hvFill(rec); }
+  else if(dm){ rec.track=dm[0].track; rec.field=dm[0].field; rec.variety=dm[0].variety; rec.stubble=dm[0].stubble; rec.harvester=dm[0].h; }
   try{
     await ref.set(rec);
     markUsed(t,wd);
     if(tapped){ delete S.wag[t.id]; dref('farms/'+t.farm+'/active/w_'+t.id)['delete']().catch(function(){}); }
-    toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':'')+(dm&&nOpen>1&&!tapped?'. 3 wagons from '+dm[0].h+'.':''), loadsPath(t.farm,wd)+'/'+ref.id);
+    toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':'')+(dm&&!HV_WAGONS?' · '+(dm[0].field||dm[0].track)+' ('+hvCode(dm[0].h)+')':'')+(dm&&HV_WAGONS&&nOpen>1&&!tapped?'. 3 wagons from '+dm[0].h+'.':''), loadsPath(t.farm,wd)+'/'+ref.id);
   }catch(e){ S.lastTap[t.id]=0; fail(e); }
 }
 
@@ -1168,7 +1169,7 @@ function renderBoard(){
       Object.keys(byT).forEach(function(k){ var a=byT[k].sort(function(x,y){ return x.loadedAt-y.loadedAt; }); for(var i=0;i<a.length-1;i++) nextAt[a[i].id]=a[i+1].loadedAt; });
       var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && !usedPrev(t)) newIds[t.id]=1; });
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
-        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.mixed) bits.push('Mixed: '+hvMixText(l)); else { if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); } if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
+        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.mixed) bits.push('Mixed: '+hvMixText(l)); else { if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); } if(l.harvester) bits.push(hvCode(l.harvester)); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
         return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(newIds[l.truck]?';background:'+newColor(S.farmId):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
           '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
           '<span class="ago">'+(nextAt[l.id]?'Trip '+esc(fmtDur(nextAt[l.id]-l.loadedAt)):esc(ago(l.loadedAt)))+'</span></button>';
@@ -4100,7 +4101,7 @@ async function renameLocalData(fid,fkey,old,nv){
 async function moveLoadField(fid,fkey,old,nv){
   var f=farmById(fid); if(!f) return 0; var t=today(), st=harvestStartFor(f), days=[], n=0, i=0, lo=String(old).trim().toLowerCase();
   for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; days.push(d); }
-  async function w(){ while(i<days.length){ var d=days[i++]; try{ var rows=docs(await col(loadsPath(fid,d)).limit(1000).get()); for(var r=0;r<rows.length;r++){ if(String(rows[r][fkey]||'').trim().toLowerCase()===lo){ var pt={}; pt[fkey]=nv; await dref(loadsPath(fid,d)+'/'+rows[r].id).update(pt); n++; } } }catch(e){} } }
+  async function w(){ while(i<days.length){ var d=days[i++]; try{ var rows=docs(await col(loadsPath(fid,d)).limit(1000).get()); for(var r=0;r<rows.length;r++){ var rw=rows[r], pt=null; if(String(rw[fkey]||'').trim().toLowerCase()===lo){ pt={}; pt[fkey]=nv; } if(Array.isArray(rw.dumps) && rw.dumps.some(function(x){ return x && String(x[fkey]||'').trim().toLowerCase()===lo; })){ pt=pt||{}; pt.dumps=rw.dumps.map(function(x){ if(x && String(x[fkey]||'').trim().toLowerCase()===lo){ x=Object.assign({},x); x[fkey]=nv; } return x; }); } if(pt){ await dref(loadsPath(fid,d)+'/'+rw.id).update(pt); n++; } } }catch(e){} } }
   await Promise.all([w(),w(),w(),w()]); last.board=''; last.report=''; schedule(); return n;
 }
 async function scanLoadMills(fid){
@@ -4167,7 +4168,7 @@ function renameItem(kind,old){
   if(arr.indexOf(nv)>=0){ toast('That name is already in the list.'); return; }
   editList(S.farmId,key,function(a){ var i=a.indexOf(old); if(i>=0) a[i]=nv; return a; });
   var act=kind==='Field'?'field':kind==='Variety'?'variety':'track'; if(S.active[act]===old){ S.active[act]=nv; saveActive(); }
-  renameLocalData(S.farmId,act,old,nv);
+  renameLocalData(S.farmId,act,old,nv); hvRename(S.farmId,act,old,nv);
   toast(old+' is now '+nv+'. Updating its logged loads...'); moveLoadField(S.farmId,act,old,nv).then(function(n){ toast(old+' is now '+nv+'. '+n+' logged load'+(n===1?'':'s')+' follow it.'); });
 }
 
@@ -4487,10 +4488,12 @@ document.addEventListener('submit', function(e){
    farms/<farm>/active/h_<name>, and each field it cuts is a session at farms/<farm>/harvest/<id>
    (monitor tons, field acres, burned or green, weigh-wagon checks). A truck takes 3 wagons, and each
    load keeps which harvester and field each wagon came from (load.dumps). */
+var HV_WAGONS=false;   /* wagon boxes, waiting wagons and weigh wagon: off for now; each harvester's field and track only */
 var STUB=['Plant cane','1st stubble','2nd stubble','3rd stubble','4th stubble','5th stubble','Older stubble'];
 function stubLabel(s){ if(s===''||s==null) return ''; var n=parseInt(s,10); return isNaN(n)?'':(STUB[n]||STUB[6]); }
 function harvOf(id){ var f=farmById(id); return (f&&f.harvesters)||[]; }
 function hvKey(name){ return 'h_'+String(name).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,40); }
+function hvRaw(name){ return S.harv[hvKey(name)]||{}; }
 function hvState(name){ var a=S.harv[hvKey(name)]; return (a && a.session && !a.closed) ? a : null; }
 function hvOpen(){ return harvOf(S.farmId).map(function(n){ var a=hvState(n); return a ? Object.assign({ name:n }, a) : null; }).filter(Boolean); }
 function hvText(a){ var p=[]; if(a.field) p.push(a.field); if(a.track) p.push(a.track); if(a.variety) p.push(a.variety); var st=stubLabel(a.stubble); if(st) p.push(st); return p.join(' · ')||'Field not named'; }
@@ -4513,26 +4516,55 @@ function hvMixText(l){
 }
 
 /* the Harvesters card on the Board */
+function hvQ(n){ return (hvRaw(n).queue)||[]; }
+/* harvesters a tap can take a wagon from: a field open now, or full wagons waiting (the evening round, or an Edge 101's) */
+function hvSources(){ return harvOf(S.farmId).filter(function(n){ return hvState(n) || (HV_WAGONS && hvQ(n).length); }); }
+function hvPick(){ var src=hvSources(); return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
 function hvBoardHtml(){
   var hs=harvOf(S.farmId); if(!hs.length) return '';
-  var op=hvOpen();
   var rows=hs.map(function(n){
-    var a=hvState(n);
+    var a=hvState(n), q=hvQ(n);
     var btns=S.canWrite ? '<button class="btn sm" type="button" data-hv="open" data-h="'+esc(n)+'">'+(a?'Next field':'Open field')+'</button>'+
-      (a?'<button class="btn ghost sm" type="button" data-hv="weigh" data-h="'+esc(n)+'">Weigh wagon</button><button class="btn ghost sm" type="button" data-hv="close" data-h="'+esc(n)+'">Close field</button>':'') : '';
-    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr);gap:8px"><div class="info"><span class="l1" style="font-size:16px"><button type="button" class="hvchip" data-hvcode="'+esc(n)+'" style="background:'+hvColor(n)+';min-height:32px;padding:0 10px;margin-right:8px" aria-label="Change the letter for '+esc(n)+'">'+esc(hvCode(n))+' &#9998;</button>'+esc(n)+'</span><span class="l2">'+(a?esc(hvText(a))+' · opened '+esc(ago(a.openedAt)):'No field open')+'</span></div>'+
+      (HV_WAGONS&&a?'<button class="btn ghost sm" type="button" data-hvq="add" data-h="'+esc(n)+'">+ Full wagon waiting</button>':'')+(HV_WAGONS&&q.length?'<button class="btn ghost sm" type="button" data-hvq="drop" data-h="'+esc(n)+'">Remove one waiting</button>':'')+
+      (HV_WAGONS&&a?'<button class="btn ghost sm" type="button" data-hv="weigh" data-h="'+esc(n)+'">Weigh wagon</button>':'')+(a?'<button class="btn ghost sm" type="button" data-hv="close" data-h="'+esc(n)+'">Close field</button>':'') : '';
+    var wait='';
+    if(HV_WAGONS && q.length){
+      var fl={}, order=[]; q.forEach(function(x){ var k=x.field||x.track||'?'; if(!fl[k]){ fl[k]=0; order.push(k); } fl[k]++; });
+      wait='<span class="l2" style="font-weight:700;color:var(--ink)">'+q.length+' full wagon'+(q.length>1?'s':'')+' waiting ('+esc(order.map(function(k){ return k+(fl[k]>1?' ×'+fl[k]:''); }).join(', '))+', since '+esc(timeOf(q[0].at))+')</span><span class="small" style="white-space:normal">Pick '+esc(hvCode(n))+' under Wagons coming from, then tap a box on the truck they go into.</span>';
+    }
+    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr);gap:8px"><div class="info"><span class="l1" style="font-size:16px"><button type="button" class="hvchip" data-hvcode="'+esc(n)+'" style="background:'+hvColor(n)+';min-height:32px;padding:0 10px;margin-right:8px" aria-label="Change the letter for '+esc(n)+'">'+esc(hvCode(n))+' &#9998;</button>'+esc(n)+'</span>'+
+      '<span class="l2">'+(a?esc(hvText(a))+' · opened '+esc(ago(a.openedAt)):'No field open')+(hvRaw(n).edge?' · Edge 101':'')+'</span>'+wait+'</div>'+
       (btns?'<div style="display:flex;gap:6px;flex-wrap:wrap">'+btns+'</div>':'')+'</div>';
   }).join('');
-  var from='';
-  if(op.length>1){
-    var cur=op.some(function(x){ return x.name===S.hvFrom; }) ? S.hvFrom : op[0].name;
-    from='<div class="lbl" style="margin-top:10px">Wagons coming from</div><div class="hvchips">'+op.map(function(x){ return '<button type="button" class="hvchip" data-hvfrom="'+esc(x.name)+'" aria-pressed="'+(x.name===cur?'true':'false')+'" style="background:'+hvColor(x.name)+'">'+esc(hvCode(x.name))+' · '+esc(x.field||x.track||'')+'</button>'; }).join('')+'</div>'+
-      '<p class="small">Pick the harvester, then tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. The 3rd wagon in logs the truck as loaded. Tap a filled box to switch it to the other harvester or clear it.</p>';
-  } else if(op.length===1){
-    from='<p class="small">Tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. The 3rd wagon logs the truck as loaded. Tapping the truck number still logs it right away, with every wagon from '+esc(op[0].name)+'.</p>';
+  var src=hvSources(), from='';
+  if(!HV_WAGONS){
+    if(src.length>1){ var cur0=hvPick();
+      from='<div class="lbl" style="margin-top:10px">Trucks loading from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n);
+          return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur0?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+' · '+esc(a.field||a.track||'')+'</button>'; }).join('')+'</div>'+
+        '<p class="small">Pick the harvester the truck is loading from, then tap the truck number. The load gets that harvester\'s field, track, variety and stubble.</p>';
+    } else if(src.length===1){ var a1=hvState(src[0]); from='<p class="small">Every truck tapped is logged to '+esc(a1.field||a1.track||'')+' ('+esc(src[0])+').</p>'; }
+  } else if(src.length>1){
+    var cur=hvPick();
+    from='<div class="lbl" style="margin-top:10px">Wagons coming from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n), q=hvQ(n);
+        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(q.length?' · '+q.length+' waiting':(a?' · '+esc(a.field||a.track||''):''))+'</button>'; }).join('')+'</div>'+
+      '<p class="small">Pick the harvester, then tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. A harvester with full wagons waiting gives those first, with the field they were cut in. The 3rd wagon in logs the truck as loaded. Tap a filled box to switch it to the other harvester or clear it.</p>';
+  } else if(src.length===1){
+    from='<p class="small">Tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. The 3rd wagon logs the truck as loaded.'+(hvQ(src[0]).length?' The full wagons waiting go in first, with the field they were cut in.':' Tapping the truck number still logs it right away, with every wagon from '+esc(src[0])+'.')+'</p>';
   }
   return '<div class="card"><div class="lbl">Harvesters</div>'+rows+from+'</div>';
 }
+async function hvQueueAdd(name){
+  var a=hvState(name); if(!a || !S.canWrite || needName()) return;
+  try{ var n=await rpc('wag_queue_add',{ p_farm:S.farmId, p_harvester:name, p_slot:hvSlot(Object.assign({ name:name }, a)) }); poke(); toast(name+': '+n+' full wagon'+(n===1?'':'s')+' waiting ('+(a.field||a.track)+').'); }catch(e){ fail(e); }
+}
+async function hvQueueDrop(name){
+  if(!S.canWrite) return;
+  try{ var n=await rpc('wag_queue_drop',{ p_farm:S.farmId, p_harvester:name }); poke(); toast(name+': '+n+' waiting now.'); }catch(e){ fail(e); }
+}
+document.addEventListener('click',function(e){
+  var el=e.target.closest && e.target.closest('[data-hvq]'); if(!el) return;
+  if(el.getAttribute('data-hvq')==='add') hvQueueAdd(el.getAttribute('data-h')); else hvQueueDrop(el.getAttribute('data-h'));
+});
 
 /* the wagon slots in "Fix this load" */
 function hvChoices(e){
@@ -4543,6 +4575,7 @@ function hvChoices(e){
   return out;
 }
 function hvEditSlots(e){
+  if(!HV_WAGONS) return '';
   var ch=hvChoices(e); if(!ch.length && !e.dumps) return '';
   var d=e.dumps||[null,null,null], h='<div class="lbl" style="margin-top:6px">Wagons in this truck</div>';
   for(var i=0;i<3;i++){
@@ -4552,6 +4585,7 @@ function hvEditSlots(e){
   return h+'<p class="small">A wagon left Empty splits the truck in halves instead of thirds. When wagons are set, the load\'s track, field and variety follow the field most of its wagons came from.</p>';
 }
 function hvEditSave(e,patch){
+  if(!HV_WAGONS) return;
   if(!$('#eDump0')) return;
   var m={}; hvChoices(e).forEach(function(x){ m[x.s]=x; });
   var d=[0,1,2].map(function(i){ var v=$('#eDump'+i).value; return v&&m[v] ? Object.assign({}, m[v]) : null; });
@@ -4619,8 +4653,8 @@ async function hvDoOpen(){
     var sess=Object.assign({ harvester:name, day:today(), openedAt:now, openedBy:byName(), checks:[] }, nf);
     if(fin && fin.acres==null && a.field===nf.field && a.acres) sess.acres=a.acres;
     await dref('farms/'+farm+'/harvest/'+sid).set(sess);
-    var pc=(S.harv[hvKey(name)]||{}).code;
-    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, session:sid, openedAt:now, by:byName(), at:now }, pc?{ code:pc }:{}, nf));
+    var ph=S.harv[hvKey(name)]||{}, pc=ph.code;
+    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, session:sid, openedAt:now, by:byName(), at:now }, pc?{ code:pc }:{}, ph.queue?{ queue:ph.queue }:{}, nf));
     /* keep the Board's track, field and variety pickers on the field just opened */
     S.active={ track:nf.track, field:nf.field, variety:nf.variety }; saveActive();
     closeEdit(); toast(name+' is in '+(nf.field||nf.track)+'.');
@@ -4632,7 +4666,7 @@ async function hvDoClose(){
   v.busy=true;
   try{
     await dref('farms/'+farm+'/harvest/'+a.session).update(hvFinishPatch());
-    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, closed:true, lastField:a.field||'', lastTrack:a.track||'', at:Date.now(), by:byName() }, a.code?{ code:a.code }:{}));
+    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, closed:true, lastField:a.field||'', lastTrack:a.track||'', at:Date.now(), by:byName() }, a.code?{ code:a.code }:{}, a.queue?{ queue:a.queue }:{}));
     closeEdit(); toast(name+': '+(a.field||a.track||'field')+' closed.');
   }catch(e){ v.busy=false; fail(e); }
 }
@@ -4684,13 +4718,28 @@ async function hvSetCode(name){
   var k=hvKey(name), a=S.harv[k];
   try{
     if(a){ a.code=v; last.board=''; schedule(); await dref('farms/'+S.farmId+'/active/'+k).update({ code:v }); }
-    else { S.harv[k]={ id:k, harvester:name, closed:true, code:v }; last.board=''; schedule(); await dref('farms/'+S.farmId+'/active/'+k).set({ harvester:name, closed:true, code:v, at:Date.now(), by:byName() }); }
+    else { S.harv[k]={ id:k, harvester:name, closed:true, code:v }; last.board=''; schedule(); await dref('farms/'+S.farmId+'/active/'+k).update({ code:v }).catch(function(){ return dref('farms/'+S.farmId+'/active/'+k).set({ harvester:name, closed:true, code:v, at:Date.now(), by:byName() }); }); }
     toast(name+' is '+v+' on the wagon boxes.');
   }catch(e){ fail(e); }
 }
-function hvCur(){ var op=hvOpen(); if(!op.length) return null; return op.filter(function(x){ return x.name===S.hvFrom; })[0]||op[0]; }
+async function hvRename(fid,key,old,nv){
+  var lo=String(old).trim().toLowerCase(), m=function(x){ return x && String(x[key]||'').trim().toLowerCase()===lo; };
+  try{
+    var act=docs(await col('farms/'+fid+'/active').get());
+    for(var i=0;i<act.length;i++){ var a=act[i];
+      if(a.id.indexOf('h_')===0 && m(a)){ var p={}; p[key]=nv; await dref('farms/'+fid+'/active/'+a.id).update(p); }
+      if(a.id.indexOf('w_')===0 && Array.isArray(a.d) && a.d.some(m)){ await dref('farms/'+fid+'/active/'+a.id).update({ d:a.d.map(function(x){ if(m(x)){ x=Object.assign({},x); x[key]=nv; } return x; }) }); }
+    }
+    var hs=docs(await col('farms/'+fid+'/harvest').limit(2000).get());
+    for(var j=0;j<hs.length;j++){ if(m(hs[j])){ var q={}; q[key]=nv; await dref('farms/'+fid+'/harvest/'+hs[j].id).update(q); } }
+    HF.rows=null;
+  }catch(e){}
+}
+function hvCur(){ var op=hvOpen(); if(!op.length) return null; var pk=hvPick(); return op.filter(function(x){ return x.name===pk; })[0]||op[0]; }
 function hvWagons(tid){ var w=S.wag[tid]; if(!w || !w.d || (w.at && Date.now()-w.at>16*3600000)) return null; var d=w.d.slice(0,3); while(d.length<3) d.push(null); return d; }
+function hvQueue(){ var out=[]; harvOf(S.farmId).forEach(function(n){ var a=S.harv[hvKey(n)]; ((a&&a.queue)||[]).forEach(function(q){ out.push(q); }); }); return out.sort(function(a,b){ return (a.at||0)-(b.at||0); }); }
 function hvTile(t,recent,btn){
+  if(!HV_WAGONS) return btn;
   if(S.boardEdit || !harvOf(t.farm).length) return btn;
   if(recent){
     var l=null; S.loads.forEach(function(x){ if(x.truck===t.id && x.loadedAt && (!l || x.loadedAt>l.loadedAt)) l=x; });
@@ -4698,24 +4747,29 @@ function hvTile(t,recent,btn){
     var bar='<em class="wgb" aria-hidden="true">'+[2,0,1].map(function(k){ var d=l.dumps[k]; return '<i'+(k===2?' class="top"':'')+' style="background:'+(d?hvColor(d.h):'transparent')+'"></i>'; }).join('')+'</em>';
     return btn.replace(/<\/button>$/, bar+'</button>');
   }
-  if(!hvOpen().length || !S.canWrite) return btn;
   var w=hvWagons(t.id)||[null,null,null];
-  return '<div class="tw">'+btn+'<div class="wg">'+[2,0,1].map(function(i){ var d=w[i], cls=(i===2?'top':'')+(d?' on':'');
+  if((!hvOpen().length && !hvQueue().length && !w.some(Boolean)) || !S.canWrite) return btn;
+  var nt=w.every(Boolean) && S.wag[t.id] && S.wag[t.id].needTap;
+  return '<div class="tw">'+btn+(nt?'<span class="small" style="text-align:center;font-weight:700">Pick the mill, tap '+esc(t.no)+'</span>':'')+'<div class="wg">'+[2,0,1].map(function(i){ var d=w[i], cls=(i===2?'top':'')+(d?' on':'');
     return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+WGN[i]+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?esc(hvCode(d.h)):'<span style="color:var(--ink2)">'+(i===2?'Top':(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
 }
 async function hvWagonTap(tid,i){
   var t=truckById(tid); if(!t || !S.canWrite || needName()) return;
-  var op=hvOpen(); if(!op.length){ toast('Open a field on a harvester first.'); return; }
-  var cur=hvWagons(tid)||[null,null,null], was=cur[i];
-  if(!was) cur[i]=hvSlot(hvCur());
-  else { var k=-1; op.forEach(function(x,j){ if(x.session===was.s) k=j; }); cur[i]= k<0 ? hvSlot(op[0]) : (k<op.length-1 ? hvSlot(op[k+1]) : null); }
-  var full=cur.every(Boolean);
-  S.wagBusy=S.wagBusy||{}; S.wagBusy[tid]=1; S.wag[tid]={ d:cur, at:Date.now() }; last.board=''; schedule();
+  var op=hvOpen(), qd=hvQueue(), pick=hvPick(), pa=pick?hvState(pick):null;
+  var cur=hvWagons(tid)||[null,null,null], was=cur[i], slot=null, fromQ=false, preview=null;
+  if(!was){
+    if(pick && hvQ(pick).length){ fromQ=true; preview=hvQ(pick)[0]; }        /* that harvester's full wagons waiting go in first */
+    else if(pa) slot=hvSlot(Object.assign({ name:pick }, pa));
+    else if(qd.length){ fromQ=true; preview=qd[0]; }
+    else { toast('Open a field on a harvester first.'); return; }
+  } else { var k=-1; op.forEach(function(x,j){ if(x.session===was.s) k=j; }); slot= !op.length ? null : (k<0 ? hvSlot(op[0]) : (k<op.length-1 ? hvSlot(op[k+1]) : null)); }
+  S.wagBusy=S.wagBusy||{}; S.wagBusy[tid]=1;
+  var show=cur.slice(); show[i]=fromQ?Object.assign({},preview):slot; S.wag[tid]={ d:show, at:Date.now() }; last.board=''; schedule();
   try{
-    await dref('farms/'+t.farm+'/active/w_'+tid).set({ d:cur, at:Date.now(), by:byName() });
-    if(full && !was){ delete S.wagBusy[tid]; await logLoad(t); }    /* the 3rd wagon in: the truck is loaded */
-  }catch(e){ fail(e); }
-  if(S.wagBusy) delete S.wagBusy[tid];
+    var r=await rpc('wag_set',{ p_farm:t.farm, p_truck:tid, p_i:i, p_slot:slot, p_from_queue:fromQ, p_harvester:pick||null });
+    var d=(r&&r.d)||show; S.wag[tid]={ d:d, at:Date.now() }; delete S.wagBusy[tid]; poke(); last.board=''; schedule();
+    if(!was && d.every(Boolean)) await logLoad(t);    /* the 3rd wagon in: the truck is loaded */
+  }catch(e){ delete S.wagBusy[tid]; fail(e); }
 }
 document.addEventListener('click',function(e){
   var el=e.target.closest && e.target.closest('[data-wg],[data-hvfrom],[data-hvcode]'); if(!el) return;
@@ -4724,7 +4778,7 @@ document.addEventListener('click',function(e){
   hvWagonTap(el.getAttribute('data-wg'), Number(el.getAttribute('data-i')));
 });
 /* ---------- Tools > Harvest by field: calibrated tons per field, variety and stubble ---------- */
-var HF={ rows:null, loading:false, year:'', farm:'', edit:'', msg:'' };
+var HF={ rows:null, loading:false, year:'', farm:'', edit:'', msg:'', keys:{}, keyBusy:false, newKey:null };
 function hfCropYear(ms){ var d=new Date(ms||Date.now()); return d.getMonth()<=1 ? d.getFullYear()-1 : d.getFullYear(); }   /* January and February cutting belongs to the season that started in the fall */
 function hfFarms(){ return S.isAdmin ? S.farms : S.farms.filter(function(f){ return f.id===S.farmId; }); }
 function hfShow(){ if(!HF.rows && !HF.loading) hfLoad(); else hfRender(); }
@@ -4786,6 +4840,7 @@ function hfRender(){
     (hfFarms().length>1?'<label class="f">Farm<select data-hff="farm"><option value="">All farms</option>'+hfFarms().map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===HF.farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label>':'')+
     '</div><div class="toolbar"><button class="btn sm refresh" type="button" data-hfa="reload">Refresh</button>'+(list.length?'<button class="btn ghost sm" type="button" data-hfa="csv">Download CSV</button>':'')+'</div>'+
     (HF.msg?'<p class="small">'+esc(HF.msg)+'</p>':'')+'</div>';
+  h+=hfKeysHtml();
   if(!list.length){
     h+='<div class="card empty"><p>No fields yet for this season. Add your harvesters under Fields and tracks on the Board, then tap Open field on each one as it starts a field.</p></div>';
     root.innerHTML=h; return;
@@ -4816,6 +4871,40 @@ function hfRender(){
     '<p class="small">Only fields with monitor tons and acres count in these tables.</p></div>';
   root.innerHTML=h;
 }
+/* Edge 101 connection: a key per harvester (administrators, and the farm's manager) */
+function hfKeyFarm(){ return (S.isAdmin && HF.farm) ? HF.farm : S.farmId; }
+async function hfKeysLoad(f){
+  if(!f || HF.keyBusy) return; HF.keyBusy=true;
+  try{ HF.keys[f]=await rpc('harv_key_list',{ p_farm:f })||[]; }catch(e){ HF.keys[f]={ err:'Run the latest schema.sql in Supabase to connect an Edge 101.' }; }
+  HF.keyBusy=false; hfRender();
+}
+function hfKeysHtml(){
+  if(!isLead()) return '';
+  var f=hfKeyFarm(), hs=harvOf(f), ks=HF.keys[f];
+  var h='<div class="card"><h2>Edge 101 connection</h2><p class="small">A harvester with an Edge 101 sends its fields and wagons here over Wi-Fi (the iPad hotspot or farm Wi-Fi). It needs its own key. A harvester without one is run by hand on the Board.'+(S.isAdmin&&S.farms.length>1?' Farm: <b>'+esc(farmName(f))+'</b> (pick another farm above).':'')+'</p>';
+  if(!hs.length) return h+'<p class="small">Add the harvesters first, under Fields and tracks on the Board.</p></div>';
+  if(!ks){ setTimeout(function(){ hfKeysLoad(f); },0); return h+'<p class="small">Loading…</p></div>'; }
+  if(ks.err) return h+'<p class="small">'+esc(ks.err)+'</p></div>';
+  h+=hs.map(function(n){ var k=ks.filter(function(x){ return x.harvester===n; })[0];
+    return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto;align-items:center"><div class="info"><span class="l1">'+esc(n)+'</span><span class="l2">'+(k?'Key made '+esc(new Date(k.created_at).toLocaleDateString([],{month:'short',day:'numeric'}))+(k.last_at?' · last report '+esc(ago(new Date(k.last_at).getTime())):' · no report yet'):'No Edge 101 (run by hand)')+'</span></div>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><button class="btn sm" type="button" data-hfk="new" data-h="'+esc(n)+'">'+(k?'New key':'Make key')+'</button>'+(k?'<button class="btn ghost sm" type="button" data-hfk="off" data-h="'+esc(n)+'">Turn off</button>':'')+'</div></div>'; }).join('');
+  if(HF.newKey && HF.newKey.farm===f){
+    var txt='Truck log address: '+(CFG.supabaseUrl||'')+'\nPublic key: '+(CFG.supabaseAnonKey||'')+'\nHarvester key: '+HF.newKey.key;
+    h+='<div style="margin-top:10px"><div class="lbl">'+esc(HF.newKey.h)+': enter these on the Edge 101 (Network tab, Truck log)</div><pre style="white-space:pre-wrap;word-break:break-all;font-size:13px;background:var(--raise);padding:10px;border-radius:8px;border:1px solid var(--line)">'+esc(txt)+'</pre>'+
+      '<div class="toolbar"><button class="btn sm" type="button" data-hfk="copy">Copy</button><button class="btn ghost sm" type="button" data-hfk="hide">Done</button></div><p class="small">The harvester key is shown only now. New key makes a new one and the old one stops working.</p></div>';
+  }
+  return h+'</div>';
+}
+document.addEventListener('click',async function(e){
+  var el=e.target.closest && e.target.closest('[data-hfk]'); if(!el) return;
+  var a=el.getAttribute('data-hfk'), n=el.getAttribute('data-h'), f=hfKeyFarm();
+  try{
+    if(a==='new'){ var k=await rpc('harv_key_new',{ p_farm:f, p_harvester:n }); HF.newKey={ farm:f, h:n, key:k }; delete HF.keys[f]; hfRender(); }
+    else if(a==='off'){ if(!confirm(tr('Turn off the Edge 101 key for')+' '+n+'?')) return; await rpc('harv_key_off',{ p_farm:f, p_harvester:n }); if(HF.newKey&&HF.newKey.h===n) HF.newKey=null; delete HF.keys[f]; hfRender(); toast(n+': key turned off.'); }
+    else if(a==='copy'){ var t=el.closest('div').parentNode.querySelector('pre').textContent; try{ await navigator.clipboard.writeText(t); toast('Copied.'); }catch(x){ toast('Select the text and copy it.'); } }
+    else if(a==='hide'){ HF.newKey=null; hfRender(); }
+  }catch(x){ fail(x); }
+});
 function hfCsv(){
   var list=hfGroups(), q=function(v){ v=String(v==null?'':v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
   var lines=[['season','farm','track','field','variety','stubble','first_cut','last_cut','harvesters','monitor_tons','weigh_checks','correction_factor','correction_from','calibrated_tons','acres','tons_per_acre','avg_wagon_lb'].join(',')];
@@ -4826,7 +4915,7 @@ function hfCsv(){
 document.addEventListener('click',function(e){
   var el=e.target.closest && e.target.closest('[data-hfa]'); if(!el) return;
   var a=el.getAttribute('data-hfa');
-  if(a==='reload'){ HF.edit=''; hfLoad(); }
+  if(a==='reload'){ HF.edit=''; HF.keys={}; hfLoad(); }
   else if(a==='csv') hfCsv();
   else if(a==='edit'){ HF.edit=el.getAttribute('data-i'); hfRender(); }
   else if(a==='editDone'){ HF.edit=''; hfRender(); }
@@ -4848,7 +4937,7 @@ document.addEventListener('change',function(e){
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
  'Harvesters':'Cosechadoras','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
- 'Wagons filling trucks from':'Carretas llenando camiones de','Wagons coming from':'Carretas vienen de','Wagons in this truck':'Carretas en este camión','Empty':'Vacía','Stubble':'Soca','Plant cane':'Caña planta','1st stubble':'1ra soca','2nd stubble':'2da soca','3rd stubble':'3ra soca','4th stubble':'4ta soca','5th stubble':'5ta soca','Older stubble':'Soca más vieja',
+ 'Wagons filling trucks from':'Carretas llenando camiones de','Edge 101 connection':'Conexión Edge 101','Make key':'Crear clave','New key':'Clave nueva','Turn off':'Apagar','Wagons coming from':'Carretas vienen de','Wagons in this truck':'Carretas en este camión','Empty':'Vacía','Stubble':'Soca','Plant cane':'Caña planta','1st stubble':'1ra soca','2nd stubble':'2da soca','3rd stubble':'3ra soca','4th stubble':'4ta soca','5th stubble':'5ta soca','Older stubble':'Soca más vieja',
  'Open this field':'Abrir este campo','Close that field and open this one':'Cerrar ese campo y abrir este','Close this field':'Cerrar este campo','Harvester monitor tons for this field':'Toneladas del monitor de la cosechadora para este campo','Field acres':'Acres del campo','Cane':'Caña','Burned':'Quemada','Green':'Verde',
  'Weigh wagon scale (lb)':'Báscula de la carreta (lb)','Harvester monitor for the same wagon (lb)':'Monitor de la cosechadora para la misma carreta (lb)','Save weight':'Guardar peso','Harvest by field':'Cosecha por campo','Season':'Temporada','Download CSV':'Descargar CSV','By variety':'Por variedad','By stubble':'Por soca','By variety and stubble':'Por variedad y soca',
  'Cane Track':'Cane Track','Fetch tons and TRS':'Traer toneladas y TRS','Total tons hauled':'Total de toneladas acarreadas','Total lb sugar':'Total lb de azúcar','Tons per acre':'Toneladas por acre','Lb sugar per acre':'Lb de azúcar por acre','+ Add a mill':'+ Agregar un ingenio','Total acres':'Acres totales','Mill name':'Nombre del ingenio','Tons hauled':'Toneladas acarreadas','Liquidation %':'Liquidación %','Your account is made. To join a farm, paste the invite code or link your crew manager or farm owner sent you. Or start your own portal for your own farms.':'Su cuenta está hecha. Para unirse a una finca, pegue el código o enlace de invitación que le mandó su jefe de cuadrilla o el dueño de la finca. O empiece su propio portal para sus propias fincas.','Or start your own portal':'O empiece su propio portal','Name it, e.g. Smith Farms':'Póngale nombre, por ejemplo Fincas Smith','Start my own portal':'Empezar mi propio portal','Your portal name':'El nombre de su portal','Starting your own portal for your farms? Type a name for it. Were you invited? Leave this blank and use your invite link.':'¿Empieza su propio portal para sus fincas? Escriba un nombre. ¿Lo invitaron? Deje esto en blanco y use su enlace de invitación.','Your portal':'Su portal','Rename your portal':'Cambiar el nombre del portal','Save the name':'Guardar el nombre','Your farms, crew and tools are private to this portal. Other growers using the site cannot see them.':'Sus fincas, personal y herramientas son privados en este portal. Otros productores que usan la página no pueden verlos.','Make an account with your email. Start your own portal for your farms, or use an invite link to join a farm.':'Cree una cuenta con su correo. Empiece su propio portal para sus fincas, o use un enlace de invitación para unirse a una finca.','+ Add truck':'+ Agregar camión','Tons per load':'Toneladas por carga','Avg t/load':'Prom t/carga','+ Add or edit…':'+ Agregar o editar…','Add a truck here':'Agregar un camión aquí','Truck rosters':'Listas de camiones','Add, change and remove trucks right on the Board, with the Add truck and Edit trucks and mills buttons. Use this only to see the full list or to add a hauler name.':'Agregue, cambie y quite camiones directo en el Tablero, con los botones Agregar camión y Editar camiones y molinos. Use esto solo para ver la lista completa o para poner el nombre del transportista.','New today':'Nuevo hoy','Show all trucks':'Mostrar todos los camiones','Hide unused trucks':'Ocultar camiones sin usar','Add a truck by number to bring it back in yellow.':'Agregue un camión por número para traerlo de vuelta en amarillo.','New truck number color':'Color del número de camión nuevo','(a truck that is new for the day gets its number highlighted in this color)':'(un camión nuevo del día tiene su número resaltado con este color)','Weighed number color':'Color del número pesado','(the truck keeps its mill color, and its number turns this color once its weight comes in)':'(el camión conserva el color de su molino, y su número toma este color cuando llega su peso)','once its weight comes in. To change a load\'s track or field, tap it in Today\'s loads.':'cuando llega su peso. Para cambiar el track o el campo de una carga, tóquela en Cargas de hoy.','A truck number turns':'El número de un camión se pone de este color:','All tracks':'Todos los tracks','All fields':'Todos los campos','Fields and tracks':'Campos y tracks','Add one, tap a name to rename it, or tap x to remove it. Loads already logged keep the name they were logged with.':'Agregue uno, toque un nombre para cambiarlo, o toque x para quitarlo. Las cargas ya registradas conservan el nombre con que se registraron.','Rename':'Cambiar nombre de','That name is already in the list.':'Ese nombre ya está en la lista.','None yet.':'Ninguno todavía.','Fields':'Campos','Tracks':'Tracks','Field name or number':'Nombre o número del campo','Track, like Johnson':'Track, como Johnson','Add missed load':'Agregar carga omitida','Add a missed load':'Agregar una carga omitida','Use this for a truck that was loaded but never tapped. It is added to today with the time you choose.':'Úselo para un camión que se cargó pero no se tocó. Se agrega a hoy con la hora que elija.','Time it was loaded':'Hora de carga','Add load':'Agregar carga','Add a truck first.':'Primero agregue un camión.','Pick a truck.':'Elija un camión.','Pick the time.':'Elija la hora.','That time is in the future.':'Esa hora es en el futuro.','Pick a mill.':'Elija un molino.','12  (or 11, 12, 14 to add several)':'12  (o 11, 12, 14 para varios)',
