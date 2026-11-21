@@ -143,5 +143,19 @@ Each mill has its own start date in Setup, per farm. Cane Track fetch and the ro
 ## Renaming mills, tracks, fields and varieties
 A rename carries everything with it: trucks set to the mill, all logged loads since harvest start, typed day totals, burn log entries (track and field), and a mill's color, start date and hauler codes. If something is still stuck on an old mill name, Setup has "Trucks tied to a mill name that is gone" and "Check logged loads for old mill names", each with a Move button.
 
+## Harvesters (open field per harvester)
+Add your harvesters on the Board under **Fields and tracks** (crew can too). Each one gets a row in a **Harvesters** card on the Board:
+- **Open field / Next field**: pick the track, field, variety and stubble the harvester is starting. Next field also closes the field it was in, with its **monitor tons**, **field acres** and burned or green (all optional, and fixable later). The Board's track, field and variety pickers follow the field just opened.
+- **Weigh wagon**: the weigh wagon's scale weight and the monitor's estimate for the same wagon. These correct that field's monitor tons.
+- **Close field**: when a harvester stops without starting another field.
+
+**Wagon boxes:** while a harvester has a field open, every waiting truck shows 3 wagon boxes under its number in a triangle (two bottoms, and the split wagon on top of both), and each harvester has its own color (blue, orange, and so on) and a letter. Tap the colored letter next to a harvester's name on the Board to change it (one or two letters, like A or JD). Pick the harvester under **Wagons coming from**, then tap a box as each wagon dumps. The 3rd wagon logs the truck as loaded. Tap a filled box to switch it to the next harvester or clear it. The boxes are shared, so every phone on the farm sees them fill. After loading, the truck shows a small color bar of its 3 wagons while it is In route.
+
+Every truck is logged as **3 wagons**. Tapping the truck number still logs it right away, and any empty wagon is filled from the picked harvester. With one harvester open, all 3 come from its field. With two or more open, pick **Wagons filling trucks from** on the Board; when a truck gets wagons from more than one harvester, tap the load and set each wagon (a wagon left Empty splits the truck in halves). Mixed loads show "Mixed: F12 ×2, F7 ×1" in Today's loads and are marked `mixed` so TRS by variety can leave them out later.
+
+**Tools > Harvest by field** shows each field per season: monitor tons, weigh-wagon checks, the correction (the field's own checks, or the farm's season average when it has none), calibrated tons, acres, tons per acre and average wagon weight, with tables by variety, by stubble and by variety and stubble, and a CSV. Seasons run fall to fall (January cutting counts in the season before).
+
+Run the new `schema.sql` before uploading the matching `index.html`. Each harvester's open field is stored at `farms/<farm>/active/h_<name>` and each field it cuts at `farms/<farm>/harvest/<id>`, so the Edge 101 can open fields later the same way.
+
 ## Housekeeping
 `index2.html` is an old unused page and can be deleted. `config.js` holds your own Supabase address and key, so never replace it with a file from anyone else.

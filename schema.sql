@@ -178,7 +178,7 @@ declare
   is_active boolean;
 begin
   is_load   := (s[1] = 'farms' and n = 6 and s[3] = 'days' and s[5] = 'loads');
-  is_active := (s[1] = 'farms' and n = 4 and s[3] = 'active');      -- the shared active track and field
+  is_active := (s[1] = 'farms' and n = 4 and s[3] in ('active', 'harvest'));   -- the shared active track and field, each harvester's open field, and its field sessions
   if p_role = 'mill' then return false; end if;
   if p_role = 'admin' then
     return is_load or is_active or (s[1] in ('farms', 'trucks', 'tools') and n = 2);
@@ -330,7 +330,7 @@ begin
     select coalesce(jsonb_agg(jsonb_build_object('id', d.id, 'data', d.data) order by d.path), '[]'::jsonb) into res
       from (select * from docs where parent = 'trucks' and _farm_in(w.o_org, data->>'farm') and (w.o_role = 'admin' or data->>'farm' = w.o_farm) limit p_limit) d;
   elsif ((array_length(s, 1) = 5 and s[1] = 'farms' and s[3] = 'days' and s[5] = 'loads')
-         or (array_length(s, 1) = 3 and s[1] = 'farms' and s[3] in ('active', 'quota')))
+         or (array_length(s, 1) = 3 and s[1] = 'farms' and s[3] in ('active', 'quota', 'harvest')))
         and (w.o_role = 'admin' or s[2] = w.o_farm) and _farm_in(w.o_org, s[2]) then
     select coalesce(jsonb_agg(jsonb_build_object('id', d.id, 'data', d.data) order by d.path), '[]'::jsonb) into res
       from (select * from docs where parent = p_parent limit p_limit) d;
@@ -394,9 +394,9 @@ begin
   if s[1] = 'tools' then s[2] := w.o_org || '.' || s[2]; p_path := array_to_string(s, '/'); end if;
   p_patch := coalesce(p_patch, '{}'::jsonb) - 'org';
   if w.o_role <> 'admin' and s[1] = 'farms' and n = 2 then
-    -- crew may change the track, field and variety lists; managers also the mills, their colors, their start dates and the harvest start date
+    -- crew may change the track, field, variety and harvester lists; managers also the mills, their colors, their start dates and the harvest start date
     if exists (select 1 from jsonb_object_keys(coalesce(p_patch, '{}'::jsonb)) k
-               where k not in ('tracks', 'fields', 'varieties') and not (w.o_role = 'manager' and k in ('mills', 'millColors', 'millStart', 'harvestStart'))) then
+               where k not in ('tracks', 'fields', 'varieties', 'harvesters') and not (w.o_role = 'manager' and k in ('mills', 'millColors', 'millStart', 'harvestStart'))) then
       raise exception 'denied' using errcode = '42501';
     end if;
   end if;
