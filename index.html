@@ -865,6 +865,8 @@ async function logLoad(t){
   if(dm && tapped) dm=dm.map(function(x,i){ return wgd[i] ? Object.assign({}, wgd[i]) : x; });
   if(dm && HV_WAGONS){ rec.dumps=dm; hvFill(rec); }
   else if(dm){ rec.track=dm[0].track; rec.field=dm[0].field; rec.variety=dm[0].variety; rec.stubble=dm[0].stubble; rec.harvester=dm[0].h; }
+  if(dm){ try{ var sp=await hvEdgeSplit(t.farm, rec.dumps||dm);   /* 2026-11-22: split by field from the Edge wagons */
+    if(sp){ rec.split=sp.parts; rec.splitWagons=sp.wagons; if(sp.guessed) rec.splitGuessed=sp.guessed; var top=sp.parts[0]; rec.track=top.track; rec.field=top.field; rec.variety=top.variety; rec.stubble=top.stubble; rec.mixed=sp.parts.length>1; } }catch(e){} }
   try{
     await ref.set(rec);
     markUsed(t,wd);
@@ -919,6 +921,7 @@ async function saveEdit(){
   if($('#eField')) patch.field=$('#eField').value;
   if($('#eVariety')) patch.variety=$('#eVariety').value;
   hvEditSave(e,patch);
+  if(('track' in patch && patch.track!==e.track) || ('field' in patch && patch.field!==e.field) || ('variety' in patch && patch.variety!==e.variety)) patch.split=null;   /* fixed by hand: no Edge split */
   if($('#eTons')){ var tv=$('#eTons').value.trim(), rv=$('#eTrs').value.trim(); patch.tons=tv===''?null:Number(tv); patch.trs=rv===''?null:Number(rv); var bv=$('#eBrix').value.trim(); patch.brix=bv===''?null:Number(bv); patch.trsFinal=$('#eFin').checked; }
   try{ await dref(loadsPath(S.farmId,e.day)+'/'+e.id).update(patch); toast('Load fixed'); closeEdit(); }
   catch(err){ fail(err); }
@@ -1169,7 +1172,7 @@ function renderBoard(){
       Object.keys(byT).forEach(function(k){ var a=byT[k].sort(function(x,y){ return x.loadedAt-y.loadedAt; }); for(var i=0;i<a.length-1;i++) nextAt[a[i].id]=a[i+1].loadedAt; });
       var newIds={}; allT.forEach(function(t){ if(prev && t.addedDay===today() && !usedPrev(t)) newIds[t.id]=1; });
       html+='<div class="loads">'+list.slice(0,300).map(function(l){
-        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.mixed) bits.push('Mixed: '+hvMixText(l)); else { if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); } if(l.harvester) bits.push(hvCode(l.harvester)); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
+        var bits=[]; if(l.mill) bits.push('To '+l.mill); if(l.split && l.split.length>1) bits.push('Split: '+splitText(l)); else if(l.mixed) bits.push('Mixed: '+hvMixText(l)); else { if(l.track) bits.push(l.track); if(l.field) bits.push(l.field); } if(l.harvester) bits.push(hvCode(l.harvester)); if(l.loadedBy) bits.push('logged by '+l.loadedBy); if(tonsOf(l)!=null) bits.push(f1(tonsOf(l))+' t'); if(l.trs) bits.push('TRS '+Math.round(l.trs));
         return '<button type="button" class="lrow" data-act="editLoad" data-id="'+esc(l.id)+'" data-st="full"><span class="plate"'+((l.mill||tonsOf(l)!=null||newIds[l.truck])?' style="'+(l.mill?millStyle(l.farm||S.farmId,l.mill):'')+(newIds[l.truck]?';background:'+newColor(S.farmId):'')+(tonsOf(l)!=null?';color:'+weighedColor(S.farmId)+';text-shadow:0 0 2px rgba(0,0,0,.55)':(newIds[l.truck]?';color:#0E1511':''))+'"':'')+'>'+esc(l.no)+'</span>'+
           '<span class="info"><span class="l1">'+esc(timeOf(l.loadedAt))+(l.editedAt?'<span class="edited">edited</span>':'')+'</span><span class="l2">'+esc(bits.join(' · '))+'</span></span>'+
           '<span class="ago">'+(nextAt[l.id]?'Trip '+esc(fmtDur(nextAt[l.id]-l.loadedAt)):esc(ago(l.loadedAt)))+'</span></button>';
@@ -3199,8 +3202,11 @@ function dayCombine0(farm,day,rows,noEntries){
   var ents=noEntries?[]:dtFarmEntries(farm,day), g={}, out=[];
   rows.forEach(function(x){
     if(ents.some(function(e){ return dtCovers(e,x); })) return;
-    var gk=(x.track||'')+'\u0001'+(x.field||'')+'\u0001'+(x.mill||''), a=g[gk]||(g[gk]={ track:x.track||'', field:x.field||'', mill:x.mill||'', tons:0, tw:0, tt:0, loads:0, src:'loads' });
-    a.loads++; var n=tonsOf(x); if(n!=null){ a.tons+=n; var r=Number(x.trs); if(x.trs!=null && isFinite(r) && r>0){ a.tw+=n*r; a.tt+=n; } }
+    loadParts(x).forEach(function(p){   /* 2026-11-22: a split load counts in each field by its share */
+      var sh=p.share==null?1:Number(p.share)||0;
+      var gk=(p.track||'')+'\u0001'+(p.field||'')+'\u0001'+(x.mill||''), a=g[gk]||(g[gk]={ track:p.track||'', field:p.field||'', mill:x.mill||'', tons:0, tw:0, tt:0, loads:0, src:'loads' });
+      a.loads+=sh; var n=tonsOf(x); if(n!=null){ a.tons+=n*sh; var r=Number(x.trs); if(x.trs!=null && isFinite(r) && r>0){ a.tw+=n*sh*r; a.tt+=n*sh; } }
+    });
   });
   Object.keys(g).forEach(function(k){ out.push(g[k]); });
   ents.forEach(function(e){ var t=seN(e.tons)||0, r=seN(e.trs); out.push({ track:e.track||'', field:e.field||'', mill:e.mill||'', tons:t, tw:(r>0?t*r:0), tt:(r>0?t:0), loads:seN(e.loads)||0, src:'entered', id:e.id }); });
@@ -3219,8 +3225,8 @@ function dtBreakHtml(days,scopeLbl,farm){
   if(!rows.length || !(any || rows.length>1)) return '';
   rows.sort(function(a,b){ return a.track.localeCompare(b.track,undefined,{numeric:true}) || a.field.localeCompare(b.field,undefined,{numeric:true}); });
   var T=0, W=0, TT=0, L=0; rows.forEach(function(a){ T+=a.tons; W+=a.tw; TT+=a.tt; L+=a.loads; });
-  var body=rows.map(function(a){ var trs=a.tt>0?a.tw/a.tt:null; return [esc(a.track||'–'),esc(a.field||'–'),a.loads||'–',f1(a.tons),trs?Math.round(trs):'–',trs?Math.round(a.tons*trs).toLocaleString():'–',a.ent&&a.lg?'typed + loads':(a.ent?'typed':'loads')]; });
-  body.push(['<b>Total</b>','',L||'–','<b>'+f1(T)+'</b>',TT>0?'<b>'+Math.round(W/TT)+'</b>':'–',TT>0?'<b>'+Math.round(W).toLocaleString()+'</b>':'–','']);
+  var body=rows.map(function(a){ var trs=a.tt>0?a.tw/a.tt:null; return [esc(a.track||'–'),esc(a.field||'–'),a.loads?fLoads(a.loads):'–',f1(a.tons),trs?Math.round(trs):'–',trs?Math.round(a.tons*trs).toLocaleString():'–',a.ent&&a.lg?'typed + loads':(a.ent?'typed':'loads')]; });
+  body.push(['<b>Total</b>','',L?fLoads(L):'–','<b>'+f1(T)+'</b>',TT>0?'<b>'+Math.round(W/TT)+'</b>':'–',TT>0?'<b>'+Math.round(W).toLocaleString()+'</b>':'–','']);
   var bm={}; days.forEach(function(d){ dayCombine(farm,d,loadsFor(d)).forEach(function(it){ if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && it.field!==S.report.field)) return; var k=it.mill||'No mill', m=bm[k]||(bm[k]={ tons:0, tw:0, tt:0 }); m.tons+=it.tons; m.tw+=it.tw; m.tt+=it.tt; }); });
   var mk=Object.keys(bm).filter(function(k){ return bm[k].tons>0; }), mh='';
   if(mk.length>1 || (mk.length&&mk[0]!=='No mill')) mh='<div class="lbl">'+esc(scopeLbl)+' by mill, with typed totals</div>'+tbl(['Mill','Tons','TRS','Lb sugar'],mk.sort().map(function(k){ var m=bm[k], t=m.tt>0?m.tw/m.tt:null; return [esc(k),f1(m.tons),t?Math.round(t):'–',t?Math.round(m.tons*t).toLocaleString():'–']; }));
@@ -3411,7 +3417,7 @@ function reportDays(){
   return out;
 }
 function loadsFor(d){ return d===S.loadsDay ? S.loads : (S.report.cache[d]||[]); }
-function repPass(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track || (x.track||'')===S.report.track) && (!S.report.field || (x.field||'')===S.report.field); }
+function repPass(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track && !S.report.field || loadParts(x).some(function(p){ return (!S.report.track || (p.track||'')===S.report.track) && (!S.report.field || (p.field||'')===S.report.field); })); }
 function repLoads(d){ return loadsFor(d).filter(repPass); }
 /* time between loads: for each truck, the time from one load to its next load the same day (the round trip).
    Under 10 minutes (a double tap) or over 4 hours (a break, or the end of the day) is not counted. It belongs to the track the truck left from. */
@@ -3627,10 +3633,10 @@ function csvCell(v){ v=v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.rep
 async function exportCsv(){
   if(!S.dl || !S.farmId) return;
   var days=(S.report.mode!=='range' && S.report.mode!=='season' && S.report.sel ? [S.report.sel] : reportDays()).slice().reverse(), fn=farmName(S.farmId);
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket','Split (Edge 101)'].join(',')];
   days.forEach(function(d){
     repLoads(d).filter(function(x){ return x.loadedAt; }).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
+      lines.push([d,fn,x.mill,x.no,millTruckNo(x.no,x.mill,x.farm||S.farmId),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket,(x.split&&x.split.length>1?x.split.map(function(p){ return [p.track,p.field,p.variety].filter(Boolean).join(' ')+' '+Math.round((p.share||0)*100)+'%'; }).join('; '):'')].map(csvCell).join(','));
     });
   });
   var slug=fn.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'farm';
@@ -3871,11 +3877,11 @@ function renderAll_(){
 async function exportCombCsv(){
   if(!S.dl) return;
   var days=combDays().slice().reverse();
-  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket'].join(',')];
+  var lines=[['Date','Farm','Mill','Truck','Mill truck ID','Track','Field','Hauler','Loaded at','Logged by','Variety','Tons','TRS','TRS final','Brix','Ticket','Split (Edge 101)'].join(',')];
   days.forEach(function(d){
     S.farms.forEach(function(f){
       combRows(f.id,d).sort(function(a,b){ return a.loadedAt-b.loadedAt; }).forEach(function(x){
-        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket].map(csvCell).join(','));
+        lines.push([d,f.name,x.mill,x.no,millTruckNo(x.no,x.mill,f.id),x.track,x.field,x.hauler,timeOf(x.loadedAt),x.loadedBy,x.variety,x.tons,x.trs,x.trsFinal?'yes':'',x.brix,x.ticket,(x.split&&x.split.length>1?x.split.map(function(p){ return [p.track,p.field,p.variety].filter(Boolean).join(' ')+' '+Math.round((p.share||0)*100)+'%'; }).join('; '):'')].map(csvCell).join(','));
       });
     });
   });
@@ -4510,6 +4516,31 @@ function hvFill(o){
   o.track=best.track; o.field=best.field; o.variety=best.variety; o.stubble=best.stubble; o.mixed=Object.keys(c).length>1;
   return o;
 }
+/* 2026-11-22: a load split by field from the Edge 101's wagons (each wagon's tons per field).
+   loadParts: the load's parts, each with its share (1 when the load is not split). */
+function loadParts(x){ var sp=x&&x.split; if(sp && sp.length) return sp; return [{ track:x.track||'', field:x.field||'', variety:x.variety||'', stubble:(x.stubble==null?'':x.stubble), share:1 }]; }
+function splitText(l){ return (l.split||[]).map(function(p){ return (p.field||p.track||'?')+(p.variety?' '+p.variety:'')+' '+Math.round((p.share||0)*100)+'%'; }).join(', '); }
+function fLoads(v){ return Math.abs(v-Math.round(v))<0.05 ? String(Math.round(v)) : v.toFixed(1); }
+/* the Edge wagons in this truck: for each harvester, its newest Edge wagons, one per wagon it put in */
+async function hvEdgeSplit(farm, dm){
+  var byH={}, slotOf={}; (dm||[]).filter(Boolean).forEach(function(x){ if(!x.h) return; byH[x.h]=(byH[x.h]||0)+1; if(!slotOf[x.h]) slotOf[x.h]=x; });
+  var hs=Object.keys(byH); if(!hs.length) return null;
+  var parts={}, order=[], got=0, gotT=0, miss=[];
+  function add(p,t){ var k=[p.track||'',p.field||'',p.variety||'',p.stubble==null?'':p.stubble].join('|'); if(!parts[k]){ parts[k]={ track:p.track||'', field:p.field||'', variety:p.variety||'', stubble:(p.stubble==null?'':p.stubble), t:0 }; order.push(k); } parts[k].t+=t; }
+  for(var i=0;i<hs.length;i++){
+    var h=hs[i], ew=(hvRaw(h).ew)||[];
+    if(!ew.length){ miss.push([h,byH[h]]); continue; }
+    var took=[]; try{ took=await rpc('edge_wagons_take',{ p_farm:farm, p_harvester:h, p_n:byH[h] })||[]; }catch(e){ return null; }   /* older database: no split */
+    took.forEach(function(w){ (w.sp||[]).forEach(function(p){ add(p, Number(p.t)||0); }); got++; gotT+=Number(w.t)||0; });
+    if(took.length<byH[h]) miss.push([h,byH[h]-took.length]);
+  }
+  if(!got) return null;
+  var avg=gotT/got;   /* a wagon with no Edge numbers (another harvester, or not sent yet): its field, at the average Edge wagon */
+  miss.forEach(function(m){ add(slotOf[m[0]], avg*m[1]); });
+  var tot=0; order.forEach(function(k){ tot+=parts[k].t; }); if(!(tot>0)) return null;
+  var out=order.map(function(k){ var p=parts[k]; p.share=Math.round(p.t/tot*1000)/1000; p.t=Math.round(p.t*1000)/1000; return p; }).sort(function(a,b){ return b.share-a.share; });
+  return { parts:out, wagons:got, guessed:miss.reduce(function(a,m){ return a+m[1]; },0) };
+}
 function hvMixText(l){
   var c={}, order=[]; (l.dumps||[]).filter(Boolean).forEach(function(x){ var k=x.field||x.track||x.h||'?'; if(!c[k]){ c[k]=0; order.push(k); } c[k]++; });
   return order.map(function(k){ return k+' ×'+c[k]; }).join(', ');
@@ -4654,7 +4685,7 @@ async function hvDoOpen(){
     if(fin && fin.acres==null && a.field===nf.field && a.acres) sess.acres=a.acres;
     await dref('farms/'+farm+'/harvest/'+sid).set(sess);
     var ph=S.harv[hvKey(name)]||{}, pc=ph.code;
-    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, session:sid, openedAt:now, by:byName(), at:now }, pc?{ code:pc }:{}, ph.queue?{ queue:ph.queue }:{}, nf));
+    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, session:sid, openedAt:now, by:byName(), at:now }, pc?{ code:pc }:{}, ph.queue?{ queue:ph.queue }:{}, ph.ew?{ ew:ph.ew }:{}, nf));
     /* keep the Board's track, field and variety pickers on the field just opened */
     S.active={ track:nf.track, field:nf.field, variety:nf.variety }; saveActive();
     closeEdit(); toast(name+' is in '+(nf.field||nf.track)+'.');
@@ -4666,7 +4697,7 @@ async function hvDoClose(){
   v.busy=true;
   try{
     await dref('farms/'+farm+'/harvest/'+a.session).update(hvFinishPatch());
-    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, closed:true, lastField:a.field||'', lastTrack:a.track||'', at:Date.now(), by:byName() }, a.code?{ code:a.code }:{}, a.queue?{ queue:a.queue }:{}));
+    await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, closed:true, lastField:a.field||'', lastTrack:a.track||'', at:Date.now(), by:byName() }, a.code?{ code:a.code }:{}, a.queue?{ queue:a.queue }:{}, a.ew?{ ew:a.ew }:{}));
     closeEdit(); toast(name+': '+(a.field||a.track||'field')+' closed.');
   }catch(e){ v.busy=false; fail(e); }
 }
