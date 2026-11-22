@@ -1222,3 +1222,33 @@ end $$;
 revoke execute on function public.edge_wagons_take(text, text, int) from public, anon;
 revoke execute on function public._edge_wagon_keep(text, text, text, jsonb, bigint), public._edge_wagon_drop(text, text, text) from public, anon, authenticated;
 grant execute on function public.edge_wagons_take(text, text, int) to authenticated;
+
+create table if not exists public.docs_history (
+  id          bigserial primary key,
+  path        text not null,
+  data        jsonb not null,
+  replaced_at timestamptz not null default now(),
+  op          text not null
+);
+create index if not exists docs_history_path_idx on public.docs_history (path, replaced_at desc);
+alter table public.docs_history enable row level security;   -- no policies: only the SQL editor / owner can read it
+
+create or replace function public._docs_keep_history() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if old.path like 'tools/sugarlog%' then
+    insert into docs_history (path, data, op) values (old.path, old.data, tg_op);
+    -- keep the newest 300 versions of each document
+    delete from docs_history h
+     where h.path = old.path
+       and h.id < (select min(id) from (select id from docs_history where path = old.path order by id desc limit 300) k);
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end $$;
+revoke all on function public._docs_keep_history() from public, anon, authenticated;
+
+drop trigger if exists docs_keep_history on public.docs;
+create trigger docs_keep_history before update or delete on public.docs
+  for each row execute function public._docs_keep_history();
+

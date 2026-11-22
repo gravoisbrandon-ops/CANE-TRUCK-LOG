@@ -867,7 +867,7 @@ function saveActive(){
 }
 function saveDest(){ lsSet('cane-truck-log:dest:'+S.farmId, JSON.stringify(S.dest)); }
 function onFarmChange(){
-  S.report.cache={}; S.report.sel=''; S.report.mill=''; S.report.track=''; S.report.field=''; S.listMill=''; last.board=''; last.report='';
+  S.report.cache={}; S.report.failed={}; S.report.fails=0; S.report.sel=''; S.report.mill=''; S.report.track=''; S.report.field=''; S.listMill=''; last.board=''; last.report='';
   loadDest(); closeEdit();
   subLoads();
   if(S.tab==='report') loadReport();
@@ -2525,7 +2525,7 @@ function sgRender(){
     '<div class="toolbar"><label class="f">Liquidation % for every mill<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="defliq" value="'+esc(SG.liq)+'" placeholder="e.g. 96 (blank = 100)"></label>'+
     '<label class="f">Grower share % (optional)<input type="number" step="0.1" min="0" max="100" inputmode="decimal" data-sgf="share" value="'+esc(SG.share)+'"></label></div>'+
     '<p class="small">A mill\'s own liquidation % wins over the one for every mill. 96 and 0.96 both mean 96%.</p>'+
-    '<p class="small" id="sgFoot"></p></div>';
+    '<div data-sgrestorebox="1">'+sgRestoreHtml()+'</div><p class="small" id="sgFoot"></p></div>';
   if(!S.farms.length) h+='<div class="card"><p class="small">Add farms in Setup first.</p></div>';
   S.farms.forEach(function(f){
     if(vw==='*' || f.id!==vw) return;
@@ -2600,24 +2600,90 @@ function sgRowsOf(e){
 }
 var SG_HEAD=['date','level','farm','mill','acres','tons','trs','liquidation_pct','lb_sugar','tons_per_acre','lb_sugar_per_acre','avg_lb_sugar_per_ton'];
 function sgCsv(list){ var L=[SG_HEAD.join(',')]; list.slice().sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; }).forEach(function(e){ sgRowsOf(e).forEach(function(r){ L.push(r.map(csvCell).join(',')); }); }); return L.join('\n'); }
-function sgFoot(){ var f=$('#sgFoot'); if(f) f.textContent=SG.shared?'The log is saved and shared with the other administrators.':'The log is saved on this device only. Run the latest schema.sql in Supabase to share it.'; }
+function sgFoot(){ var f=$('#sgFoot'); if(f) f.textContent=SG.shared?'The log is saved and shared with the other administrators.':(SG.logLoaded&&!SG.loadOk?'The shared log could not be loaded, so changes are kept on this device and nothing is written over the shared log. Reopen this tool with signal to load it.':'The log is saved on this device only. Run the latest schema.sql in Supabase to share it.'); }
 SG.docFarms={};
+/* 2026-11-22: checkpoints went missing. Saving used to write this device's whole copy of the log over the shared
+   one, so a device holding an older or partial copy (or one that could not load the shared log) wiped what others
+   had saved. Now every save reads the shared log first and merges by id: what this device has wins, what only the
+   server has is kept, and only what was deleted (here or on another device) goes. Nothing is written if the shared
+   log never loaded. */
+SG.base={ entries:{}, seasons:{}, dayTotals:{}, weekly:{} };   /* ids as last loaded or saved: tells a deletion from "never seen" */
+SG.chain=Promise.resolve(); SG.loadOk=false;
+function sgIds(a){ var o={}; (a||[]).forEach(function(x){ if(x&&x.id) o[x.id]=1; }); return o; }
+function sgSetBase(){ SG.base={ entries:sgIds(SG.log), seasons:sgIds(SG.seasons), dayTotals:sgIds(SG.dayTotals), weekly:sgIds(SG.weekly) }; }
+function sgMergeList(mine, server, base, gone){
+  var have=sgIds(mine), out=mine.filter(function(x){ return !gone[x.id]; });
+  (server||[]).forEach(function(x){ if(x && x.id && !have[x.id] && !base[x.id] && !gone[x.id]) out.push(x); });
+  return out;
+}
 function sgPersist(){
   SG.lastP=Date.now();
   lsSet('cane-truck-log:sugarlog', JSON.stringify(SG.log));
-  var by={}, rest=[], jobs=[];
-  SG.log.forEach(function(e){ if(e.scope && e.scope!=='all' && farmById(e.scope)) (by[e.scope]=by[e.scope]||[]).push(e); else rest.push(e); });
-  var sea={}; (SG.seasons||[]).forEach(function(r){ (sea[r.farm]=sea[r.farm]||[]).push(r); });
-  var dtt={}; (SG.dayTotals||[]).forEach(function(r){ (dtt[r.farm]=dtt[r.farm]||[]).push(r); });
-  var wkk={}; (SG.weekly||[]).forEach(function(r){ (wkk[r.farm]=wkk[r.farm]||[]).push(r); }); lsSet('cane-truck-log:weekly', JSON.stringify(SG.weekly||[]));
+  lsSet('cane-truck-log:weekly', JSON.stringify(SG.weekly||[]));
   lsSet('cane-truck-log:daytotals', JSON.stringify(SG.dayTotals||[]));
   lsSet('cane-truck-log:seasons', JSON.stringify(SG.seasons||[]));
-  if(S.isAdmin){
-    S.farms.forEach(function(f){ if(by[f.id] || sea[f.id] || dtt[f.id] || wkk[f.id] || SG.docFarms[f.id]){ SG.docFarms[f.id]=1; jobs.push(dref('tools/sugarlog-'+f.id).set({ entries:by[f.id]||[], seasons:sea[f.id]||[], dayTotals:dtt[f.id]||[], weekly:wkk[f.id]||[] })); } });
-    jobs.push(dref('tools/sugarlog').set({ entries:rest }));
-  } else if(S.crewFarm){ jobs.push(dref('tools/sugarlog-'+S.crewFarm).set({ entries:by[S.crewFarm]||[], seasons:sea[S.crewFarm]||[], dayTotals:dtt[S.crewFarm]||[], weekly:wkk[S.crewFarm]||[] })); }
-  Promise.all(jobs).then(function(){ if(!SG.shared){ SG.shared=true; sgFoot(); } }).catch(function(){ if(SG.shared){ SG.shared=false; sgFoot(); } });
+  if(!SG.loadOk){ if(SG.shared){ SG.shared=false; sgFoot(); } return; }   /* never write over the shared log without having read it */
+  SG.chain=SG.chain.then(sgPersistNow).catch(function(){ if(SG.shared){ SG.shared=false; sgFoot(); } });
 }
+async function sgPersistNow(){
+  if(!S.isAdmin && !S.crewFarm) return;
+  var all=docs(await col('tools').get()), fd=all.filter(function(x){ return x.id.indexOf('sugarlog-')===0; }), legacy=all.filter(function(x){ return x.id==='sugarlog'; })[0];
+  var gone={ entries:{}, seasons:{}, dayTotals:{}, weekly:{} }, srv={ entries:[], seasons:[], dayTotals:[], weekly:[] };
+  fd.concat(legacy?[legacy]:[]).forEach(function(d){
+    (d.gone||[]).forEach(function(id){ gone.entries[id]=gone.seasons[id]=gone.dayTotals[id]=gone.weekly[id]=1; });
+    srv.entries=srv.entries.concat(d.entries||[]); srv.seasons=srv.seasons.concat(d.seasons||[]); srv.dayTotals=srv.dayTotals.concat(d.dayTotals||[]); srv.weekly=srv.weekly.concat(d.weekly||[]);
+  });
+  /* deleted on this device since the last load or save */
+  var mineGone=[];
+  [['entries',SG.log],['seasons',SG.seasons],['dayTotals',SG.dayTotals],['weekly',SG.weekly]].forEach(function(p){ var now=sgIds(p[1]); Object.keys(SG.base[p[0]]||{}).forEach(function(id){ if(!now[id]){ gone[p[0]][id]=1; mineGone.push(id); } }); });
+  SG.log=sgMergeList(SG.log, srv.entries, SG.base.entries, gone.entries);
+  SG.seasons=sgMergeList(SG.seasons||[], srv.seasons, SG.base.seasons, gone.seasons);
+  SG.dayTotals=sgMergeList(SG.dayTotals||[], srv.dayTotals, SG.base.dayTotals, gone.dayTotals);
+  SG.weekly=sgMergeList(SG.weekly||[], srv.weekly, SG.base.weekly, gone.weekly);
+  var by={}, rest=[], jobs=[];
+  SG.log.forEach(function(e){ if(e.scope && e.scope!=='all' && farmById(e.scope)) (by[e.scope]=by[e.scope]||[]).push(e); else rest.push(e); });
+  var sea={}; SG.seasons.forEach(function(r){ (sea[r.farm]=sea[r.farm]||[]).push(r); });
+  var dtt={}; SG.dayTotals.forEach(function(r){ (dtt[r.farm]=dtt[r.farm]||[]).push(r); });
+  var wkk={}; SG.weekly.forEach(function(r){ (wkk[r.farm]=wkk[r.farm]||[]).push(r); });
+  function goneFor(d){ var g={}; ((d&&d.gone)||[]).forEach(function(id){ g[id]=1; }); mineGone.forEach(function(id){ g[id]=1; }); return Object.keys(g).slice(-1000); }
+  function docOf(id){ return all.filter(function(x){ return x.id===id; })[0]; }
+  function farmDoc(fid){ return { entries:by[fid]||[], seasons:sea[fid]||[], dayTotals:dtt[fid]||[], weekly:wkk[fid]||[], gone:goneFor(docOf('sugarlog-'+fid)), savedAt:Date.now(), savedBy:byName() }; }
+  if(S.isAdmin){
+    S.farms.forEach(function(f){ if(by[f.id] || sea[f.id] || dtt[f.id] || wkk[f.id] || SG.docFarms[f.id]){ SG.docFarms[f.id]=1; jobs.push(dref('tools/sugarlog-'+f.id).set(farmDoc(f.id))); } });
+    jobs.push(dref('tools/sugarlog').set({ entries:rest, gone:goneFor(legacy) }));
+  } else if(S.crewFarm){ jobs.push(dref('tools/sugarlog-'+S.crewFarm).set(farmDoc(S.crewFarm))); }
+  await Promise.all(jobs);
+  sgSetBase();
+  lsSet('cane-truck-log:sugarlog', JSON.stringify(SG.log));
+  if(!SG.shared){ SG.shared=true; sgFoot(); }
+  sgLogRender(); last.report=''; DT.sig=''; SE.sig=''; schedule();
+}
+/* checkpoints this device still has that the shared log lost: offered back, never put back on their own */
+SG.restore=null;
+function sgFindRestore(srvAll){
+  var gone={}; srvAll.forEach(function(d){ (d.gone||[]).forEach(function(id){ gone[id]=1; }); });
+  function extra(key, list){ var have=sgIds(list), loc=[]; try{ loc=JSON.parse(lsGet(key)||'[]')||[]; }catch(e){} return loc.filter(function(x){ return x && x.id && !have[x.id] && !gone[x.id]; }); }
+  var r={ entries:extra('cane-truck-log:sugarlog',SG.log), seasons:extra('cane-truck-log:seasons',SG.seasons), dayTotals:extra('cane-truck-log:daytotals',SG.dayTotals), weekly:extra('cane-truck-log:weekly',SG.weekly) };
+  var n=r.entries.length+r.seasons.length+r.dayTotals.length+r.weekly.length;
+  SG.restore=n?r:null;
+}
+function sgRestoreHtml(){
+  var r=SG.restore; if(!r || !(S.isAdmin||S.crewFarm)) return '';
+  var parts=[]; if(r.entries.length) parts.push(r.entries.length+' checkpoint'+(r.entries.length>1?'s':''));
+  if(r.weekly.length) parts.push(r.weekly.length+' weekly record'+(r.weekly.length>1?'s':''));
+  if(r.dayTotals.length) parts.push(r.dayTotals.length+' day total'+(r.dayTotals.length>1?'s':''));
+  if(r.seasons.length) parts.push(r.seasons.length+' past season'+(r.seasons.length>1?'s':''));
+  var dates=r.entries.map(function(e){ return e.date; }).filter(Boolean).sort(); 
+  return '<div class="card" style="border:2px solid #b42318;margin:10px 0;padding:12px"><b>This device still has '+esc(parts.join(', '))+' that the shared log is missing</b>'+(dates.length?' (checkpoints '+esc(dates[0])+(dates.length>1?' to '+esc(dates[dates.length-1]):'')+')':'')+'. <button class="btn" type="button" data-sgrestore="1">Put them back</button></div>';
+}
+function sgRestoreRender(){ var els=document.querySelectorAll('[data-sgrestorebox]'); for(var i=0;i<els.length;i++) els[i].innerHTML=sgRestoreHtml(); }
+document.addEventListener('click',function(e){
+  var el=e.target.closest?e.target.closest('[data-sgrestore]'):null; if(!el || !SG.restore) return;
+  var r=SG.restore; SG.restore=null;
+  SG.log=SG.log.concat(r.entries); SG.seasons=(SG.seasons||[]).concat(r.seasons); SG.dayTotals=(SG.dayTotals||[]).concat(r.dayTotals); SG.weekly=(SG.weekly||[]).concat(r.weekly);
+  sgPersist(); sgRestoreRender(); sgLogRender(); last.report=''; DT.sig=''; SE.sig=''; schedule();
+  toast('Put back '+(r.entries.length+r.seasons.length+r.dayTotals.length+r.weekly.length)+' records.');
+});
 async function sgLoad(){
   SG.logLoaded=true; var local=[]; try{ local=JSON.parse(lsGet('cane-truck-log:sugarlog')||'[]')||[]; }catch(e){}
   var fdAll=[];
@@ -2627,10 +2693,11 @@ async function sgLoad(){
     var dm={}; fd.forEach(function(d){ (d.dayTotals||[]).forEach(function(r){ dm[r.id]=r; }); }); SG.dayTotals=Object.keys(dm).map(function(k){ return dm[k]; });
     var wm={}; fd.forEach(function(d){ (d.weekly||[]).forEach(function(r){ wm[r.id]=r; }); }); SG.weekly=Object.keys(wm).map(function(k){ return wm[k]; });
     if(legacy || fd.length){ var m={}; (legacy&&legacy.entries||[]).forEach(function(e){ m[e.id]=e; }); fd.forEach(function(d){ SG.docFarms[d.id.slice(9)]=1; (d.entries||[]).forEach(function(e){ m[e.id]=e; }); }); SG.log=Object.keys(m).map(function(k){ return m[k]; }); }
-    else { SG.log=local; if(local.length) sgPersist(); }
-  }catch(e){ SG.shared=false; SG.log=local; try{ SG.seasons=JSON.parse(lsGet('cane-truck-log:seasons')||'[]')||[]; SG.dayTotals=JSON.parse(lsGet('cane-truck-log:daytotals')||'[]')||[]; SG.weekly=JSON.parse(lsGet('cane-truck-log:weekly')||'[]')||[]; }catch(x){} }
+    else SG.log=[];
+    SG.loadOk=true; sgSetBase(); sgFindRestore(fd.concat(legacy?[legacy]:[]));
+  }catch(e){ SG.loadOk=false; SG.shared=false; SG.log=local; try{ SG.seasons=JSON.parse(lsGet('cane-truck-log:seasons')||'[]')||[]; SG.dayTotals=JSON.parse(lsGet('cane-truck-log:daytotals')||'[]')||[]; SG.weekly=JSON.parse(lsGet('cane-truck-log:weekly')||'[]')||[]; }catch(x){} }
   var lv=false; try{ lv=sgLiveApply(fdAll); }catch(e){} if(lv && !sgTyping() && $('#sgRoot') && $('#sgRoot').firstChild) sgRender();
-  sgLogRender(); sgFoot(); SE.sig=''; if($('#seRoot') && $('#seRoot').firstChild && !seFocused()) seRender(); last.report=''; DT.sig=''; schedule();
+  sgLogRender(); sgRestoreRender(); sgFoot(); SE.sig=''; if($('#seRoot') && $('#seRoot').firstChild && !seFocused()) seRender(); last.report=''; DT.sig=''; schedule();
 }
 function sgProgress(asc){
   if(asc.length<2) return '<p class="small">Save more than once to see progress here.</p>';
@@ -3505,20 +3572,28 @@ function dayStats(list){
   var times=L.map(function(x){ return x.loadedAt; });
   return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), brix:avgBrix(L), fin:finalCount(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
 }
+/* 2026-11-22: a day whose loads could not be fetched (weak signal, a timeout) used to be kept as an empty day, and
+   "All crop" only fetches days it does not have yet, so those days stayed blank with no warning. Now a failed day
+   is tried 3 times, is never kept as empty, and the report says which days are missing until they load. */
+function sleepMs(ms){ return new Promise(function(r){ setTimeout(r,ms); }); }
 async function loadReport(onlyMissing){
   if(!S.db || !S.farmId) return;
   var farm=S.farmId, now=S.loadsDay;
   var todo=reportDays().filter(function(d){ return d!==now && !(onlyMissing===true && S.report.cache[d]); });
-  S.report.loading=true; S.report.fails=0; last.report=''; schedule();
+  S.report.loading=true; S.report.failed=S.report.failed||{}; last.report=''; schedule();
   var i=0;
   async function worker(){
     while(i<todo.length){
-      var d=todo[i++];
-      try{ var snap=await col(loadsPath(farm,d)).limit(1000).get(); if(farm===S.farmId) S.report.cache[d]=docs(snap); }
-      catch(e){ S.report.fails++; if(farm===S.farmId && !S.report.cache[d]) S.report.cache[d]=[]; }
+      var d=todo[i++], ok=false;
+      for(var a=0;a<3 && !ok;a++){
+        try{ var snap=await col(loadsPath(farm,d)).limit(1000).get(); if(farm===S.farmId){ S.report.cache[d]=docs(snap); delete S.report.failed[d]; } ok=true; }
+        catch(e){ if(a<2) await sleepMs(a?3000:1000); }
+      }
+      if(!ok && farm===S.farmId){ S.report.failed[d]=true; delete S.report.cache[d]; }
     }
   }
-  await Promise.all([worker(),worker(),worker(),worker()]);
+  await Promise.all([worker(),worker(),worker()]);
+  if(farm===S.farmId) S.report.fails=Object.keys(S.report.failed).filter(function(d){ return reportDays().indexOf(d)>=0; }).length;
   S.report.loading=false; last.report=''; schedule();
 }
 function tally(rows, keyFn){
@@ -3625,7 +3700,8 @@ function renderReport(){
       s.trucks, s.first?esc(timeOf(s.first)):'–', s.last?esc(timeOf(s.last)):'–'].concat(anyW?[s.weighed?f1(s.tons):'–', s.weighed?tpt(s.rows):'–'].concat(mills.length>1&&mills.length<=3?mills.map(function(m){ return s.weighed?tpt(s.rows.filter(function(x){ return x.mill===m; })):'–'; }):[]):[]);
   }));
   }
-  if(S.report.fails) html+='<p class="small">Some days could not be loaded. Tap Refresh to try again.</p>';
+  if(S.report.fails){ var fd=Object.keys(S.report.failed||{}).filter(function(d){ return days.indexOf(d)>=0; }).sort();
+    if(fd.length) html+='<p class="small" style="color:#b42318"><b>'+fd.length+' day'+(fd.length>1?'s':'')+' could not be loaded and '+(fd.length>1?'are':'is')+' missing from these totals</b> ('+esc(fd.slice(0,6).map(function(d){ return d.slice(5); }).join(', '))+(fd.length>6?', …':'')+'). <button class="btn" type="button" data-act="retryReport">Try again</button></p>'; }
   var scopeRows=ss.rows, scopeLbl=dayLabel(sel);
   if(!daily){ scopeRows=[]; days.forEach(function(d){ scopeRows=scopeRows.concat(stats[d].rows); }); scopeLbl= season ? 'Harvest to date' : 'Last '+days.length+' days'; }
   var WS=daily?W:(weighedOf(scopeRows)>0);
@@ -4324,6 +4400,7 @@ document.addEventListener('click', function(e){
     case 'repMode': S.report.mode=el.getAttribute('data-mode'); last.report=''; schedule(); if(S.report.mode!=='daily') loadReport(true); break;
     case 'repDay': var dd=reportDays(), ix=dd.indexOf(S.report.sel)+Number(el.getAttribute('data-dir')); if(ix>=0&&ix<dd.length){ S.report.sel=dd[ix]; last.report=''; schedule(); } break;
     case 'refreshReport': loadReport(); break;
+    case 'retryReport': loadReport(true); break;
     case 'csv': exportCsv(); break;
     case 'pickDay': S.report.sel=el.getAttribute('data-day'); last.report=''; schedule(); break;
     case 'signOut': signOut(); break;
