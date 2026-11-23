@@ -171,3 +171,20 @@ Run the new `schema.sql` before uploading the matching `index.html` (new: `harv_
 
 ## Housekeeping
 `index2.html` is an old unused page and can be deleted. `config.js` holds your own Supabase address and key, so never replace it with a file from anyone else.
+
+## Mill reports (the mill's Daily Cane Receipt)
+The mill emails a **Daily Cane Receipt** PDF once a day, in the morning, for the day before. Mill reports are for **administrators only**. The truck log reads it and puts each weigh-in on the load it came from, with the mill's net tons, receipt number, scale time and, for the loads the mill cored, brix, pol, purity, fiber, TRS (marked final) and CRS. The load keeps its track, field, variety, stubble, harvester and Edge 101 split, so every ton and pound of sugar traces back to the field it was cut from.
+
+**How a weigh-in finds its load:** same day (or late the evening before), same mill, same truck number (54-398 → 398). It goes on that truck's **latest load logged 10 minutes to 4 hours before the weigh-in**, because a truck is weighed before it can be loaded again. If that load already has an earlier weigh-in, a log entry is missing, and the weigh-in is left "to place" instead of being put on the wrong load. The farm and mill are worked out from the loads that fit (no setup needed). Sending the same report twice changes nothing.
+
+**Setup > Mill reports** (administrators only):
+- **Upload mill report (PDF):** pick one or more receipts from the phone.
+- Each report shows tons, TRS and how many loads matched. **Details** lists weigh-ins with no logged load, loads logged with no mill weight, and **Where the cane was cut**: loads, tons, TRS and lb sugar (TRS) by field, variety and stubble (a split truck is shared by its fields; TRS from the loads the mill cored, and the day's TRS for a field with none cored). After logging a missing load or fixing a time, tap **Match again**.
+- A report that fits no logged trucks yet (trucks not logged, wrong day) is kept at the top: **Try again** or **Delete**.
+- **Email in**: **Make address** gives a web address with the portal's key, shown once. Anything posted there lands in your portal.
+
+**Getting the emails in automatically**, either way:
+1. **Gmail (free):** paste `gmail-mill-reports.gs` into script.google.com, fill in the address and the mill's email, and run `setup` once. It then checks Gmail once a day, between 8 and 9 in the morning, after the mill's report comes in (steps are at the top of the file). A report that comes in late is picked up the next morning, or upload it by hand.
+2. **An inbound email service** such as Postmark: point its inbound webhook at the address, then forward the mill's emails to the address the service gives you. It accepts Postmark's JSON (attachments in base64) or the PDF itself as the body.
+
+Files: `api/mill-report.py` (reads the PDF on Vercel; needs `requirements.txt` in the top folder) and the new functions at the end of `schema.sql` (`mill_report`, `mill_report_upload`, `mill_report_list`, `mill_report_again`, `mill_report_key_new`…). Run the new `schema.sql` first, then upload `index.html`, `api/mill-report.py`, `requirements.txt` and `README.md`.

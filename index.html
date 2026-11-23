@@ -432,6 +432,11 @@ td.n,th.n{text-align:right}
         <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
+      <div class="card col" id="mrCard" data-sk="mrCard" hidden>
+        <h2>Mill reports</h2>
+        <p class="small">The mill's Daily Cane Receipt (PDF) for a harvest day. Each weigh-in goes on the truck's load logged just before it, with the mill's tons, TRS and brix, so every load's sugar traces back to the field it was cut from. The mill sends it once a day, in the morning, for the day before. Upload the PDF here, or let Gmail send it in each morning (Email in, below). Administrators only.</p>
+        <div id="mrBox"></div>
+      </div>
       <div class="card" id="joinOtherCard" hidden>
         <h2>Join a farm instead</h2>
         <p class="small">Made your own portal by mistake? If you are the only person in it and it is new, paste the invite link or code you were given. You will ask to join that farm instead, and the farm you made here is left behind.</p>
@@ -1059,7 +1064,7 @@ function renderAll(){
   if(S.tab==='report') renderReport();
   if(S.tab==='tools') toolsShow();
   if(S.tab==='all') renderAll_();
-  if(S.tab==='setup'){ renderSetup(); if(isLead()){ renderAccess(); renderScale(); } }
+  if(S.tab==='setup'){ renderSetup(); if(isLead()){ renderAccess(); renderScale(); } mrRender(); }
   if(S.tab==='me') renderMe();
   renderEdit(false);
 }
@@ -5306,6 +5311,117 @@ async function init(){
   setInterval(function(){ if(S.authed && S.pending && !document.hidden) checkStatus(); },8000);
   setInterval(function(){ if(S.authed && !S.pending && !document.hidden) refreshWho(); },10000);
 }
+
+/* ---------- 2026-11-23: mill reports (the mill's Daily Cane Receipt, matched to the trucks logged) ---------- */
+var MR={ farm:'', list:null, busy:false, key:null, newKey:'', open:{}, msg:'', loading:'' };
+function mrFarm(){ if(!MR.farm || !farmById(MR.farm)) MR.farm=S.farmId || (S.farms[0]&&S.farms[0].id) || ''; return MR.farm; }
+function mrApiUrl(){ return location.origin+'/api/mill-report'; }
+function mrLoad(force){
+  var f=mrFarm(); if(!f || (MR.loading===f && !force)) return;
+  MR.loading=f;
+  rpc('mill_report_list',{ p_farm:f, p_limit:15 }).then(function(r){ if(mrFarm()===f){ MR.list=r||{ reports:[], unplaced:[] }; mrPaint(); } }).catch(function(){ MR.list={ reports:[], unplaced:[], old:true }; mrPaint(); });
+  if(MR.key===null) rpc('mill_report_key_get',{}).then(function(k){ MR.key=k||{ exists:false }; mrPaint(); }).catch(function(){ MR.key={ exists:false, old:true }; });
+}
+function mrRender(){
+  var c=$('#mrCard'); if(!c) return;
+  c.hidden=!S.isAdmin; if(c.hidden) return;
+  if(MR.loading!==mrFarm()) { MR.list=null; mrLoad(); }
+  var sig=JSON.stringify([confirmKey, mrFarm(), S.isAdmin, S.farms.length]);
+  if(sig!==MR.sig){ MR.sig=sig; mrPaint(); }
+}
+function mrN(v,d){ return v==null||v===''?'–':Number(v).toFixed(d==null?2:d); }
+function mrDay(d){ try{ var p=String(d).split('-'); return new Date(+p[0],+p[1]-1,+p[2]).toLocaleDateString([], { weekday:'short', month:'short', day:'numeric' }); }catch(e){ return d; } }
+function mrTime(t){ var p=String(t||'').split(':'); if(p.length<2) return t||''; var h=+p[0], m=p[1]; return (h%12||12)+':'+m+(h<12?' AM':' PM'); }
+function mrPaint(){
+  var box=$('#mrBox'); if(!box) return;
+  var f=mrFarm(), h='';
+  if(S.farms.length>1) h+='<label class="f">Farm<select id="mrFarmSel">'+S.farms.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===f?' selected':'')+'>'+esc(x.name)+'</option>'; }).join('')+'</select></label>';
+  h+='<div class="addrow"><label class="btn" for="mrFile">'+(MR.busy?'Reading the report…':'Upload mill report (PDF)')+'</label><input type="file" id="mrFile" accept=".pdf,application/pdf" multiple hidden></div>';
+  if(MR.msg) h+='<p class="small">'+esc(MR.msg)+'</p>';
+  if(true){
+    var k=MR.key||{};
+    h+='<p class="small" style="margin-top:12px"><b>Email in</b></p>';
+    if(MR.newKey){
+      var addr=mrApiUrl()+'?key='+MR.newKey;
+      h+='<p class="small">The web address your email service sends the mill\'s emails to. It is shown only once, so copy it now.</p><p class="small" style="word-break:break-all"><code>'+esc(addr)+'</code></p><div class="addrow"><button class="btn sm" type="button" data-mr="copyAddr">Copy address</button></div>';
+    } else if(k.exists){
+      h+='<p class="small">On since '+esc(new Date(k.created_at).toLocaleDateString())+'. New address replaces it, and the old one stops working.</p>';
+    } else {
+      h+='<p class="small">Off. Make an address, then put it in the Gmail script (gmail-mill-reports.gs), which sends the mill\'s email in each morning.</p>';
+    }
+    h+='<div class="addrow"><button class="btn sm" type="button" data-mr="keyNew">'+(confirmKey==='mrKeyNew'?'Sure?':(k.exists||MR.newKey?'New address':'Make address'))+'</button>'+(k.exists||MR.newKey?'<button class="btn warn sm" type="button" data-mr="keyOff">'+(confirmKey==='mrKeyOff'?'Sure?':'Turn off')+'</button>':'')+'</div>';
+  }
+  var L=MR.list;
+  if(!L) h+='<p class="small">Loading…</p>';
+  else if(L.old) h+='<p class="small">Run the latest schema.sql in Supabase to turn on mill reports.</p>';
+  else {
+    (L.unplaced||[]).forEach(function(u){
+      h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto"><div class="info"><span class="l1">'+esc(mrDay(u.day))+' · '+esc(u.account||'')+' <span class="edited">not matched</span></span><span class="l2" style="white-space:normal">'+u.loads+' loads. No logged trucks fit this report yet. Log the trucks for that day, then try again.</span></div><div class="acts"><button class="btn sm" type="button" data-mr="again" data-id="'+esc(u.id)+'">Try again</button><button class="btn warn sm" type="button" data-mr="drop" data-id="'+esc(u.id)+'">'+(confirmKey==='mrDrop:'+u.id?'Sure?':'Delete')+'</button></div></div>';
+    });
+    if(!(L.reports||[]).length) h+='<p class="small">No mill reports for this farm yet.</p>';
+    (L.reports||[]).forEach(function(r){
+      var d=r.data||{}, op=MR.open[r.id], un=d.unmatched||[], nw=d.noWeight||[];
+      h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto"><div class="info"><span class="l1">'+esc(mrDay(d.day))+' · '+esc(d.accountName||'')+' · '+esc(d.mill||'')+'</span>'+
+        '<span class="l2" style="white-space:normal">'+mrN(d.tons)+' tons · TRS '+mrN(d.trs)+' · '+d.matched+' of '+d.loads+' loads matched'+(un.length?' · <b>'+un.length+' to place</b>':'')+(nw.length?' · '+nw.length+' logged with no mill weight':'')+'</span></div>'+
+        '<div class="acts"><button class="btn ghost sm" type="button" data-mr="open" data-id="'+esc(r.id)+'">'+(op?'Hide':'Details')+'</button></div></div>';
+      if(op){
+        if(un.length) h+='<p class="small"><b>Weigh-ins with no logged load</b> (a truck not logged, or logged at the wrong time). Log the load or fix its time, then tap Match again.</p>'+mrTable(['Truck','Weighed','Tons','TRS'], un.map(function(u){ return [u.truck, mrTime(u.time), mrN(u.tons), u.trs==null?'–':mrN(u.trs,0)]; }));
+        if(nw.length) h+='<p class="small"><b>Logged that day with no mill weight</b></p>'+mrTable(['Truck','Loaded','Field'], nw.map(function(n){ return [n.no, timeOf(n.loadedAt), n.field||'–']; }));
+        var bf=d.byField||[];
+        if(bf.length){
+          var tt=0, tl=0; bf.forEach(function(x){ tt+=Number(x.tons)||0; tl+=Number(x.lbsTrs)||0; });
+          h+='<p class="small"><b>Where the cane was cut</b> (matched loads; a split truck is shared by its fields; TRS from the loads the mill cored, the day\'s TRS where a field had none)</p>'+
+            mrTable(['Field','Loads','Tons','TRS','Lb sugar'], bf.map(function(x){ var st=(x.stubble===''||x.stubble==null)?'':(x.stubble==0?' plant':' stubble '+x.stubble); return [(x.track?x.track+' ':'')+(x.field||'–')+((x.variety||st)?' · '+(x.variety||'')+st:''), mrN(x.loads,1), mrN(x.tons), x.trs==null?'–':mrN(x.trs,0), Math.round(x.lbsTrs||0).toLocaleString()]; }).concat([['Total',mrN(bf.reduce(function(a,x){ return a+(Number(x.loads)||0); },0),1),mrN(tt),tt>0?mrN(tl/tt,0):'–',Math.round(tl).toLocaleString()]]), true);
+        }
+        h+='<div class="addrow"><button class="btn sm" type="button" data-mr="again" data-farm="'+esc(f)+'" data-id="'+esc(r.id)+'">Match again</button></div>';
+      }
+    });
+  }
+  box.innerHTML=h;
+}
+function mrTable(head, rows, lastBold){
+  return '<div class="tablewrap"><table><thead><tr>'+head.map(function(x,i){ return '<th'+(i?' class="n"':'')+'>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+rows.map(function(r,ri){ return '<tr'+(lastBold&&ri===rows.length-1?' style="font-weight:700"':'')+'>'+r.map(function(c,i){ return '<td'+(i?' class="n"':' style="white-space:normal;min-width:120px"')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></div>';
+}
+function mrSay(res){
+  var rs=(res&&res.results)||[], parts=[];
+  rs.forEach(function(r){
+    if(r.status==='ok') parts.push(mrDay(r.day)+' '+(r.account||'')+': '+r.matched+' of '+r.loads+' loads matched, '+r.tons+' tons, TRS '+r.trs+(r.unmatched?', '+r.unmatched+' to place':''));
+    else if(r.status==='unplaced') parts.push(mrDay(r.day)+' '+(r.account||'')+': no logged trucks fit yet (kept to try again)');
+    else parts.push('Could not use a report'+(r.why?': '+r.why:''));
+  });
+  ((res&&res.files)||[]).forEach(function(x){ parts.push((x.file||'File')+': '+x.note); });
+  if(res && res.status==='nothing' && !parts.length) parts.push('No cane receipt found in that file.');
+  return parts.join(' · ') || 'Done.';
+}
+async function mrUpload(files){
+  if(!files || !files.length || MR.busy) return;
+  MR.busy=true; MR.msg=''; mrPaint();
+  var out=[];
+  try{
+    if(SESS && SESS.expires_at-60 < Date.now()/1000) await refreshSession();
+    for(var i=0;i<files.length;i++){
+      var r=await fetch(mrApiUrl(), { method:'POST', headers:{ 'Content-Type':'application/pdf', Authorization:'Bearer '+(SESS&&SESS.access_token||'') }, body:files[i] });
+      var j=null; try{ j=await r.json(); }catch(e){}
+      if(!r.ok) out.push((files[i].name||'File')+': '+((j&&j.error)||('could not send (HTTP '+r.status+')')));
+      else out.push(mrSay(j));
+    }
+  }catch(e){ out.push('No signal. Check your connection and try again.'); }
+  MR.busy=false; MR.msg=out.join(' · '); last.board=''; last.report=''; mrLoad(true); mrPaint(); schedule();
+}
+document.addEventListener('change',function(e){
+  if(e.target && e.target.id==='mrFile'){ var fl=Array.prototype.slice.call(e.target.files||[]); e.target.value=''; mrUpload(fl); }
+  if(e.target && e.target.id==='mrFarmSel'){ MR.farm=e.target.value; MR.list=null; MR.open={}; mrLoad(true); mrPaint(); }
+});
+document.addEventListener('click',function(e){
+  var el=e.target.closest && e.target.closest('[data-mr]'); if(!el) return;
+  var a=el.getAttribute('data-mr'), id=el.getAttribute('data-id');
+  if(a==='open'){ MR.open[id]=!MR.open[id]; mrPaint(); }
+  else if(a==='again'){ var fm=el.getAttribute('data-farm'); el.disabled=true; rpc('mill_report_again',{ p_farm:fm||null, p_id:id }).then(function(r){ MR.msg=mrSay({ results:[r] }); last.report=''; mrLoad(true); }).catch(fail); }
+  else if(a==='drop'){ if(confirmTap('mrDrop:'+id)) rpc('mill_report_drop',{ p_id:id }).then(function(){ mrLoad(true); }).catch(fail); else mrPaint(); }
+  else if(a==='keyNew'){ if((MR.key&&MR.key.exists||MR.newKey) && !confirmTap('mrKeyNew')){ mrPaint(); return; } rpc('mill_report_key_new',{}).then(function(k){ MR.newKey=k; MR.key={ exists:true, created_at:new Date().toISOString() }; toast('Address made. Copy it now, it is shown only once.'); mrPaint(); }).catch(fail); }
+  else if(a==='keyOff'){ if(!confirmTap('mrKeyOff')){ mrPaint(); return; } rpc('mill_report_key_off',{}).then(function(){ MR.newKey=''; MR.key={ exists:false }; toast('Email in turned off'); mrPaint(); }).catch(fail); }
+  else if(a==='copyAddr'){ copyText(mrApiUrl()+'?key='+MR.newKey, 'Address copied.'); }
+});
 syncTruckForm();
 startLang();
 init();
