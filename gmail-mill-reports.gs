@@ -12,6 +12,7 @@
 const ADDRESS = 'PASTE-THE-ADDRESS-FROM-SETUP-HERE';
 const FROM = 'PASTE-THE-MILL-EMAIL-ADDRESS-HERE';   // more than one mill: 'a@mill1.com OR b@mill2.com'
 const LABEL = 'Cane truck log';
+const DAYS_BACK = 10;   // how far back it looks. To bring in the whole season once, set 120, run sendMillReports, then set it back to 10.
 const HOUR = 8;   // runs once a day between HOUR and HOUR+1 in the morning (the script's time zone: Project Settings)
 
 function setup() {
@@ -22,8 +23,8 @@ function setup() {
 
 function sendMillReports() {
   const label = GmailApp.getUserLabelByName(LABEL) || GmailApp.createLabel(LABEL);
-  const threads = GmailApp.search('from:(' + FROM + ') has:attachment filename:pdf -label:"' + LABEL + '" newer_than:10d');
-  threads.forEach(function (t) {
+  const threads = GmailApp.search('from:(' + FROM + ') has:attachment filename:pdf -label:"' + LABEL + '" newer_than:' + DAYS_BACK + 'd');
+  threads.reverse().forEach(function (t) {   // oldest first
     let ok = true;
     t.getMessages().forEach(function (m) {
       m.getAttachments().forEach(function (a) {
