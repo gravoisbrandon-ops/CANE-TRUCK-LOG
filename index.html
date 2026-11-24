@@ -63,7 +63,7 @@ h1{font:700 30px/1 var(--font-display);letter-spacing:.03em;text-transform:upper
 main{padding-top:14px;display:flex;flex-direction:column;gap:16px}
 
 label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);min-width:0}
-select,input[type=text],input[type=time]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink)}
+select,input[type=text],input[type=time],input[type=number],input[type=date],input[type=search]{width:100%;min-height:46px;border:1px solid var(--line);background:var(--raise);border-radius:8px;padding:8px 12px;font-size:16px;text-transform:none;letter-spacing:0;font-weight:500;color:var(--ink)}
 input::placeholder{color:var(--ink2);opacity:.7}
 .lbl{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
 
@@ -4809,13 +4809,14 @@ function hvRefillFields(keep){ var f=$('#hvField'), t=$('#hvTrack'); if(!f) retu
   if(cur && L.indexOf(cur)<0) L.push(cur); f.innerHTML='<option value="">Not set</option>'+L.map(function(x){ return '<option value="'+esc(x)+'"'+(x===cur?' selected':'')+'>'+esc(x)+'</option>'; }).join(''); hvAutoFill(); }
 /* variety and this harvest's stubble from the field map, for the track and field picked */
 function hvAutoFill(){
-  var t=$('#hvTrack'), f=$('#hvField'), vs=$('#hvVariety'), st=$('#hvStub'), note=$('#hvAuto'); if(!f || !f.value) { if(note) note.textContent=''; return; }
+  var t=$('#hvTrack'), f=$('#hvField'), vs=$('#hvVariety'), st=$('#hvStub'), note=$('#hvAuto'); if(!f || !f.value) { if(note) note.textContent=''; if($('#hvOpenAcres')) $('#hvOpenAcres').value=''; return; }
   var k=ftKey(t?t.value:'', f.value), G=ftGroups(S.farmId), o=G.filter(function(x){ return x.key===k; })[0];
   if(!o && !(t&&t.value)){ var c=G.filter(function(x){ return x.id.toLowerCase()===String(f.value).toLowerCase(); }); if(c.length===1) o=c[0]; }
-  if(!o){ if(note) note.textContent=''; return; }
+  if(!o){ if(note) note.textContent=''; var oa0=$('#hvOpenAcres'); if(oa0) oa0.value=''; return; }
   if(t && !t.value && o.track){ if(!Array.prototype.some.call(t.options,function(x){ return x.value===o.track; })) t.insertAdjacentHTML('beforeend','<option value="'+esc(o.track)+'">'+esc(o.track)+'</option>'); t.value=o.track; }
   if(vs && o.variety){ if(!Array.prototype.some.call(vs.options,function(x){ return x.value===o.variety; })) vs.insertAdjacentHTML('beforeend','<option value="'+esc(o.variety)+'">'+esc(o.variety)+'</option>'); vs.value=o.variety; }
   if(st && o.stub.n!=null) st.value=String(o.stub.n);
+  var oa=$('#hvOpenAcres'); if(oa && o.acres) oa.value=String(Math.round(o.acres*100)/100);
   if(note) note.textContent='Variety and stubble filled in from the field map: '+[o.variety, o.stub.text, (Math.round(o.acres*10)/10)+' ac'].filter(Boolean).join(' · ')+'.';
 }
 /* 2026-11-24: picking a field goes to the Farm tab (nearest first), then back to the sheet with it filled in */
@@ -4857,6 +4858,7 @@ function hvRenderSheet(){
       hvSel('hvField','Field',hvFieldList(base.track||''),base.field||'')+
       hvSel('hvVariety','Cane variety',azSort(varietiesOf(S.farmId)),base.variety||'')+
       '<label class="f">Stubble<select id="hvStub"><option value="">Not set</option>'+STUB.map(function(x,i){ return '<option value="'+i+'"'+(String(base.stubble)===String(i)?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></label>'+
+      '<label class="f">Acres<input type="number" id="hvOpenAcres" step="0.01" min="0" inputmode="decimal" placeholder="From the field map"></label>'+
       '<p class="small" id="hvAuto"></p>'+
       (a?'<button class="btn" type="button" data-hv="addField">'+((a.more||[]).length?'Add this field too ('+((a.more||[]).length+2)+' open)':'Add this field: cutting both')+'</button><p class="small">Cutting across into another field? Add it and keep '+esc(hvText(a))+' open. Loads from '+esc(v.h)+' are then shared between all open fields until you open a single field again.</p>':'')+
       (a?hvFinishFields(a):'')+
@@ -4887,7 +4889,7 @@ function hvFinishPatch(){
 async function hvDoOpen(){
   var v=S.hv; if(!v || !S.canWrite || v.busy) return;
   var farm=S.farmId, name=v.h, a=hvState(name);
-  var nf={ track:$('#hvTrack').value, field:$('#hvField').value, variety:$('#hvVariety').value, stubble:$('#hvStub').value===''?'':Number($('#hvStub').value) };
+  var nf={ track:$('#hvTrack').value, field:$('#hvField').value, variety:$('#hvVariety').value, stubble:$('#hvStub').value===''?'':Number($('#hvStub').value) }; var nfa=hvNum('#hvOpenAcres'); if(nfa) nf.acres=nfa;
   if(!nf.field && !nf.track){ v.msg='Pick the field (or at least the track) being cut.'; hvRenderSheet(); return; }
   var fin=a?hvFinishPatch():null, now=Date.now(), sid=newId('hs');
   v.busy=true;
@@ -4906,7 +4908,7 @@ async function hvDoOpen(){
 async function hvDoAddField(){
   var v=S.hv; if(!v || !S.canWrite || v.busy) return;
   var farm=S.farmId, name=v.h, a=hvState(name); if(!a){ hvDoOpen(); return; }
-  var nf={ track:$('#hvTrack').value, field:$('#hvField').value, variety:$('#hvVariety').value, stubble:$('#hvStub').value===''?'':Number($('#hvStub').value) };
+  var nf={ track:$('#hvTrack').value, field:$('#hvField').value, variety:$('#hvVariety').value, stubble:$('#hvStub').value===''?'':Number($('#hvStub').value) }; var nfa=hvNum('#hvOpenAcres'); if(nfa) nf.acres=nfa;
   if(!nf.field){ v.msg='Pick the field being added.'; hvRenderSheet(); return; }
   var all=[{ track:a.track, field:a.field }].concat(a.more||[]);
   if(all.some(function(x){ return ftKey(x.track,x.field)===ftKey(nf.track,nf.field); })){ v.msg=(nf.field)+' is already being cut.'; hvRenderSheet(); return; }
@@ -5648,6 +5650,7 @@ var WHATS_NEW=[
   'Harvest sheet: pick a field and its variety and stubble fill in from the field map. Cutting across into another field? Add this field: cutting both, and that harvester\'s loads are shared between the fields.',
   'No harvester picked? That day\'s loads are blended: the fields cut that day share the tons and TRS by acres, shown in a Blended for the day table (Farm tab and Mill tab). A field typed "43,47,56" or "32.39" counts as those fields.',
   'Picking a field now opens the Farm tab, nearest fields first: Open field on the Board, and Pick fields on the Farm tab in the Burn log. Tap Pick, and you come back with the field, variety, stubble and acres filled in.',
+  'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
   'The mill report is the certified tons and TRS: once a load has it, its tons and TRS cannot be changed in the app, and a load the mill did not core carries the tract\'s TRS and CRS.',
@@ -6001,7 +6004,7 @@ async function ftLoadRecs(farm, force){
 function ftRecsOf(farm, key){ return (FR.recs[farm]||[]).filter(function(r){ return r.fkey===key; }); }
 function ftRecLine(r){
   var d=r.data||{}, p=(d.products||[]).filter(function(x){ return x.name; }).map(function(x){ return x.name+(x.rate?' '+x.rate+(x.unit?' '+x.unit:''):''); }).join(', ');
-  return [mrDay(d.date)+(d.time?' '+mrTime(d.time):''), d.type, p, d.who?'by '+d.who:'', d.wx?ftWxText(d.wx):''].filter(Boolean).join(' · ')+(d.notes?' · '+d.notes:'');
+  return [mrDay(d.date)+(d.time?' '+mrTime(d.time):''), d.type, d.acres?d.acres+' ac'+(d.nf>1?' total':''):'', p, d.who?'by '+d.who:'', d.wx?ftWxText(d.wx):''].filter(Boolean).join(' · ')+(d.notes?' · '+d.notes:'');
 }
 function ftNowHM(){ var d=new Date(); return (d.getHours()<10?'0':'')+d.getHours()+':'+(d.getMinutes()<10?'0':'')+d.getMinutes(); }
 function ftRecForm(farm, o){
@@ -6015,6 +6018,7 @@ function ftRecForm(farm, o){
   }
   h+='<label class="f">'+(F.type==='Spray'||F.type==='Fertilizer'?'Applied by':'By')+'<input type="text" id="frWho" value="'+esc(F.who)+'"></label>';
   h+='<label class="f">Notes<input type="text" id="frNotes" value="'+esc(F.notes)+'" placeholder="Optional"></label>';
+  var fac=ftRecAcres(farm, F); h+='<label class="f">Acres<input type="number" id="frAcres" step="0.01" min="0" inputmode="decimal" value="'+esc(F.acres!=null?F.acres:(fac?fac:''))+'"></label>'+(F.acres==null&&fac?'<p class="small">From the field map'+(Object.keys(F.also).length?' (all fields picked)':'')+'.</p>':'');
   if(F.multi){ var ml=ftGroups(farm).filter(function(x){ return x.key===F.key || F.also[x.key]; }); h+='<p class="small"><b>On '+ml.length+' fields:</b> '+esc(ml.map(function(x){ return x.id+(x.track?' '+x.track:''); }).join(', '))+'</p>'; }
   var same=F.multi?[]:ftGroups(farm).filter(function(x){ return x.track===o.track && x.key!==o.key; }).sort(function(a,b){ return a.id.localeCompare(b.id,undefined,{numeric:true}); });
   if(same.length){
@@ -6031,6 +6035,7 @@ function ftRecWx(){
   ftWxAt(o.c, F.date, hr).then(function(w){ if(FR.form!==F || F.wxFor!==want) return; F.wx=w; var e2=$('#frWx'); if(e2) e2.textContent=w?'Weather then: '+ftWxText(w):'No weather for that time yet.'; })
     .catch(function(){ var e3=$('#frWx'); if(e3) e3.textContent='Weather not available right now. The record saves without it.'; });
 }
+function ftRecAcres(farm, F){ var keys=[F.key].concat(Object.keys(F.also||{})), t=0; ftGroups(farm).forEach(function(x){ if(keys.indexOf(x.key)>=0) t+=x.acres||0; }); return t>0?Math.round(t*100)/100:0; }
 async function ftRecSave(){
   var F=FR.form, farm=S.farmId; if(!F || F.busy) return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(F.date)){ toast('Pick the date.'); return; }
@@ -6038,6 +6043,7 @@ async function ftRecSave(){
   var prods=F.products.filter(function(p){ return String(p.name||'').trim(); }).map(function(p){ var m=String(p.rate||'').trim().match(/^([\d.]+)\s*(.*)$/); return { name:p.name.trim(), rate:m?Number(m[1]):'', unit:m?m[2]:String(p.rate||'').trim() }; });
   var data={ type:F.type, date:F.date, time:F.time||'', products:(F.type==='Note'||F.type==='Scouting')?[]:prods, who:String(F.who||'').trim(), notes:String(F.notes||'').trim() };
   if(F.mix) data.mix=F.mix; if(F.wx) data.wx=F.wx;
+  var ac=F.acres!=null&&String(F.acres).trim()!==''?Number(F.acres):ftRecAcres(farm,F); if(ac>0){ data.acres=ac; data.nf=fl.length; }
   F.busy=true; FT.sig=''; ftRender();
   try{ var n=await rpc('field_record_add',{ p_farm:farm, p_fields:fl, p_data:data }); FR.form=null; toast('Saved on '+n+' field'+(n===1?'':'s')+'.'); await ftLoadRecs(farm,true); }
   catch(e){ F.busy=false; fail(e); }
@@ -6068,7 +6074,7 @@ document.addEventListener('click',function(e){
 });
 document.addEventListener('input',function(e){
   var t=e.target, F=FR.form; if(!F || !t) return;
-  if(t.id==='frWho') F.who=t.value; else if(t.id==='frNotes') F.notes=t.value;
+  if(t.id==='frWho') F.who=t.value; else if(t.id==='frNotes') F.notes=t.value; else if(t.id==='frAcres') F.acres=t.value;
   else if(t.getAttribute && t.getAttribute('data-frp')){ var p=F.products[+t.getAttribute('data-i')]; if(p) p[t.getAttribute('data-frp')]=t.value; }
 });
 document.addEventListener('change',function(e){
@@ -6178,7 +6184,7 @@ async function fxRun(kind){
       var G={}; ftGroups(farm).forEach(function(o){ G[o.key]=o; });
       var L=[['Date','Time','Type','Farm','Track','Field_ID','Acres','Product','Rate','Unit','Tank_mix','Applied_by','Notes','Temp_F','Wind_mph','Wind_dir','Gusts_mph','Humidity_pct','Rain_24h_in','Entered_by']];
       (FR.recs[farm]||[]).slice().reverse().forEach(function(r){ var d=r.data||{}, w=d.wx||{}, o=G[r.fkey], pr=(d.products||[]).length?d.products:[{}];
-        pr.forEach(function(p){ L.push([d.date,d.time,d.type,farmName(farm),r.track,r.field,o?fxR(o.acres,2):'',p.name||'',p.rate==null?'':p.rate,p.unit||'',d.mix||'',d.who||'',d.notes||'',fxR(w.t,0),fxR(w.ws,0),w.wd==null?'':ftCompass(w.wd),fxR(w.wg,0),fxR(w.rh,0),fxR(w.r24,2),r.by||'']); }); });
+        pr.forEach(function(p){ L.push([d.date,d.time,d.type,farmName(farm),r.track,r.field,(d.acres&&d.nf===1)?fxR(d.acres,2):o?fxR(o.acres,2):'',p.name||'',p.rate==null?'':p.rate,p.unit||'',d.mix||'',d.who||'',d.notes||'',fxR(w.t,0),fxR(w.ws,0),w.wd==null?'':ftCompass(w.wd),fxR(w.wg,0),fxR(w.rh,0),fxR(w.r24,2),r.by||'']); }); });
       fxSave(base+'_field_records.csv', fxCsv(L), 'text/csv'); FX.msg='Field records saved: '+(L.length-1)+' rows.';
     }
   }catch(e){ FX.msg='Could not export. '+((e&&e.message)||''); }
