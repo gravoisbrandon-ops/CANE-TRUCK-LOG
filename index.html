@@ -2222,7 +2222,7 @@ function bnRender(){
     '<div class="toolbar"><label class="f">Farm<select data-bnf="farm">'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(f.id===farm?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label>'+
     '<label class="f">Track<input type="text" list="bnTracks" data-bnf="track" value="'+esc(BN.track)+'" placeholder="Track" autocomplete="off"></label><datalist id="bnTracks">'+tracksOf(farm).map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist>'+
     '<label class="f">Field ID<input type="text" list="bnFields" data-bnf="field" value="'+esc(BN.field)+'" placeholder="Field" autocomplete="off"></label><datalist id="bnFields">'+fields.map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist></div>'+
-    '<div class="toolbar"><button class="btn ghost sm" type="button" data-bn="useActive">Use the field being harvested</button></div><p class="small">'+(BN.fromActive?'Filled in from the track and field being harvested on the Board. Change them if you are burning a different field.':'Tap the button to fill in the track and field being harvested on the Board.')+'</p>'+
+    '<div class="toolbar">'+(!S.isMill&&S.farmId?'<button class="btn sm" type="button" data-bn="pickFarm">Pick fields on the Farm tab</button>':'')+'<button class="btn ghost sm" type="button" data-bn="useActive">Use the field being harvested</button></div><p class="small">'+(BN.fromActive?'Filled in from the track and field being harvested on the Board. Change them if you are burning a different field.':'Tap the button to fill in the track and field being harvested on the Board.')+'</p>'+
     '<div class="toolbar"><label class="f">Date burned<input type="date" data-bnf="date" value="'+esc(BN.date)+'"></label>'+
     '<label class="f">Time<input type="time" data-bnf="time" value="'+esc(BN.time)+'"></label>'+
     '<label class="f">Acres (optional)<input type="number" step="0.01" min="0" inputmode="decimal" data-bnf="acres" value="'+esc(BN.acres)+'"></label></div>'+
@@ -2330,6 +2330,7 @@ document.addEventListener('click',function(e){
   else if(a==='fetch') bnFetchWx();
   else if(a==='smoke'){ var se=BN.log.filter(function(r){ return r.id===el.getAttribute('data-id'); })[0]; if(se) smokeOpen(se.lat||BN.lat,se.lon||BN.lon,se.burnedAt,se.acres,se.wx,se.id); }
   else if(a==='smokeSaved'){ var sid=el.getAttribute('data-id'); BN.showSmoke=(BN.showSmoke===sid?'':sid); bnLogRender(); }
+  else if(a==='pickFarm') bnGoPick();
   else if(a==='useActive'){ if(BN.farm!==S.farmId){ toast('Switch the Board to this farm first. The harvesting field is set there.'); return; } if(!(S.active.track||S.active.field)){ toast('No track or field is picked on the Board yet.'); return; } BN.track=S.active.track||''; BN.field=S.active.field||''; BN.fromActive=true; bnRender(); }
   else if(a==='smokeHide'){ BN.smokeOn=false; bnSmokeShow(); }
   else if(a==='smokeNow'){
@@ -4385,7 +4386,7 @@ document.addEventListener('click', function(e){
   var a=el.getAttribute('data-act');
   switch(a){
     case 'tab':
-      S.tab=el.getAttribute('data-tab'); S.tabTouched=true; last.board=''; last.report=''; schedule();
+      S.tab=el.getAttribute('data-tab'); S.tabTouched=true; last.board=''; if(S.tab!=='farm') HVPICK=null; last.report=''; schedule();
       if(S.tab==='report') loadReport();
       if(S.tab==='all'){ last.comb=''; loadComb(); }
       window.scrollTo(0,0); break;
@@ -4816,6 +4817,22 @@ function hvAutoFill(){
   if(st && o.stub.n!=null) st.value=String(o.stub.n);
   if(note) note.textContent='Variety and stubble filled in from the field map: '+[o.variety, o.stub.text, (Math.round(o.acres*10)/10)+' ac'].filter(Boolean).join(' · ')+'.';
 }
+/* 2026-11-24: picking a field goes to the Farm tab (nearest first), then back to the sheet with it filled in */
+var HVPICK=null;
+function hvCanPick(){ return !S.isMill && !!S.farmId; }
+function hvGoPick(name){ HVPICK={ kind:'hv', h:name }; closeEdit(); if(!(S.farmId in FT.map)) ftLoadMap(S.farmId); FT.selMode=false; FT.sel={}; FT.msect=''; FT.open=''; FT.sect=''; FT.q=''; FT.track=''; FT.sig=''; if(typeof FM!=='undefined') FM.sig=''; S.tab='farm'; S.tabTouched=true; last.board=''; schedule(); window.scrollTo(0,0); }
+function bnGoPick(){ HVPICK={ kind:'burn', sel:{} }; if(!(S.farmId in FT.map)) ftLoadMap(S.farmId); FT.selMode=false; FT.sel={}; FT.msect=''; FT.open=''; FT.sect=''; FT.q=''; FT.track=''; FT.sig=''; if(typeof FM!=='undefined') FM.sig=''; S.tab='farm'; S.tabTouched=true; schedule(); window.scrollTo(0,0); }
+function pkToggle(key){ var p=HVPICK; if(!p) return; if(p.kind!=='burn'){ hvPickDone(key); return; } if(p.sel[key]) delete p.sel[key]; else p.sel[key]=1; FT.sig=''; if(typeof FM!=='undefined') FM.sig=''; ftRender(); }
+function bnPickDone(use){ var p=HVPICK; if(!p) return; HVPICK=null; FT.sig=''; if(typeof FM!=='undefined') FM.sig='';
+  if(use){ var G=ftGroups(S.farmId).filter(function(o){ return p.sel[o.key]; });
+    if(G.length){ var tr={}; G.forEach(function(o){ tr[o.track||'']=1; }); var one=Object.keys(tr).length===1;
+      BN.farm=S.farmId; BN.track=one?G[0].track||'':''; BN.field=G.map(function(o){ return one||!o.track?o.id:o.id+' '+o.track; }).join(', ');
+      var ac=G.reduce(function(t,o){ return t+(o.acres||0); },0); if(ac>0) BN.acres=String(Math.round(ac*100)/100); BN.fromActive=false; } }
+  S.tab='tools'; S.tool='burn'; S.tabTouched=true; schedule(); window.scrollTo(0,0); toolsShow(); bnRender(); }
+function hvPickDone(key){ var p=HVPICK; if(!p) return; if(p.kind==='burn'){ bnPickDone(!!key); return; } HVPICK=null; FT.sig=''; if(typeof FM!=='undefined') FM.sig=''; S.tab='board'; last.board=''; schedule(); window.scrollTo(0,0);
+  var o=key?ftGroups(S.farmId).filter(function(x){ return x.key===key; })[0]:null; hvSheet('open',p.h); S.hv.picked=true; hvRenderSheet(); if(!o) return;
+  var t=$('#hvTrack'); if(t){ if(o.track && !Array.prototype.some.call(t.options,function(x){ return x.value===o.track; })) t.insertAdjacentHTML('beforeend','<option value="'+esc(o.track)+'">'+esc(o.track)+'</option>'); t.value=o.track||''; }
+  hvRefillFields(o.id); }
 document.addEventListener('change',function(e){ if(!S.hv || S.hv.mode!=='open' || !e.target) return; if(e.target.id==='hvTrack') hvRefillFields(); else if(e.target.id==='hvField') hvAutoFill(); });
 function hvSel(id,label,list,cur,none){
   var l=list.slice(); if(cur && l.indexOf(cur)<0) l.push(cur);
@@ -4834,6 +4851,7 @@ function hvRenderSheet(){
   if(v.mode==='open'){
     var base=a||S.active||{};
     h='<div class="sheet-head"><h2 id="sheetTitle">'+esc(v.h)+': '+(a?'next field':'open a field')+'</h2><button class="close" type="button" data-act="closeSheet" aria-label="Close">&times;</button></div>'+
+      (hvCanPick()?'<button class="btn" type="button" data-hv="pickFarm">'+(v.picked?'Pick a different field':'Pick the field on the Farm tab')+'</button>':'')+
       hvSel('hvTrack','Track',azSort(tracksOf(S.farmId)),base.track||'')+
       hvSel('hvField','Field',hvFieldList(base.track||''),base.field||'')+
       hvSel('hvVariety','Cane variety',azSort(varietiesOf(S.farmId)),base.variety||'')+
@@ -4935,7 +4953,8 @@ async function hvDoWeigh(){
 document.addEventListener('click',function(e){
   var el=e.target.closest && e.target.closest('[data-hv]'); if(!el) return;
   var a=el.getAttribute('data-hv'), h=el.getAttribute('data-h');
-  if(a==='open'||a==='close'||a==='weigh'){ if(needName()) return; hvSheet(a,h); }
+  if(a==='open'||a==='close'||a==='weigh'){ if(needName()) return; if(a==='open' && hvCanPick()) hvGoPick(h); else hvSheet(a,h); }
+  else if(a==='pickFarm'){ if(S.hv) hvGoPick(S.hv.h); }
   else if(a==='doOpen') hvDoOpen();
   else if(a==='addField') hvDoAddField();
   else if(a==='doClose') hvDoClose();
@@ -5627,6 +5646,7 @@ var WHATS_NEW=[
   'The smoke map shows your field outlines, with the field being burned in orange.',
   'Harvest sheet: pick a field and its variety and stubble fill in from the field map. Cutting across into another field? Add this field: cutting both, and that harvester\'s loads are shared between the fields.',
   'No harvester picked? That day\'s loads are blended: the fields cut that day share the tons and TRS by acres, shown in a Blended for the day table (Farm tab and Mill tab). A field typed "43,47,56" or "32.39" counts as those fields.',
+  'Picking a field now opens the Farm tab, nearest fields first: Open field on the Board, and Pick fields on the Farm tab in the Burn log. Tap Pick, and you come back with the field, variety, stubble and acres filled in.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
   'The mill report is the certified tons and TRS: once a load has it, its tons and TRS cannot be changed in the app, and a load the mill did not core carries the tract\'s TRS and CRS.',
@@ -5783,7 +5803,7 @@ function ftRender(){
   ftLocate(false);
   var a=document.activeElement; if(a && body.contains(a) && /INPUT|SELECT/.test(a.tagName) && a.id==='ftQ') { ftList(); return; }
   if(a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.closest && a.closest('#frForm')) return;   /* someone is typing a record */
-  var sig=JSON.stringify([farm, !!FT.map[farm], FT.mapBusy[farm], (FT.loads[farm]||[]).length, FT.loadsBusy[farm], FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)], FT.posMsg, FT.track, FT.open, FT.sect, !!FT.up, FT.upBusy, FT.upMsg, FT.showAll, S.farms.length, ftMain(), FT.sess[farm]&&FT.sess[farm].length, Object.keys(FT.wx[farm]||{}).length, BN.log.length, confirmKey, (FR.recs[farm]||[]).length, !!FR.form, FR.form&&FR.form.busy, FT.smoke, FX.busy, FX.msg, FT.selMode, Object.keys(FT.sel).join(','), FT.msect]);
+  var sig=JSON.stringify([farm, !!FT.map[farm], FT.mapBusy[farm], (FT.loads[farm]||[]).length, FT.loadsBusy[farm], FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)], FT.posMsg, FT.track, FT.open, FT.sect, !!FT.up, FT.upBusy, FT.upMsg, FT.showAll, S.farms.length, ftMain(), FT.sess[farm]&&FT.sess[farm].length, Object.keys(FT.wx[farm]||{}).length, BN.log.length, confirmKey, (FR.recs[farm]||[]).length, !!FR.form, FR.form&&FR.form.busy, FT.smoke, FX.busy, FX.msg, FT.selMode, Object.keys(FT.sel).join(','), FT.msect, HVPICK&&[HVPICK.h,Object.keys(HVPICK.sel||{}).join(',')]]);
   if(sig===FT.sig) return; FT.sig=sig;
   var h='', mp=FT.map[farm];
   /* main farm */
@@ -5792,21 +5812,23 @@ function ftRender(){
     mainH+='<div class="card col"><label class="f">Main farm (the app opens on it)<select id="ftMain"><option value="">None</option>'+S.farms.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===ftMain()?' selected':'')+'>'+esc(x.name)+'</option>'; }).join('')+'</select></label>'+
       '<p class="small">Viewing <b>'+esc(farmName(farm))+'</b>. Switch farms with the bar at the top.</p></div>';
   }
+  if(HVPICK && HVPICK.kind==='burn'){ var pn=Object.keys(HVPICK.sel).length; h+='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the fields being burned</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on each field, or tap them on the map.</p><div class="toolbar"><button class="btn primary sm" type="button" data-ft="pickUse"'+(pn?'':' disabled')+'>'+(pn?'Use '+pn+' field'+(pn===1?'':'s'):'Pick a field')+'</button><button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>'; }
+  else if(HVPICK) h+='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the field for '+esc(HVPICK.h)+'</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on a field, or tap it on the map.</p><div class="toolbar"><button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>';
   h+='<div class="card col"><h2>'+esc(farmName(farm))+' fields</h2>';
   if(FT.mapBusy[farm] && !mp) h+='<p class="small">Loading the field map…</p>';
   else if(!mp) h+='<p class="small">'+(FT.mapErr?'Run the latest schema.sql in Supabase to turn on field maps.':'No field map yet.')+(isLead()?' Upload the Yote Farmview export below (a zipped shapefile or a .geojson).':' An administrator or manager uploads it.')+'</p>';
   else {
     var tr={}; mp.fields.forEach(function(x){ if(x.track) tr[x.track]=1; });
-    h+='<div class="addrow"><input type="search" id="ftQ" placeholder="Field or track" value="'+esc(FT.q)+'" aria-label="Find a field"><button class="btn ghost sm" type="button" data-ft="near">Nearest first</button></div><div class="addrow"><button class="btn'+(FT.selMode?'':' ghost')+' sm" type="button" data-fs="'+(FT.selMode?'done':'start')+'">'+(FT.selMode?'Done selecting':'Select several fields')+'</button></div>';
+    h+='<div class="addrow"><input type="search" id="ftQ" placeholder="Field or track" value="'+esc(FT.q)+'" aria-label="Find a field"><button class="btn ghost sm" type="button" data-ft="near">Nearest first</button></div>'+(HVPICK?'':'<div class="addrow"><button class="btn'+(FT.selMode?'':' ghost')+' sm" type="button" data-fs="'+(FT.selMode?'done':'start')+'">'+(FT.selMode?'Done selecting':'Select several fields')+'</button></div>');
     var tl=azSort(Object.keys(tr)); if(tl.length>1) h+='<div class="fchips" role="group" aria-label="Track">'+['All'].concat(tl).map(function(t){ var v=t==='All'?'':t; return '<button type="button" class="fchip" data-ft="track" data-v="'+esc(v)+'" aria-pressed="'+(FT.track===v)+'">'+esc(t)+'</button>'; }).join('')+'</div>';
     h+='<p class="small" id="ftNote">'+esc(FT.posMsg || (FT.pos?'Nearest to you first.':''))+(FT.loadsBusy[farm]?' Reading this harvest\'s loads…':'')+(mp.nextSeason?' Stubble shown for this harvest (the map\'s is next season\'s).':'')+'</p>';
     if(FT.selMode) h+='<div id="ftSel">'+ftSelPanel(farm)+'</div>';
     h+='<div id="ftList"></div>';
   }
   h+='</div>';
-  if(mp) h+=fxCard(farm);
-  if(isLead()) h+=ftMapCard(farm, mp);
-  h+=mainH;
+  if(mp && !HVPICK) h+=fxCard(farm);
+  if(isLead() && !HVPICK) h+=ftMapCard(farm, mp);
+  if(!HVPICK) h+=mainH;
   body.innerHTML=h;
   if(mp) ftList();
   ftWxFill(); if(FR.form) ftRecWx();
@@ -5825,9 +5847,9 @@ function ftList(){
     var nrec=ftRecsOf(farm,o.key).length;
     var l3=(days.length?'Cut '+mrDay(days[days.length-1])+(days.length>1?' ('+days.length+' days)':'')+' · '+ftN(a.n)+' load'+(Math.abs(a.n-1)<0.01?'':'s')+(a.tw?' · '+f1(a.tons/(o.acres||1))+' t/ac':''):'Not cut this harvest')+(nrec?' · '+nrec+' record'+(nrec===1?'':'s'):'')+(Object.keys(a.blend||{}).length?' · blended':'');
     h+='<div class="ros-row" id="ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')+'" style="grid-template-columns:minmax(0,1fr)"><div class="info"><span class="l1">Field '+esc(o.id)+(o.track?' · '+esc(o.track):'')+(o.parts.length>1?' <span class="small">('+o.parts.length+' parts)</span>':'')+'</span><span class="l2" style="white-space:normal">'+esc(l2)+'</span><span class="l2" style="white-space:normal">'+esc(l3)+'</span></div>'+
-      (FT.selMode?'<div class="fchips" style="margin-top:6px"><button type="button" class="fchip" data-fs="pick" data-k="'+esc(o.key)+'" aria-pressed="'+(!!FT.sel[o.key])+'">'+(FT.sel[o.key]?'✓ Selected':'Select')+'</button></div></div>':
+      (HVPICK?'<div class="fchips" style="margin-top:6px"><button type="button" class="fchip" data-ft="pickField" data-k="'+esc(o.key)+'" aria-pressed="'+!!(HVPICK.sel&&HVPICK.sel[o.key])+'">'+(HVPICK.sel&&HVPICK.sel[o.key]?'✓ Picked':'Pick')+'</button></div></div>':FT.selMode?'<div class="fchips" style="margin-top:6px"><button type="button" class="fchip" data-fs="pick" data-k="'+esc(o.key)+'" aria-pressed="'+(!!FT.sel[o.key])+'">'+(FT.sel[o.key]?'✓ Selected':'Select')+'</button></div></div>':
       '<div class="fchips" style="margin-top:6px">'+[['harvest','Harvest'],['burn','Burn'],['records','Records']].map(function(b){ return '<button type="button" class="fchip" data-ft="sect" data-k="'+esc(o.key)+'" data-v="'+b[0]+'" aria-pressed="'+(op && FT.sect===b[0])+'">'+b[1]+'</button>'; }).join('')+'</div></div>');
-    if(op && !FT.selMode) h+='<div class="card col" style="margin:6px 0 10px">'+ftSection(farm, o, a)+'</div>';
+    if(op && !FT.selMode && !HVPICK) h+='<div class="card col" style="margin:6px 0 10px">'+ftSection(farm, o, a)+'</div>';
   });
   if(!L.length) h='<p class="small">No fields match.</p>';
   else if(lim<L.length) h+='<div class="addrow"><button class="btn ghost sm" type="button" data-ft="all">Show all '+L.length+' fields</button></div>';
@@ -5916,6 +5938,9 @@ document.addEventListener('click',function(e){
   else if(a==='near'){ ftLocate(true); FT.sig=''; ftRender(); }
   else if(a==='track'){ FT.track=el.getAttribute('data-v')||''; FT.sig=''; ftRender(); }
   else if(a==='all'){ FT.showAll=true; FT.sig=''; ftRender(); }
+  else if(a==='pickField') pkToggle(el.getAttribute('data-k'));
+  else if(a==='pickUse') bnPickDone(true);
+  else if(a==='pickNone') hvPickDone('');
   else if(a==='sect'){ var k=el.getAttribute('data-k'), v=el.getAttribute('data-v'); if(FT.open===k && FT.sect===v){ FT.open=''; FT.sect=''; } else { FT.open=k; FT.sect=v; } if(FR.form && FR.form.key!==FT.open) FR.form=null; FT.smoke=''; FT.sig=''; ftRender(); }
   else if(a==='goHarvest'){ HF.farm=farm; S.tab='tools'; S.tool='harvest'; S.tabTouched=true; last.board=''; schedule(); window.scrollTo(0,0); }
   else if(a==='goBurn'){
@@ -6191,7 +6216,7 @@ function fmDraw(){
   if(!box) return;
   if(!mp || !mp.fields || S.tab!=='farm'){ return; }
   var G=ftGroups(farm), A=ftAgg(farm,G), mode=FM.mode;
-  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.selMode, Object.keys(FT.sel).join(','), FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
+  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.selMode, Object.keys(FT.sel).join(','), HVPICK&&Object.keys(HVPICK.sel||{}).join(','), FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
   if(sig===FM.sig && FM.map) return; FM.sig=sig;
   fmLeaflet().then(function(){
     if(!$('#ftMapBox')) return;
@@ -6213,13 +6238,13 @@ function fmDraw(){
       if(mode==='cut'){ fill=cut?'#2ecc71':(notCane?'#bdc3c7':'#f1c40f'); op=cut?0.55:0.35; }
       else if(v==null){ fill='#ffffff'; op=0.08; }
       else { fill=ramp[cls(v)]; op=0.7; }
-      var sel=FT.selMode?!!FT.sel[o.key]:FT.open===o.key;
+      var sel=(HVPICK&&HVPICK.sel)?!!HVPICK.sel[o.key]:FT.selMode?!!FT.sel[o.key]:FT.open===o.key;
       o.parts.forEach(function(p){
         var ll=p.g.map(function(r){ return r.map(function(pt){ return [pt[1],pt[0]]; }); });
         ll.forEach(function(r){ r.forEach(function(x){ bounds.push(x); }); });
         var poly=L.polygon(ll,{ color:sel?'#ffffff':'#1a2a1f', weight:sel?3:1, fillColor:fill, fillOpacity:op });
         poly.bindTooltip('Field '+o.id+(o.track?' · '+o.track:'')+(mode!=='cut'?' · '+fmFmt(mode,v):(cut?' · cut':'')),{ sticky:true });
-        poly.on('click',function(){ if(FT.selMode){ if(FT.sel[o.key]) delete FT.sel[o.key]; else FT.sel[o.key]=1; FT.sig=''; FM.sig=''; ftRender(); return; } FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
+        poly.on('click',function(){ if(HVPICK){ pkToggle(o.key); return; } if(FT.selMode){ if(FT.sel[o.key]) delete FT.sel[o.key]; else FT.sel[o.key]=1; FT.sig=''; FM.sig=''; ftRender(); return; } FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
           setTimeout(function(){ var r=document.getElementById('ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')); if(r && r.scrollIntoView) r.scrollIntoView({ block:'start', behavior:'smooth' }); },80); });
         FM.layer.addLayer(poly);
       });
