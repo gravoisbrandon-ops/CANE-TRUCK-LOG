@@ -53,7 +53,8 @@ h1{font:700 30px/1 var(--font-display);letter-spacing:.03em;text-transform:upper
 .tabs{gap:6px;border-bottom:0;padding-bottom:8px}
 .top{padding-bottom:6px}
 .tab{flex:1;background:var(--raise);border:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:10px;margin-bottom:0;min-height:46px;padding:8px 4px;font-size:16px;font-weight:700;color:var(--ink);box-shadow:0 3px 0 rgba(0,0,0,.2);transition:transform .08s,box-shadow .08s}
-.tabs{flex-wrap:wrap} .tab{flex:1 1 22%;min-width:0}   /* 2026-11-24: Farm and Mill tabs: the row wraps instead of running off a phone */
+.tabs{flex-wrap:wrap} .tab{flex:1 1 22%;min-width:0}
+.fmk{display:inline-block;width:14px;height:14px;border-radius:3px;vertical-align:-2px;margin:0 4px 0 8px;border:1px solid rgba(0,0,0,.25)}   /* 2026-11-24: Farm and Mill tabs: the row wraps instead of running off a phone */
 .tab:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.2)}
 .tab[aria-selected="true"]{background:var(--btn-bg);color:var(--btn-ink);border-color:var(--btn-bg);box-shadow:0 3px 0 rgba(0,0,0,.45),inset 0 -3px 0 #4FA36B}
 
@@ -332,7 +333,14 @@ td.n,th.n{text-align:right}
       </div>
     </section>
 
-    <section id="view-farm" hidden aria-label="Farm overview"><div id="farmBody" style="display:flex;flex-direction:column;gap:16px"></div></section>
+    <section id="view-farm" hidden aria-label="Farm overview" style="display:flex;flex-direction:column;gap:16px">
+      <div class="card col" id="ftMapCard" hidden style="padding:10px">
+        <div class="fchips" role="group" aria-label="Color the fields by" id="ftModes"></div>
+        <div id="ftMapBox" style="height:360px;border-radius:10px;overflow:hidden;margin-top:8px;background:#dfe6df"></div>
+        <div id="ftLegend" class="small" style="margin-top:6px;line-height:1.9"></div>
+      </div>
+      <div id="farmBody" style="display:flex;flex-direction:column;gap:16px"></div>
+    </section>
     <section id="view-mill" hidden aria-label="Mill reports" style="display:flex;flex-direction:column;gap:16px">
       <div class="card col" id="mrCard" data-sk="mrCard">
         <h2>Mill reports</h2>
@@ -5530,7 +5538,8 @@ document.addEventListener('click',function(e){
    main farm, which page opens first, What's new, and the backup download ---------- */
 var APP_VERSION='2026.11.24';
 var WHATS_NEW=[
-  'Farm tab: every field with its ID, variety, stubble and acres, nearest to you first. Tap Harvest, Burn or Records on a field.',
+  'Farm tab: a satellite map of your fields, colored by Cut, Tons/ac, TRS, Sugar/ac, Brix or Fiber. Tap a field on the map to open it.',
+  'Under the map, every field with its ID, variety, stubble and acres, nearest to you first. Tap Harvest, Burn or Records on a field.',
   'Field maps: upload your Yote Farmview shapefile (zipped) or GeoJSON for each farm. You can mark a file whose stubble is already next season\'s.',
   'Mill tab: the mill reports moved out of Setup, and the mill\'s own PDF is saved with each report. Tap PDF to open it.',
   'Mill reports read the Tract layout receipt and Raceland\'s Daily Transaction Report too, and each day gets its weather.',
@@ -5676,8 +5685,9 @@ function ftRender(){
   if(sig===FT.sig) return; FT.sig=sig;
   var h='', mp=FT.map[farm];
   /* main farm */
+  var mainH='';
   if(isOffice() && S.farms.length>1){
-    h+='<div class="card col"><label class="f">Main farm (the app opens on it)<select id="ftMain"><option value="">None</option>'+S.farms.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===ftMain()?' selected':'')+'>'+esc(x.name)+'</option>'; }).join('')+'</select></label>'+
+    mainH+='<div class="card col"><label class="f">Main farm (the app opens on it)<select id="ftMain"><option value="">None</option>'+S.farms.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===ftMain()?' selected':'')+'>'+esc(x.name)+'</option>'; }).join('')+'</select></label>'+
       '<p class="small">Viewing <b>'+esc(farmName(farm))+'</b>. Switch farms with the bar at the top.</p></div>';
   }
   h+='<div class="card col"><h2>'+esc(farmName(farm))+' fields</h2>';
@@ -5693,9 +5703,11 @@ function ftRender(){
   h+='</div>';
   if(mp) h+=fxCard(farm);
   if(isLead()) h+=ftMapCard(farm, mp);
+  h+=mainH;
   body.innerHTML=h;
   if(mp) ftList();
   ftWxFill(); if(FR.form) ftRecWx();
+  var mc=$('#ftMapCard'); if(mc){ mc.hidden=!mp; if(mp){ var mm=$('#ftModes'); if(mm && !mm.firstChild) mm.innerHTML=FM_MODES.map(function(m){ return '<button type="button" class="fchip" data-fm="'+m[0]+'" aria-pressed="'+(FM.mode===m[0])+'">'+m[1]+'</button>'; }).join(''); fmDraw(); } }
 }
 function ftList(){
   var el=$('#ftList'), farm=S.farmId; if(!el) return;
@@ -5709,7 +5721,7 @@ function ftList(){
     var l2=[o.variety+(o.mixedVar?' +':''), st.text, (Math.round(o.acres*10)/10)+' ac', ftMi(o.d)].filter(Boolean).join(' · ');
     var nrec=ftRecsOf(farm,o.key).length;
     var l3=(days.length?'Cut '+mrDay(days[days.length-1])+(days.length>1?' ('+days.length+' days)':'')+' · '+ftN(a.n)+' load'+(Math.abs(a.n-1)<0.01?'':'s')+(a.tw?' · '+f1(a.tons/(o.acres||1))+' t/ac':''):'Not cut this harvest')+(nrec?' · '+nrec+' record'+(nrec===1?'':'s'):'');
-    h+='<div class="ros-row" style="grid-template-columns:minmax(0,1fr)"><div class="info"><span class="l1">Field '+esc(o.id)+(o.track?' · '+esc(o.track):'')+(o.parts.length>1?' <span class="small">('+o.parts.length+' parts)</span>':'')+'</span><span class="l2" style="white-space:normal">'+esc(l2)+'</span><span class="l2" style="white-space:normal">'+esc(l3)+'</span></div>'+
+    h+='<div class="ros-row" id="ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')+'" style="grid-template-columns:minmax(0,1fr)"><div class="info"><span class="l1">Field '+esc(o.id)+(o.track?' · '+esc(o.track):'')+(o.parts.length>1?' <span class="small">('+o.parts.length+' parts)</span>':'')+'</span><span class="l2" style="white-space:normal">'+esc(l2)+'</span><span class="l2" style="white-space:normal">'+esc(l3)+'</span></div>'+
       '<div class="fchips" style="margin-top:6px">'+[['harvest','Harvest'],['burn','Burn'],['records','Records']].map(function(b){ return '<button type="button" class="fchip" data-ft="sect" data-k="'+esc(o.key)+'" data-v="'+b[0]+'" aria-pressed="'+(op && FT.sect===b[0])+'">'+b[1]+'</button>'; }).join('')+'</div></div>';
     if(op) h+='<div class="card col" style="margin:6px 0 10px">'+ftSection(farm, o, a)+'</div>';
   });
@@ -6044,6 +6056,80 @@ function fxCard(farm){
     '<div class="addrow">'+b('shp','Shapefile (zip)')+b('geo','GeoJSON')+'</div><div class="addrow">'+b('res','Harvest by field (CSV)')+b('rec','Field records (CSV)')+'</div>'+(FX.msg?'<p class="small">'+esc(FX.msg)+'</p>':'')+'</div>';
 }
 document.addEventListener('click',function(e){ var el=e.target.closest && e.target.closest('[data-fx]'); if(el && !FX.busy) fxRun(el.getAttribute('data-fx')); });
+
+/* ---------- 2026-11-24: the field map on the Farm tab (satellite, outlines colored by Cut, Tons/ac, TRS, Sugar/ac, Brix or Fiber) ---------- */
+var FM={ map:null, layer:null, me:null, farm:'', mode:'cut', sig:'', loading:false, fit:'' };
+var FM_MODES=[['cut','Cut'],['tpa','Tons/ac'],['trs','TRS'],['sug','Sugar/ac'],['brix','Brix'],['fiber','Fiber']];
+var FM_RAMP=['#d73027','#fc8d59','#fee08b','#91cf60','#1a9850'];        /* low to high */
+var FM_BLUE=['#eff3ff','#bdd7e7','#6baed6','#3182bd','#08519c'];
+function fmLeaflet(){
+  if(window.L) return Promise.resolve(); if(FM.loading) return FM.loading;
+  FM.loading=new Promise(function(ok,no){
+    var c=document.createElement('link'); c.rel='stylesheet'; c.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(c);
+    var s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; s.onload=ok; s.onerror=no; document.head.appendChild(s);
+  });
+  return FM.loading;
+}
+function fmVal(mode, o, a){
+  var ac=o.acres||0, tons=a.tw, trs=a.cT?a.trs/a.cT:null;
+  if(mode==='tpa') return tons&&ac?tons/ac:null;
+  if(mode==='trs') return trs;
+  if(mode==='sug') return trs!=null&&tons&&ac?tons*trs/ac:null;
+  if(mode==='brix') return a.bT?a.brix/a.bT:null;
+  if(mode==='fiber') return a.fT?a.fiber/a.fT:null;
+  return null;
+}
+function fmFmt(mode,v){ return v==null?'–':(mode==='sug'?Math.round(v).toLocaleString():(mode==='trs'?Math.round(v):v.toFixed(1))); }
+function fmDraw(){
+  var box=$('#ftMapBox'), farm=S.farmId, mp=FT.map[farm];
+  if(!box) return;
+  if(!mp || !mp.fields || S.tab!=='farm'){ return; }
+  var G=ftGroups(farm), A=ftAgg(farm,G), mode=FM.mode;
+  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
+  if(sig===FM.sig && FM.map) return; FM.sig=sig;
+  fmLeaflet().then(function(){
+    if(!$('#ftMapBox')) return;
+    if(!FM.map || !document.body.contains(FM.map.getContainer())){
+      FM.map=L.map('ftMapBox',{ zoomControl:true, attributionControl:true, tap:true });
+      L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ maxZoom:19, attribution:'Imagery © Esri' }).addTo(FM.map);
+      FM.layer=L.layerGroup().addTo(FM.map); FM.fit='';
+    }
+    FM.layer.clearLayers();
+    /* the color of each field */
+    var vals=G.map(function(o){ return fmVal(mode,o,A[o.key]); }).filter(function(v){ return v!=null; }).sort(function(x,y){ return x-y; });
+    var cuts=[]; if(vals.length){ for(var q=1;q<5;q++) cuts.push(vals[Math.min(vals.length-1,Math.floor(vals.length*q/5))]); }
+    var ramp=mode==='fiber'?FM_BLUE:FM_RAMP;
+    var cls=function(v){ var i=0; while(i<cuts.length && v>cuts[i]) i++; return i; };
+    var bounds=[];
+    G.forEach(function(o){
+      var a=A[o.key], cut=Object.keys(a.days).length>0, v=fmVal(mode,o,a), notCane=o.stub.n==null;
+      var fill, op;
+      if(mode==='cut'){ fill=cut?'#2ecc71':(notCane?'#bdc3c7':'#f1c40f'); op=cut?0.55:0.35; }
+      else if(v==null){ fill='#ffffff'; op=0.08; }
+      else { fill=ramp[cls(v)]; op=0.7; }
+      var sel=FT.open===o.key;
+      o.parts.forEach(function(p){
+        var ll=p.g.map(function(r){ return r.map(function(pt){ return [pt[1],pt[0]]; }); });
+        ll.forEach(function(r){ r.forEach(function(x){ bounds.push(x); }); });
+        var poly=L.polygon(ll,{ color:sel?'#ffffff':'#1a2a1f', weight:sel?3:1, fillColor:fill, fillOpacity:op });
+        poly.bindTooltip('Field '+o.id+(o.track?' · '+o.track:'')+(mode!=='cut'?' · '+fmFmt(mode,v):(cut?' · cut':'')),{ sticky:true });
+        poly.on('click',function(){ FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
+          setTimeout(function(){ var r=document.getElementById('ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')); if(r && r.scrollIntoView) r.scrollIntoView({ block:'start', behavior:'smooth' }); },80); });
+        FM.layer.addLayer(poly);
+      });
+    });
+    if(FT.pos) FM.layer.addLayer(L.circleMarker([FT.pos.lat,FT.pos.lon],{ radius:7, color:'#fff', weight:2, fillColor:'#2e86de', fillOpacity:1 }).bindTooltip('You'));
+    if(FM.fit!==farm && bounds.length){ FM.map.fitBounds(bounds,{ padding:[10,10] }); FM.fit=farm; }
+    setTimeout(function(){ try{ FM.map.invalidateSize(); }catch(e){} },60);
+    /* the key under the map */
+    var lg=$('#ftLegend'); if(!lg) return;
+    if(mode==='cut') lg.innerHTML='<span class="fmk" style="background:#2ecc71"></span>Cut this harvest <span class="fmk" style="background:#f1c40f"></span>Not cut yet <span class="fmk" style="background:#bdc3c7"></span>Not in cane';
+    else if(!vals.length) lg.textContent='No '+FM_MODES.filter(function(m){ return m[0]===mode; })[0][1]+' yet: it fills in as the mill reports come in.';
+    else { var lo=[vals[0]].concat(cuts), hi=cuts.concat([vals[vals.length-1]]); lg.innerHTML=ramp.map(function(c,i){ return '<span class="fmk" style="background:'+c+'"></span>'+fmFmt(mode,lo[i])+(hi[i]!==lo[i]?'–'+fmFmt(mode,hi[i]):''); }).join(' ')+' <span class="fmk" style="background:#fff;border:1px solid #999"></span>none yet'; }
+  }).catch(function(){ var lg=$('#ftLegend'); if(lg) lg.textContent='The map could not load. Check your signal and try again.'; });
+}
+document.addEventListener('click',function(e){ var el=e.target.closest && e.target.closest('[data-fm]'); if(!el) return; FM.mode=el.getAttribute('data-fm'); FM.sig='';
+  Array.prototype.forEach.call(document.querySelectorAll('[data-fm]'),function(b){ b.setAttribute('aria-pressed',String(b===el)); }); fmDraw(); });
 syncTruckForm();
 startLang();
 init();
