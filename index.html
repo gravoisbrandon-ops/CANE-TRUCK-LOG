@@ -2603,7 +2603,7 @@ function sgRender(){
     if(vw==='*' || f.id!==vw) return;
     var o=sgFarm(f.id);
     h+='<div class="card sgfarm"><h2>'+esc(f.name)+'</h2>'+sgDateBox(f.id,o.date)+
-      '<label class="f">Acres harvested so far<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="acres" data-fid="'+esc(f.id)+'" value="'+esc(o.acres)+'"></label>';
+      '<label class="f">Acres harvested so far<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="acres" data-fid="'+esc(f.id)+'" value="'+esc(o.acres)+'"></label>'+(o.mapAcres?'<p class="small">For reference: the fields cut so far are '+esc(o.mapAcres)+' ac on the field map (whole fields). Type the acres actually harvested.</p>':'');
     o.rows.forEach(function(r,i){
       h+='<div class="sgrow" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px"><div class="sec-head"><label class="f" style="flex:1">Mill<input type="text" data-sgf="mill" data-fid="'+esc(f.id)+'" data-i="'+i+'" value="'+esc(r.mill)+'" placeholder="Mill name"></label><span class="edited" id="sgT_'+esc(f.id)+'_'+i+'">'+(r.src==='fetched'?'fetched':'')+'</span><button class="btn ghost sm" type="button" data-sg="rm" data-fid="'+esc(f.id)+'" data-i="'+i+'">Remove</button></div>'+
         '<div class="toolbar">'+
@@ -2941,7 +2941,7 @@ async function sgFetch(auto){
   Object.keys(MR).forEach(function(key){ var r=MR[key], fid=key.split('|')[0], k=r.mill||'No mill', tn=Number(r.tons)||0; if(!(tn>0)) return;
     var fa=agg[fid]||(agg[fid]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 }); a.tons+=tn; if(Number(r.trs)>0){ a.tw+=tn*Number(r.trs); a.tt+=tn; } nRep+=r.reports||1; repDays[r.day]=1; });
   /* acres harvested so far: the field map acres of every field cut up to this date */
-  farms.forEach(function(f){ var c=cut[f.id]; if(!c || !mapOk(f.id)) return; var ac=0; ftGroups(f.id).forEach(function(o){ if(c[o.key]) ac+=o.acres||0; }); if(ac>0){ var o=sgFarm(f.id); if(!o.acres || o.acresSrc==='map'){ o.acres=String(Math.round(ac*100)/100); o.acresSrc='map'; } acresBy[f.id]=ac; } });
+  farms.forEach(function(f){ var c=cut[f.id]; if(!c || !mapOk(f.id)) return; var ac=0; ftGroups(f.id).forEach(function(o){ if(c[o.key]) ac+=o.acres||0; }); if(ac>0){ var o=sgFarm(f.id); if(o.acresSrc==='map'){ o.acres=''; o.acresSrc=''; } o.mapAcres=Math.round(ac*100)/100; acresBy[f.id]=ac; } });
   Object.keys(agg).forEach(function(fid){
     var o=sgFarm(fid);
     Object.keys(agg[fid]).forEach(function(k){
@@ -2952,7 +2952,7 @@ async function sgFetch(auto){
   });
   SG.loading=false;
   var rd=Object.keys(repDays).sort();
-  if(nRep || nLoads || nEnt){ SG.msg='Through '+dayLabel(t)+': '+(nRep?nRep+' mill report'+(nRep===1?'':'s')+' ('+rd.length+' day'+(rd.length===1?'':'s')+', the mill\'s certified tons and TRS)':'no mill reports yet')+(nLoads||nEnt?', plus '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from days with no mill report':'')+'.'+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(Object.keys(acresBy).length?' Acres harvested: the field map acres of every field cut.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
+  if(nRep || nLoads || nEnt){ SG.msg='Through '+dayLabel(t)+': '+(nRep?nRep+' mill report'+(nRep===1?'':'s')+' ('+rd.length+' day'+(rd.length===1?'':'s')+', the mill\'s certified tons and TRS)':'no mill reports yet')+(nLoads||nEnt?', plus '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from days with no mill report':'')+'.'+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
   SG.msg=(nLoads||nEnt) ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(farms.some(function(f){ return f.millStart && Object.keys(f.millStart).length; })?' Days before a mill\'s start date are left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
   sgSave(); sgRender();
 }
@@ -5714,7 +5714,7 @@ var WHATS_NEW=[
   'Once a farm has a field map, every track, field and variety list comes from the map. Old typed-in fields are no longer shown, and an administrator can clear them in Setup.',
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
-  'Cane Track: the date fills in as yesterday, and the tons, TRS and acres fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t, and acres from the field map. Check it, then tap Save to keep the checkpoint.',
+  'Cane Track: the date fills in as yesterday, and the tons and TRS fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t. You type the acres. Check it, then tap Save to keep the checkpoint.',
   'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
