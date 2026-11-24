@@ -11,6 +11,44 @@
 -- The tables are locked (row level security on, no policies), so the public key can only call the
 -- functions at the bottom, and every function checks who is signed in first.
 
+-- ===== Backup before every run (2026-11-24) =====
+-- Each time this file is run, it first copies what is there now (every table: farms, loads, trucks, tools,
+-- people and portals, and the sign-in list of emails, never passwords) into backup_rows, as one backup_runs row.
+-- The last 5 runs are kept; running the file again within 10 minutes takes no second copy. To see them:
+--   select id, at, note, (select count(*) from backup_rows b where b.run_id = r.id) as rows from backup_runs r order by at desc;
+-- Saved mill report PDFs are left out (they stay in their own table and are never changed by an update).
+create table if not exists public.backup_runs (
+  id   bigserial primary key,
+  at   timestamptz not null default now(),
+  note text
+);
+create table if not exists public.backup_rows (
+  run_id bigint not null references public.backup_runs (id) on delete cascade,
+  tbl    text not null,
+  row    jsonb not null
+);
+create index if not exists backup_rows_run_idx on public.backup_rows (run_id, tbl);
+alter table public.backup_runs enable row level security;
+alter table public.backup_rows enable row level security;
+revoke all on public.backup_runs, public.backup_rows from anon, authenticated;
+do $$
+declare r bigint; t text;
+begin
+  if to_regclass('public.docs') is null then return; end if;          -- a new project: nothing to keep yet
+  if exists (select 1 from backup_runs where at > now() - interval '10 minutes') then return; end if;
+  insert into backup_runs (note) values ('before running schema.sql') returning id into r;
+  for t in select table_name from information_schema.tables
+            where table_schema = 'public' and table_type = 'BASE TABLE'
+              and table_name not in ('backup_runs', 'backup_rows', 'mill_report_files', 'docs_history') loop
+    execute format('insert into backup_rows (run_id, tbl, row) select %s, %L, to_jsonb(x) from public.%I x', r, t, t);
+  end loop;
+  if to_regclass('auth.users') is not null then
+    insert into backup_rows (run_id, tbl, row)
+      select r, 'auth.users', jsonb_build_object('id', u.id, 'email', u.email, 'created_at', u.created_at, 'last_sign_in_at', u.last_sign_in_at) from auth.users u;
+  end if;
+  delete from backup_runs where id not in (select id from backup_runs order by at desc limit 5);
+end $$;
+
 create table if not exists public.docs (
   path        text primary key,
   parent      text not null,
@@ -360,6 +398,11 @@ begin
     end if;
   end if;
   existed := exists (select 1 from docs where path = p_path);
+  -- 2026-11-24: a load the mill has certified keeps its mill numbers when it is saved whole
+  if existed and n = 6 and s[1] = 'farms' and s[3] = 'days' and s[5] = 'loads' then
+    p_data := coalesce(p_data, '{}'::jsonb) || coalesce((select jsonb_object_agg(k.key, k.value) from docs d, jsonb_each(d.data) k
+                where d.path = p_path and d.data->>'millReport' is not null and k.key = any(array['tons','trs','trsFinal','crs','brix','pol','purity','fiber','sed','ticket','weighedAt','millReport','millSample','trsFrom','certified','finalAt','tonsEst','trsEst'])), '{}'::jsonb);
+  end if;
   insert into docs (path, parent, id, data)
     values (p_path, array_to_string(s[1:n-1], '/'), s[n], coalesce(p_data, '{}'::jsonb))
     on conflict (path) do update set data = excluded.data, updated_at = now();
@@ -396,7 +439,7 @@ begin
   if w.o_role <> 'admin' and s[1] = 'farms' and n = 2 then
     -- crew may change the track, field, variety and harvester lists; managers also the mills, their colors, their start dates and the harvest start date
     if exists (select 1 from jsonb_object_keys(coalesce(p_patch, '{}'::jsonb)) k
-               where k not in ('tracks', 'fields', 'varieties', 'harvesters') and not (w.o_role = 'manager' and k in ('mills', 'millColors', 'millStart', 'harvestStart'))) then
+               where k not in ('tracks', 'fields', 'varieties', 'harvesters') and not (w.o_role = 'manager' and k in ('mills', 'millColors', 'millStart', 'harvestStart', 'harvestEnd'))) then
       raise exception 'denied' using errcode = '42501';
     end if;
   end if;
@@ -405,6 +448,11 @@ begin
        or (p_patch->'farm' is not null and p_patch->>'farm' is distinct from w.o_farm) then
       raise exception 'denied' using errcode = '42501';
     end if;
+  end if;
+  -- 2026-11-24: the mill report is the certified tons and TRS: once a load has it, edits keep the mill's numbers
+  if n = 6 and s[1] = 'farms' and s[3] = 'days' and s[5] = 'loads'
+     and exists (select 1 from docs where path = p_path and data->>'millReport' is not null) then
+    p_patch := coalesce(p_patch, '{}'::jsonb) - array['tons','trs','trsFinal','crs','brix','pol','purity','fiber','sed','ticket','weighedAt','millReport','millSample','trsFrom','certified','finalAt','tonsEst','trsEst'];
   end if;
   update docs set data = data || coalesce(p_patch, '{}'::jsonb), updated_at = now() where path = p_path;
   if not found then raise exception 'missing'; end if;
@@ -1252,3 +1300,586 @@ drop trigger if exists docs_keep_history on public.docs;
 create trigger docs_keep_history before update or delete on public.docs
   for each row execute function public._docs_keep_history();
 
+
+-- ===== 2026-11-23: the mill's daily cane receipt (PDF), matched to the trucks logged the day before =====
+-- The mill emails a Daily Cane Receipt each morning for the day before. /api/mill-report reads the PDF and sends
+-- each tract on it here (one report = one grower/tract for one day): every load's receipt number, truck (54-398),
+-- scale time, net tons and, for the loads the mill cored, brix, pol, purity, fiber, TRS and CRS.
+-- Each weigh-in goes on the truck's latest load logged 10 minutes to 4 hours before it (a truck has to be weighed
+-- before it can be loaded again). If that load was already taken by an earlier weigh-in, a log entry is missing and the
+-- weigh-in is left for a person to place. The load keeps its track, field, variety, stubble, harvester and split, so
+-- the tons and sugar trace back to where the cane was cut; each report also saves a by-field summary.
+-- Sending the same report again changes nothing: a receipt already on a load stays on that load.
+create table if not exists public.mill_report_keys (
+  org        text primary key,
+  key_hash   text not null,
+  created_at timestamptz not null default now()
+);
+-- reports that matched no logged loads (wrong day, trucks not logged yet): kept so they can be tried again
+create table if not exists public.mill_report_unplaced (
+  id      uuid primary key default gen_random_uuid(),
+  org     text not null,
+  rkey    text not null,
+  report  jsonb not null,
+  source  text,
+  at      timestamptz not null default now(),
+  unique (org, rkey)
+);
+alter table public.mill_report_keys enable row level security;
+alter table public.mill_report_unplaced enable row level security;
+revoke all on public.mill_report_keys, public.mill_report_unplaced from anon, authenticated;
+
+create or replace function public._mr_ms(p_day date, p_time text) returns bigint
+language sql immutable as $$
+  select (extract(epoch from ((p_day::text || ' ' || p_time)::timestamp at time zone 'America/Chicago')) * 1000)::bigint
+$$;
+create or replace function public._mr_num(v jsonb) returns numeric
+language sql immutable as $$
+  select case when jsonb_typeof(v) = 'number' then (v #>> '{}')::numeric
+              when jsonb_typeof(v) = 'string' and (v #>> '{}') ~ '^-?[0-9]+(\.[0-9]+)?$' then (v #>> '{}')::numeric end
+$$;
+create or replace function public._mr_rkey(p_rep jsonb) returns text
+language sql immutable as $$
+  select regexp_replace(coalesce(p_rep->>'day', '') || '_' || coalesce(p_rep->>'operator', '') || '-' || coalesce(p_rep->>'account', ''), '[^A-Za-z0-9_-]', '', 'g')
+$$;
+
+-- A logged load's truck number against the mill's (54-398, 9095-416, 395-127): the board keeps 398, or the whole id.
+create or replace function public._mr_truck_ok(p_no text, p_truck text) returns boolean
+language sql immutable as $$
+  select upper(coalesce(p_no, '')) <> '' and upper(p_no) in (upper(case when p_truck like '%-%' then split_part(p_truck, '-', 2) else p_truck end),
+         upper(replace(p_truck, '-', '')), upper(p_truck))
+$$;
+
+-- Which logged loads the weigh-ins go on, for one farm and mill. Writes nothing.
+-- With scale times: each weigh-in goes on its truck's latest load logged 10 minutes to 4 hours before it.
+-- With no times (Raceland's Daily Transaction Report): a truck's tickets, in the mill's order, go on its loads of that
+-- day in the order they were logged, but only when the counts agree; otherwise that truck's tickets are left to place.
+create or replace function public._mr_pairs(p_farm text, p_mill text, p_day date, p_loads jsonb) returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare e jsonb; i bigint; sms bigint; b record; bp text; used text[] := '{}'; done bigint[] := '{}'; pairs jsonb := '[]'::jsonb; n int := 0;
+  t text; ri bigint[]; lp text[]; k int;
+  parents text[] := array['farms/' || p_farm || '/days/' || p_day::text || '/loads', 'farms/' || p_farm || '/days/' || (p_day - 1)::text || '/loads'];
+  timed boolean := not exists (select 1 from jsonb_array_elements(p_loads) x where coalesce(x->>'time', '') = '');
+begin
+  -- receipts already on a load (this report sent again) stay where they are
+  for e, i in select x.v, x.o from jsonb_array_elements(p_loads) with ordinality x(v, o) loop
+    bp := null;
+    select d.path into bp from docs d where d.parent = any(parents) and d.data->>'ticket' = e->>'rcpt' and d.data->>'millReport' is not null limit 1;
+    if bp is not null and not (bp = any(used)) then
+      used := used || bp; done := done || i; pairs := pairs || jsonb_build_array(jsonb_build_object('i', i, 'path', bp)); n := n + 1;
+    end if;
+  end loop;
+
+  if timed then
+    for e, i in select x.v, x.o from jsonb_array_elements(p_loads) with ordinality x(v, o) order by x.v->>'time', x.o loop
+      if i = any(done) then continue; end if;
+      sms := _mr_ms(p_day, e->>'time');
+      select d.path, d.data->>'millReport' as mr into b from docs d
+        where d.parent = any(parents) and lower(coalesce(d.data->>'mill', '')) = lower(p_mill)
+          and _mr_truck_ok(d.data->>'no', e->>'truck')
+          and (d.data->>'loadedAt') ~ '^[0-9]+$'
+          and (d.data->>'loadedAt')::bigint between sms - 4 * 3600000 and sms - 10 * 60000
+        order by (d.data->>'loadedAt')::bigint desc limit 1;
+      if found and b.mr is null and not (b.path = any(used)) then
+        used := used || b.path; pairs := pairs || jsonb_build_array(jsonb_build_object('i', i, 'path', b.path)); n := n + 1;
+      end if;
+    end loop;
+  else
+    for t in select distinct x->>'truck' from jsonb_array_elements(p_loads) x loop
+      select array_agg(x.o order by coalesce(_mr_num(x.v->'seq'), 0), x.o) into ri
+        from jsonb_array_elements(p_loads) with ordinality x(v, o) where x.v->>'truck' = t and not (x.o = any(done));
+      select array_agg(d.path order by (d.data->>'loadedAt')::bigint) into lp
+        from docs d where d.parent = 'farms/' || p_farm || '/days/' || p_day::text || '/loads'
+          and lower(coalesce(d.data->>'mill', '')) = lower(p_mill) and _mr_truck_ok(d.data->>'no', t)
+          and d.data->>'millReport' is null and (d.data->>'loadedAt') ~ '^[0-9]+$' and not (d.path = any(used));
+      if coalesce(array_length(ri, 1), 0) > 0 and array_length(ri, 1) = coalesce(array_length(lp, 1), 0) then
+        for k in 1 .. array_length(ri, 1) loop
+          used := used || lp[k]; pairs := pairs || jsonb_build_array(jsonb_build_object('i', ri[k], 'path', lp[k])); n := n + 1;
+        end loop;
+      end if;
+    end loop;
+  end if;
+  return jsonb_build_object('n', n, 'pairs', pairs);
+end $$;
+
+-- Places one report: finds the farm and mill whose logged loads it fits best, writes the mill numbers on those loads,
+-- and saves the report with its matches, the weigh-ins left over and a by-field summary at farms/<farm>/millreports/<day>_<grower>-<tract>.
+create or replace function public._mr_apply(p_org text, p_only text, p_rep jsonb, p_source text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare dday date; loads jsonb; hc text; fm record; ml text; g text; fh text; r jsonb; sc int; bn int := -1; best jsonb; bf text; bm text;
+  rk text := _mr_rkey(p_rep); pr jsonb; e jsonb; ld jsonb; patch jsonb; trs numeric; tons numeric; usedI int[] := '{}'; un jsonb := '[]'::jsonb;
+  tcrs numeric; mt numeric := 0; rtons numeric := 0; avgTrs numeric; bfld jsonb; nolog jsonb; trk text; dpath text;
+begin
+  begin dday := (p_rep->>'day')::date; exception when others then return jsonb_build_object('status', 'bad', 'why', 'no date'); end;
+  loads := p_rep->'loads';
+  if jsonb_typeof(loads) <> 'array' or jsonb_array_length(loads) = 0 or jsonb_array_length(loads) > 400 then
+    return jsonb_build_object('status', 'bad', 'why', 'no loads');
+  end if;
+  if exists (select 1 from jsonb_array_elements(loads) x where (coalesce(x->>'time', '') !~ '^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$' and _mr_num(x->'seq') is null)
+             or coalesce(_mr_num(x->'tons'), 0) <= 0 or _mr_num(x->'tons') > 200 or coalesce(x->>'rcpt', '') = '' or coalesce(x->>'truck', '') = '') then
+    return jsonb_build_object('status', 'bad', 'why', 'a load is missing its receipt, truck, time or tons');
+  end if;
+  -- one report has scale times on every load or on none
+  if exists (select 1 from jsonb_array_elements(loads) x where coalesce(x->>'time', '') = '')
+     and exists (select 1 from jsonb_array_elements(loads) x where coalesce(x->>'time', '') <> '') then
+    return jsonb_build_object('status', 'bad', 'why', 'some loads have scale times and some do not');
+  end if;
+  hc := case when loads->0->>'truck' like '%-%' then split_part(loads->0->>'truck', '-', 1) end;
+
+  for fm in select id, data from docs where parent = 'farms' and data->>'org' = p_org and (p_only is null or id = p_only) order by id loop
+    for ml in select distinct d2.data->>'mill' from docs d2
+               where d2.parent in ('farms/' || fm.id || '/days/' || dday::text || '/loads', 'farms/' || fm.id || '/days/' || (dday - 1)::text || '/loads')
+                 and coalesce(d2.data->>'mill', '') <> '' loop
+      g := null; fh := null;
+      -- the grower number at this mill (Setup), when it is set, must be the report's
+      select x.value into g from jsonb_each_text(coalesce(fm.data->'millGrowers', '{}'::jsonb)) x where lower(x.key) = lower(ml) limit 1;
+      if coalesce(g, '') <> '' and g <> coalesce(p_rep->>'operator', '') then continue; end if;
+      -- the hauler number, for a mill whose trucks the board numbers hauler-truck (Setup)
+      if exists (select 1 from jsonb_array_elements_text(case when jsonb_typeof(fm.data->'haulerMills') = 'array' then fm.data->'haulerMills' else '[]'::jsonb end) y where lower(y) = lower(ml)) then
+        select nullif(x.value, '') into fh from jsonb_each_text(coalesce(fm.data->'haulerMillCodes', '{}'::jsonb)) x where lower(x.key) = lower(ml) limit 1;
+        fh := coalesce(fh, nullif(fm.data->>'haulerCode', ''));
+      end if;
+      if hc is not null and fh is not null and ltrim(fh, '0') <> ltrim(hc, '0') then continue; end if;
+      r := _mr_pairs(fm.id, ml, dday, loads);
+      sc := (r->>'n')::int * 4 + case when coalesce(g, '') <> '' then 2 else 0 end
+            + case when coalesce(p_rep->>'mill', '') <> '' and position(lower(split_part(ml, ' ', 1)) in lower(p_rep->>'mill')) > 0 then 1 else 0 end;
+      if (r->>'n')::int > 0 and sc > bn then bn := sc; best := r; bf := fm.id; bm := ml; end if;
+    end loop;
+  end loop;
+
+  if best is null then
+    insert into mill_report_unplaced (org, rkey, report, source) values (p_org, rk, p_rep, p_source)
+      on conflict (org, rkey) do update set report = excluded.report, source = excluded.source, at = now();
+    return jsonb_build_object('status', 'unplaced', 'day', dday, 'account', p_rep->>'accountName', 'loads', jsonb_array_length(loads));
+  end if;
+  delete from mill_report_unplaced where org = p_org and rkey = rk;
+
+  dpath := 'farms/' || bf || '/millreports/' || rk;
+  -- the tract's TRS and CRS: the mill's own figures, or else its cored loads weighted by tons
+  select case when sum(_mr_num(x->'tons')) > 0 then sum(_mr_num(x->'tons') * _mr_num(x->'trs')) / sum(_mr_num(x->'tons')) end,
+         case when sum(_mr_num(x->'tons')) filter (where _mr_num(x->'crs') is not null) > 0
+              then sum(_mr_num(x->'tons') * _mr_num(x->'crs')) filter (where _mr_num(x->'crs') is not null) / sum(_mr_num(x->'tons')) filter (where _mr_num(x->'crs') is not null) end
+    into avgTrs, tcrs from jsonb_array_elements(loads) x where _mr_num(x->'trs') is not null;
+  avgTrs := round(coalesce(_mr_num(p_rep->'totals'->'trs'), avgTrs), 2);
+  tcrs := round(coalesce(_mr_num(p_rep->'totals'->'crs'), tcrs), 2);
+  for pr in select * from jsonb_array_elements(best->'pairs') loop
+    e := loads->((pr->>'i')::int - 1);
+    usedI := usedI || (pr->>'i')::int;
+    select data into ld from docs where path = pr->>'path';
+    tons := _mr_num(e->'tons'); trs := _mr_num(e->'trs');
+    patch := jsonb_strip_nulls(jsonb_build_object('tons', tons, 'ticket', e->>'rcpt',
+               'weighedAt', case when coalesce(e->>'time', '') <> '' then _mr_ms(dday, e->>'time') end,
+               'millReport', rk, 'millSample', nullif(e->>'sample', ''), 'crs', _mr_num(e->'crs'), 'brix', _mr_num(e->'brix'),
+               'pol', _mr_num(e->'pol'), 'purity', _mr_num(e->'purity'), 'fiber', _mr_num(e->'fiber'), 'sed', _mr_num(e->'sed')));
+    if ld->>'tons' is not null and ld->>'millReport' is null and _mr_num(ld->'tons') is distinct from tons then
+      patch := patch || jsonb_build_object('tonsEst', _mr_num(ld->'tons'));
+    end if;
+    -- certified by the mill: its tons, and its TRS (a cored load's own, or the tract's for a load it did not core)
+    patch := patch || jsonb_build_object('certified', true, 'trsFrom', case when trs is not null then 'core' else 'tract' end);
+    if trs is null and avgTrs is not null then
+      patch := patch || jsonb_strip_nulls(jsonb_build_object('trs', avgTrs, 'crs', tcrs, 'trsFinal', true, 'finalAt', (extract(epoch from now()) * 1000)::bigint));
+      if ld->>'trs' is not null and coalesce((ld->>'trsFinal')::boolean, false) = false then patch := patch || jsonb_build_object('trsEst', _mr_num(ld->'trs')); end if;
+    end if;
+    if trs is not null then
+      patch := patch || jsonb_build_object('trs', trs, 'trsFinal', true, 'finalAt', (extract(epoch from now()) * 1000)::bigint);
+      if ld->>'trs' is not null and coalesce((ld->>'trsFinal')::boolean, false) = false then patch := patch || jsonb_build_object('trsEst', _mr_num(ld->'trs')); end if;
+    end if;
+    update docs set data = data || patch, updated_at = now() where path = pr->>'path';
+    mt := mt + tons;
+  end loop;
+
+  -- weigh-ins that found no logged load
+  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object('rcpt', x.v->>'rcpt', 'truck', x.v->>'truck', 'time', x.v->>'time',
+           'tons', _mr_num(x.v->'tons'), 'trs', _mr_num(x.v->'trs'))) order by x.v->>'time', _mr_num(x.v->'seq'), x.o), '[]'::jsonb),
+         coalesce(sum(_mr_num(x.v->'tons')), 0)
+    into un, rtons from jsonb_array_elements(loads) with ordinality x(v, o) where not (x.o::int = any(usedI));
+  rtons := rtons + mt;
+  -- the report's TRS: the mill's own tract figure, or else every load the mill cored, matched or not, weighted by tons
+  select case when sum(_mr_num(x->'tons')) > 0 then sum(_mr_num(x->'tons') * _mr_num(x->'trs')) / sum(_mr_num(x->'tons')) end into avgTrs
+    from jsonb_array_elements(loads) x where _mr_num(x->'trs') is not null;
+  avgTrs := coalesce(_mr_num(p_rep->'totals'->'trs'), avgTrs);
+
+  -- logged loads on that day, for this mill (and this tract's track when the track names match), still with no mill weight
+  trk := case when exists (select 1 from docs d where d.parent = 'farms/' || bf || '/days/' || dday::text || '/loads'
+                            and lower(coalesce(d.data->>'track', '')) = lower(coalesce(p_rep->>'accountName', '-'))) then lower(p_rep->>'accountName') end;
+  select coalesce(jsonb_agg(jsonb_build_object('no', d.data->>'no', 'loadedAt', (d.data->>'loadedAt')::bigint, 'field', coalesce(d.data->>'field', ''))
+           order by (d.data->>'loadedAt')::bigint), '[]'::jsonb) into nolog
+    from docs d where d.parent = 'farms/' || bf || '/days/' || dday::text || '/loads'
+      and lower(coalesce(d.data->>'mill', '')) = lower(bm) and d.data->>'millReport' is null
+      and (trk is null or lower(coalesce(d.data->>'track', '')) = trk) and (d.data->>'loadedAt') ~ '^[0-9]+$';
+
+  -- by field: each load's tons split by its parts (one part, or the Edge 101 split), TRS from the loads the mill cored
+  select coalesce(jsonb_agg(jsonb_build_object('track', q.track, 'field', q.field, 'variety', q.variety, 'stubble', q.stubble,
+           'loads', round(q.loads, 2), 'tons', round(q.tons, 2), 'coredTons', round(q.ck, 2),
+           'trs', case when q.ct > 0 then round(q.tt / q.ct, 2) end,
+           'lbsTrs', round(q.tons * coalesce(case when q.ct > 0 then q.tt / q.ct end, avgTrs, 0))) order by q.tons desc), '[]'::jsonb)
+    into bfld from (
+      select coalesce(p.v->>'track', '') as track, coalesce(p.v->>'field', '') as field, coalesce(p.v->>'variety', '') as variety,
+             coalesce(p.v->>'stubble', '') as stubble, sum(p.sh) as loads, sum(p.sh * _mr_num(d.data->'tons')) as tons,
+             sum(case when d.data->>'trs' is not null then p.sh * _mr_num(d.data->'tons') else 0 end) as ct,
+             sum(case when d.data->>'trs' is not null then p.sh * _mr_num(d.data->'tons') * _mr_num(d.data->'trs') else 0 end) as tt,
+             sum(case when d.data->>'trsFrom' = 'core' then p.sh * _mr_num(d.data->'tons') else 0 end) as ck
+        from docs d
+        cross join lateral (
+          select y.v, coalesce(_mr_num(y.v->'share'), 0) as sh from jsonb_array_elements(d.data->'split') y(v)
+            where jsonb_typeof(d.data->'split') = 'array' and jsonb_array_length(d.data->'split') > 0
+          union all
+          select jsonb_build_object('track', d.data->>'track', 'field', d.data->>'field', 'variety', d.data->>'variety', 'stubble', d.data->'stubble' #>> '{}'), 1
+            where jsonb_typeof(d.data->'split') is distinct from 'array' or jsonb_array_length(d.data->'split') = 0
+        ) p
+       where d.parent in ('farms/' || bf || '/days/' || dday::text || '/loads', 'farms/' || bf || '/days/' || (dday - 1)::text || '/loads')
+         and d.data->>'millReport' = rk
+       group by 1, 2, 3, 4) q;
+
+  perform _doc_put(dpath, jsonb_strip_nulls(jsonb_build_object(
+    'day', dday::text, 'mill', bm, 'millName', nullif(p_rep->>'mill', ''), 'pdfId', nullif(p_rep->>'pdfId', ''), 'operator', p_rep->>'operator', 'operatorName', p_rep->>'operatorName',
+    'account', p_rep->>'account', 'accountName', p_rep->>'accountName', 'cropDay', p_rep->'cropDay', 'file', p_rep->>'file',
+    'loads', jsonb_array_length(loads), 'tons', round(rtons, 2), 'matched', (best->>'n')::int, 'matchedTons', round(mt, 2),
+    'cored', (select count(*) from jsonb_array_elements(loads) x where _mr_num(x->'trs') is not null),
+    'trs', round(avgTrs, 2), 'totals', p_rep->'totals', 'unmatched', un, 'noWeight', nolog, 'byField', bfld,
+    'source', p_source, 'at', (extract(epoch from now()) * 1000)::bigint, 'report', p_rep)));
+  return jsonb_build_object('status', 'ok', 'farm', bf, 'mill', bm, 'day', dday, 'account', p_rep->>'accountName', 'id', rk,
+    'loads', jsonb_array_length(loads), 'matched', (best->>'n')::int, 'unmatched', jsonb_array_length(un), 'noWeight', jsonb_array_length(nolog),
+    'tons', round(rtons, 2), 'trs', round(avgTrs, 2));
+end $$;
+
+-- The original PDFs, so a report opens from the Mill tab instead of the email. Kept once per file (same file sent twice: one copy).
+create table if not exists public.mill_report_files (
+  id    uuid primary key default gen_random_uuid(),
+  org   text not null,
+  sha   text not null,
+  name  text,
+  pdf   text not null,         -- base64
+  bytes int,
+  at    timestamptz not null default now(),
+  unique (org, sha)
+);
+alter table public.mill_report_files enable row level security;
+revoke all on public.mill_report_files from anon, authenticated;
+
+create or replace function public._mr_file(p_org text, p_pdf text, p_name text) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare b bytea; i uuid;
+begin
+  if coalesce(p_pdf, '') = '' then return null; end if;
+  if length(p_pdf) > 12000000 then return null; end if;
+  begin b := decode(p_pdf, 'base64'); exception when others then return null; end;
+  if substring(b from 1 for 5) <> convert_to('%PDF-', 'utf8') then return null; end if;
+  insert into mill_report_files (org, sha, name, pdf, bytes) values (p_org, encode(sha256(b), 'hex'), left(p_name, 160), p_pdf, length(b))
+    on conflict (org, sha) do update set name = coalesce(excluded.name, mill_report_files.name)
+    returning id into i;
+  return i;
+end $$;
+
+drop function if exists public.mill_report(text, jsonb);
+drop function if exists public.mill_report_upload(jsonb);
+
+-- The email path: no sign-in, the portal's mill report key (Setup > Mill reports) says which portal.
+create or replace function public.mill_report(p_key text, p_reports jsonb, p_pdf text default null, p_name text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare o text; r jsonb; out jsonb := '[]'::jsonb; f uuid;
+begin
+  select org into o from mill_report_keys where key_hash = encode(sha256(convert_to(coalesce(p_key, ''), 'utf8')), 'hex');
+  if o is null then perform pg_sleep(0.6); raise exception 'bad key' using errcode = '42501'; end if;
+  if jsonb_typeof(p_reports) <> 'array' or jsonb_array_length(p_reports) > 50 then raise exception 'bad request' using errcode = '22023'; end if;
+  f := _mr_file(o, p_pdf, p_name);
+  for r in select * from jsonb_array_elements(p_reports) loop
+    if f is not null then r := r || jsonb_build_object('pdfId', f); end if;
+    out := out || jsonb_build_array(_mr_apply(o, null, r, 'email'));
+  end loop;
+  return out;
+end $$;
+
+-- The upload button: an administrator (any farm in the portal) or a crew manager (their own farm only).
+create or replace function public.mill_report_upload(p_reports jsonb, p_pdf text default null, p_name text default null) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; r jsonb; out jsonb := '[]'::jsonb; f uuid;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') then raise exception 'denied' using errcode = '42501'; end if;
+  if jsonb_typeof(p_reports) <> 'array' or jsonb_array_length(p_reports) > 50 then raise exception 'bad request' using errcode = '22023'; end if;
+  f := _mr_file(w.o_org, p_pdf, p_name);
+  for r in select * from jsonb_array_elements(p_reports) loop
+    if f is not null then r := r || jsonb_build_object('pdfId', f); end if;
+    out := out || jsonb_build_array(_mr_apply(w.o_org, case when w.o_role = 'admin' then null else w.o_farm end, r, 'upload'));
+  end loop;
+  return out;
+end $$;
+
+-- The saved reports of a farm, newest day first (administrators: any farm; crew managers: their own farm),
+-- and, for administrators, the ones not placed yet.
+create or replace function public.mill_report_list(p_farm text, p_limit int default 15) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; f text;
+begin
+  select * into w from _who();
+  f := case when w.o_role = 'admin' then p_farm else w.o_farm end;
+  if w.o_role not in ('admin', 'manager') or not _farm_in(w.o_org, f) then raise exception 'denied' using errcode = '42501'; end if;
+  return jsonb_build_object(
+    'reports', (select coalesce(jsonb_agg(jsonb_build_object('id', q.id, 'data', q.data - 'report') order by q.data->>'day' desc, q.id), '[]'::jsonb)
+                  from (select id, data from docs where parent = 'farms/' || f || '/millreports' order by data->>'day' desc, id limit least(coalesce(p_limit, 15), 60)) q),
+    'unplaced', case when w.o_role = 'admin' then (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'day', report->>'day', 'account', report->>'accountName',
+                  'operator', report->>'operatorName', 'loads', jsonb_array_length(report->'loads'), 'at', (extract(epoch from at) * 1000)::bigint) order by at desc), '[]'::jsonb)
+                  from mill_report_unplaced where org = w.o_org) else '[]'::jsonb end);
+end $$;
+
+-- Try a saved report again (after a missing truck was logged or a time fixed). p_farm null: one not placed yet, by its id.
+create or replace function public.mill_report_again(p_farm text, p_id text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; rep jsonb;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') then raise exception 'denied' using errcode = '42501'; end if;
+  if p_farm is null then
+    if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+    select report into rep from mill_report_unplaced where org = w.o_org and id::text = p_id;
+  else
+    if not _farm_in(w.o_org, p_farm) or (w.o_role <> 'admin' and p_farm <> w.o_farm) then raise exception 'denied' using errcode = '42501'; end if;
+    select data->'report' into rep from docs where path = 'farms/' || p_farm || '/millreports/' || p_id;
+  end if;
+  if rep is null then return jsonb_build_object('status', 'notfound'); end if;
+  return _mr_apply(w.o_org, case when w.o_role = 'admin' then null else w.o_farm end, rep, 'again');
+end $$;
+
+-- The day's weather, saved on a mill report (the page looks it up from Open-Meteo for the farm's weather spot).
+create or replace function public.mill_report_weather(p_farm text, p_id text, p_wx jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') or not _farm_in(w.o_org, p_farm) or (w.o_role <> 'admin' and p_farm <> w.o_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  if jsonb_typeof(p_wx) <> 'object' or length(p_wx::text) > 2000 then raise exception 'bad request' using errcode = '22023'; end if;
+  update docs set data = data || jsonb_build_object('wx', p_wx), updated_at = now()
+   where path = 'farms/' || p_farm || '/millreports/' || p_id;
+end $$;
+
+create or replace function public.mill_report_drop(p_id text) returns void
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+  delete from mill_report_unplaced where org = w.o_org and id::text = p_id;
+end $$;
+
+-- The portal's mill report key (administrators). The key is shown once; the email address has it at the end.
+create or replace function public.mill_report_key_get() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; k record;
+begin
+  select * into w from _who();
+  if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+  select * into k from mill_report_keys where org = w.o_org;
+  return jsonb_build_object('exists', found, 'created_at', k.created_at);
+end $$;
+create or replace function public.mill_report_key_new() returns text
+language plpgsql security definer set search_path = public as $$
+declare w record; k text := 'mrk_' || replace(gen_random_uuid()::text, '-', '');
+begin
+  select * into w from _who();
+  if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+  insert into mill_report_keys (org, key_hash) values (w.o_org, encode(sha256(convert_to(k, 'utf8')), 'hex'))
+    on conflict (org) do update set key_hash = excluded.key_hash, created_at = now();
+  return k;
+end $$;
+create or replace function public.mill_report_key_off() returns void
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+  delete from mill_report_keys where org = w.o_org;
+end $$;
+
+revoke execute on function public._mr_ms(date, text), public._mr_num(jsonb), public._mr_rkey(jsonb), public._mr_pairs(text, text, date, jsonb), public._mr_truck_ok(text, text),
+  public._mr_apply(text, text, jsonb, text) from public, anon, authenticated;
+revoke execute on function public.mill_report(text, jsonb, text, text), public.mill_report_upload(jsonb, text, text), public.mill_report_list(text, int), public.mill_report_again(text, text),
+  public.mill_report_drop(text), public.mill_report_weather(text, text, jsonb), public.mill_report_key_get(), public.mill_report_key_new(), public.mill_report_key_off() from public, anon;
+grant execute on function public.mill_report_upload(jsonb, text, text), public.mill_report_list(text, int), public.mill_report_again(text, text),
+  public.mill_report_drop(text), public.mill_report_weather(text, text, jsonb), public.mill_report_key_get(), public.mill_report_key_new(), public.mill_report_key_off() to authenticated;
+-- the email path has no sign-in: it uses the portal's mill report key, checked inside mill_report
+grant execute on function public.mill_report(text, jsonb, text, text) to anon, authenticated;
+
+-- ===== 2026-11-24: saved mill PDFs, the Farm tab's field maps, and a backup download =====
+
+-- A saved mill report PDF (base64), for an administrator, or a crew manager when it is on a report of their farm.
+create or replace function public.mill_report_pdf(p_id text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; f record;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') then raise exception 'denied' using errcode = '42501'; end if;
+  select * into f from mill_report_files where id::text = p_id and org = w.o_org;
+  if not found then return null; end if;
+  if w.o_role <> 'admin' and not exists (select 1 from docs where parent = 'farms/' || w.o_farm || '/millreports' and data->>'pdfId' = p_id) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  return jsonb_build_object('name', f.name, 'pdf', f.pdf, 'bytes', f.bytes);
+end $$;
+
+-- Each farm's field map (from a Yote Farmview shapefile or GeoJSON, read by /api/field-map): every field's track,
+-- ID, variety, stubble, acres, center and outline. nextSeason: the file's stubble is already next year's.
+create table if not exists public.field_maps (
+  farm       text primary key,
+  org        text not null,
+  data       jsonb not null,
+  by_name    text,
+  updated_at timestamptz not null default now()
+);
+alter table public.field_maps enable row level security;
+revoke all on public.field_maps from anon, authenticated;
+
+create or replace function public.field_map_get(p_farm text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; m record;
+begin
+  select * into w from _who();
+  if w.o_role in ('mill', 'pending') or w.o_org is null or not _farm_in(w.o_org, p_farm)
+     or (w.o_role <> 'admin' and p_farm is distinct from w.o_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  select * into m from field_maps where farm = p_farm and org = w.o_org;
+  if not found then return null; end if;
+  return m.data || jsonb_build_object('by', m.by_name, 'updatedAt', (extract(epoch from m.updated_at) * 1000)::bigint);
+end $$;
+
+create or replace function public.field_map_put(p_farm text, p_data jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare w record; nm text;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') or not _farm_in(w.o_org, p_farm) or (w.o_role <> 'admin' and p_farm <> w.o_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  if jsonb_typeof(p_data) <> 'object' or jsonb_typeof(p_data->'fields') <> 'array' or jsonb_array_length(p_data->'fields') = 0
+     or jsonb_array_length(p_data->'fields') > 3000 or octet_length(p_data::text) > 4000000 then
+    raise exception 'bad request' using errcode = '22023';
+  end if;
+  select name into nm from profiles where user_id = auth.uid();
+  insert into field_maps (farm, org, data, by_name) values (p_farm, w.o_org, p_data, nm)
+    on conflict (farm) do update set data = excluded.data, org = excluded.org, by_name = excluded.by_name, updated_at = now();
+end $$;
+
+-- Settings on a farm's map that do not need the whole file again (nextSeason).
+create or replace function public.field_map_set(p_farm text, p_patch jsonb) returns void
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager') or not _farm_in(w.o_org, p_farm) or (w.o_role <> 'admin' and p_farm <> w.o_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  if jsonb_typeof(p_patch) <> 'object' or exists (select 1 from jsonb_object_keys(p_patch) k where k not in ('nextSeason')) then
+    raise exception 'bad request' using errcode = '22023';
+  end if;
+  update field_maps set data = data || p_patch, updated_at = now() where farm = p_farm and org = w.o_org;
+end $$;
+
+-- An administrator's download of their portal: farms with everything under them (loads, harvest sessions,
+-- mill reports), trucks, tools, field maps and people (name, role, farm, email). No passwords and no keys.
+create or replace function public.backup_export() returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare w record; farms text[];
+begin
+  select * into w from _who();
+  if w.o_role <> 'admin' then raise exception 'denied' using errcode = '42501'; end if;
+  select coalesce(array_agg(id), '{}') into farms from docs where parent = 'farms' and data->>'org' = w.o_org;
+  return jsonb_build_object(
+    'portal', (select name from orgs where id = w.o_org), 'org', w.o_org, 'takenAt', now(),
+    'docs', (select coalesce(jsonb_agg(jsonb_build_object('path', d.path, 'data', d.data) order by d.path), '[]'::jsonb) from docs d
+              where (d.parent = 'farms' and d.id = any(farms)) or split_part(d.path, '/', 1) = 'farms' and split_part(d.path, '/', 2) = any(farms) and d.parent <> 'farms'
+                 or (d.parent = 'trucks' and d.data->>'farm' = any(farms)) or (d.parent = 'tools' and d.id like w.o_org || '.%')),
+    'fieldMaps', (select coalesce(jsonb_object_agg(farm, data), '{}'::jsonb) from field_maps where org = w.o_org),
+    'people', (select coalesce(jsonb_agg(jsonb_build_object('name', p.name, 'role', p.role, 'farm', p.farm, 'mill', p.mill,
+                 'email', (select u.email from auth.users u where u.id = p.user_id)) order by p.name), '[]'::jsonb)
+               from profiles p where p.org = w.o_org));
+end $$;
+
+revoke execute on function public._mr_file(text, text, text) from public, anon, authenticated;
+revoke execute on function public.mill_report_pdf(text), public.field_map_get(text), public.field_map_put(text, jsonb),
+  public.field_map_set(text, jsonb), public.backup_export() from public, anon;
+grant execute on function public.mill_report_pdf(text), public.field_map_get(text), public.field_map_put(text, jsonb),
+  public.field_map_set(text, jsonb), public.backup_export() to authenticated;
+
+-- ===== 2026-11-24: field records (sprays, fertilizer, planting, scouting, notes) on the Farm tab =====
+-- One row per field per job; a job put on several fields at once shares a batch id. data: type, date, time,
+-- products [{name, rate, unit, epa}], applicator, license, equipment, acres, gpa, target, notes, weather.
+create table if not exists public.field_records (
+  id       uuid primary key default gen_random_uuid(),
+  org      text not null,
+  farm     text not null,
+  fkey     text not null,          -- lower(track) | field number before any "-"
+  track    text,
+  field    text,
+  batch    uuid not null,
+  data     jsonb not null,
+  by_user  uuid,
+  by_name  text,
+  at       timestamptz not null default now()
+);
+create index if not exists field_records_farm_idx on public.field_records (farm, fkey);
+alter table public.field_records enable row level security;
+revoke all on public.field_records from anon, authenticated;
+
+create or replace function public._fr_ok(p_farm text, out o_org text, out o_role text) returns record
+language plpgsql security definer set search_path = public as $$
+declare w record;
+begin
+  select * into w from _who();
+  if w.o_role not in ('admin', 'manager', 'crew') or not _farm_in(w.o_org, p_farm) or (w.o_role <> 'admin' and p_farm is distinct from w.o_farm) then
+    raise exception 'denied' using errcode = '42501';
+  end if;
+  o_org := w.o_org; o_role := w.o_role;
+end $$;
+
+-- Add one job to one or more fields of a farm (administrators: any farm; managers and crew: their own).
+create or replace function public.field_record_add(p_farm text, p_fields jsonb, p_data jsonb) returns int
+language plpgsql security definer set search_path = public as $$
+declare a record; b uuid := gen_random_uuid(); f jsonb; n int := 0; nm text; tr text; fd text;
+begin
+  select * into a from _fr_ok(p_farm);
+  if jsonb_typeof(p_fields) <> 'array' or jsonb_array_length(p_fields) = 0 or jsonb_array_length(p_fields) > 300
+     or jsonb_typeof(p_data) <> 'object' or octet_length(p_data::text) > 30000 or coalesce(p_data->>'date', '') !~ '^\d{4}-\d{2}-\d{2}$' then
+    raise exception 'bad request' using errcode = '22023';
+  end if;
+  select name into nm from profiles where user_id = auth.uid();
+  for f in select * from jsonb_array_elements(p_fields) loop
+    tr := left(coalesce(f->>'track', ''), 60); fd := left(coalesce(f->>'field', ''), 60);
+    if fd = '' then continue; end if;
+    insert into field_records (org, farm, fkey, track, field, batch, data, by_user, by_name)
+      values (a.o_org, p_farm, lower(trim(tr)) || '|' || lower(trim(split_part(fd, '-', 1))), tr, fd, b, p_data, auth.uid(), nm);
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+-- Every record on a farm, newest first.
+create or replace function public.field_record_list(p_farm text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare a record;
+begin
+  select * into a from _fr_ok(p_farm);
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', id, 'fkey', fkey, 'track', track, 'field', field, 'batch', batch, 'data', data,
+            'by', by_name, 'mine', by_user = auth.uid(), 'at', (extract(epoch from at) * 1000)::bigint) order by data->>'date' desc, data->>'time' desc, at desc), '[]'::jsonb)
+          from (select * from field_records where farm = p_farm and org = a.o_org order by at desc limit 5000) q);
+end $$;
+
+-- Delete a record (p_all: every field of that job). Administrators and managers, or whoever added it.
+create or replace function public.field_record_del(p_id text, p_all boolean default false) returns int
+language plpgsql security definer set search_path = public as $$
+declare r record; a record; n int;
+begin
+  select * into r from field_records where id::text = p_id;
+  if not found then return 0; end if;
+  select * into a from _fr_ok(r.farm);
+  if a.o_role = 'crew' and r.by_user is distinct from auth.uid() then raise exception 'denied' using errcode = '42501'; end if;
+  if p_all then delete from field_records where batch = r.batch and farm = r.farm; else delete from field_records where id = r.id; end if;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+revoke execute on function public._fr_ok(text) from public, anon, authenticated;
+revoke execute on function public.field_record_add(text, jsonb, jsonb), public.field_record_list(text), public.field_record_del(text, boolean) from public, anon;
+grant execute on function public.field_record_add(text, jsonb, jsonb), public.field_record_list(text), public.field_record_del(text, boolean) to authenticated;
