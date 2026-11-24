@@ -2633,6 +2633,15 @@ function sgShow(){
   var sig=sgSig();
   if(!$('#sgRoot').firstChild || (sig!==SG.sig && !sgFocused())){ SG.sig=sig; sgRender(); }
   if(!SG.logLoaded) sgLoad();
+  sgAuto();
+}
+/* 2026-11-24: Cane Track fills itself in from the mill reports (and the truck log) when it opens, unless numbers were typed by hand */
+function sgAuto(){
+  if(SG.loading || !isLead() || !S.db) return; var vw=sgView(); if(!vw) return;
+  var dt=vw==='*'?(SG.gdate||sgDefDay()):(sgFarm(vw).date||sgDefDay()), ak=vw+'|'+dt; if(SG.autoKey===ak) return;
+  var ids=vw==='*'?S.farms.map(function(f){ return f.id; }):[vw];
+  var typed=ids.some(function(id){ return (sgFarm(id).rows||[]).some(function(r){ return r.src!=='fetched' && String(r.tons||'').trim()!==''; }); });
+  SG.autoKey=ak; if(typed) return; setTimeout(function(){ sgFetch(true); },50);
 }
 function sgAggM(ms){ var t=0,sg=0,st=0,tw=0; ms.forEach(function(m){ var n=sgN(m.tons), r=sgN(m.trs), l=sgN(m.liq); if(n!=null&&n>0){ t+=n; if(r!=null&&r>0){ sg+=n*r*(l==null?100:l)/100; st+=n; tw+=n*r; } } }); return { tons:t, sugar:sg, sTons:st, trsW:tw }; }
 function sgDateBox(scope,date){ return '<label class="f">Date of this data set<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||sgDefDay())+'"></label>'; }
@@ -2897,30 +2906,42 @@ function sgCmpRender(){
 function sgCmpOutRender(scope){ var o=document.querySelector('[data-sgcmpout="'+scope+'"]'); if(o) o.innerHTML=sgCmpOut(scope); }
 document.addEventListener('change',function(e){ var el=e.target; if(el&&el.getAttribute&&el.getAttribute('data-sgcw')){ if(el.value){ sgPickWeek(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } if(el&&el.getAttribute&&el.getAttribute('data-sgcq')){ if(el.value){ sgPickMonth(el.getAttribute('data-scope'),el.value); sgCmpRender(); } return; } var k=el&&el.getAttribute&&el.getAttribute('data-sgcs'); if(!k) return; var sc=el.getAttribute('data-scope'); (SG.cmp[sc]=SG.cmp[sc]||{})[k]=el.value; delete SG.cmp[sc].label; sgCmpOutRender(sc); });
 function sgDownload(name,list){ if(!list.length){ toast('Nothing saved yet.'); return; } S.dl.save({ filename:name, data:sgCsv(list) }); }
-async function sgFetch(){
-  if(!S.db){ toast('Sign in first.'); return; }
+async function sgFetch(auto){
+  if(!S.db){ if(!auto) toast('Sign in first.'); return; }
   var vw0=sgView(), farms=vw0!=='*' ? S.farms.filter(function(f){ return f.id===vw0; }) : S.farms;
-  if(!farms.length){ toast('No farms to read.'); return; }
+  if(!farms.length){ if(!auto) toast('No farms to read.'); return; }
   SG.loading=true; SG.msg=''; sgRender();
-  var jobs=[], t=today();
+  /* 2026-11-24: up to the date of this data set (yesterday by default). The mill reports are the final word:
+     a day and mill with a mill report counts the report's tons and TRS; days without one count the truck log. */
+  var t=vw0==='*' ? (SG.gdate||sgDefDay()) : (sgFarm(vw0).date||sgDefDay()), jobs=[], MR={}, nRep=0, repDays={}, acresBy={};
+  for(var fi=0;fi<farms.length;fi++){ var f0=farms[fi], st0=harvestStartFor(f0);
+    try{ (await rpc('mill_report_sums',{ p_farm:f0.id, p_from:st0, p_to:t })||[]).forEach(function(r){ MR[f0.id+'|'+r.day+'|'+String(r.mill||'').toLowerCase()]=r; }); }catch(e){}
+    if(!(f0.id in FT.map)) try{ await ftLoadMap(f0.id); }catch(e){} }
   farms.forEach(function(f){ var st=harvestStartFor(f); for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; jobs.push([f.id,d]); } });
-  var agg={}, nLoads=0, nOpen=0, nEnt=0, fails=0, i=0;
+  var agg={}, nLoads=0, nOpen=0, nEnt=0, fails=0, i=0, cut={};
   async function w(){
     while(i<jobs.length){
       var j=jobs[i++];
       try{
         var rows=docs(await col(loadsPath(j[0],j[1])).limit(1000).get());
-        rows.forEach(function(x){ if(tonsOf(x)==null) nOpen++; });
         var fm=millsOf(j[0]);
+        rows.forEach(function(x){ if(tonsOf(x)==null && !MR[j[0]+'|'+j[1]+'|'+String(x.mill||'').toLowerCase()]) nOpen++;
+          loadParts(x).forEach(function(p){ String(p.field||'').split(/\s*[,.+\/&;]\s*/).forEach(function(ff){ if(ff) (cut[j[0]]=cut[j[0]]||{})[ftKey(p.track,ff)]=1; }); }); });
         dayCombine(j[0],j[1],rows,SG.useDay===false).forEach(function(it){
           if(!(it.tons>0)) return;
-          var fa=agg[j[0]]||(agg[j[0]]={}), k=it.mill||(it.src==='entered'&&fm.length===1?fm[0]:'No mill'), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 });
+          var k=it.mill||(it.src==='entered'&&fm.length===1?fm[0]:'No mill');
+          if(MR[j[0]+'|'+j[1]+'|'+String(k).toLowerCase()]) return;   /* this day's mill report counts instead */
+          var fa=agg[j[0]]||(agg[j[0]]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 });
           a.tons+=it.tons; a.tw+=it.tw; a.tt+=it.tt; nLoads+=it.src==='entered'?0:it.loads; if(it.src==='entered') nEnt++;
         });
       }catch(e){ fails++; }
     }
   }
   await Promise.all([w(),w(),w(),w()]);
+  Object.keys(MR).forEach(function(key){ var r=MR[key], fid=key.split('|')[0], k=r.mill||'No mill', tn=Number(r.tons)||0; if(!(tn>0)) return;
+    var fa=agg[fid]||(agg[fid]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 }); a.tons+=tn; if(Number(r.trs)>0){ a.tw+=tn*Number(r.trs); a.tt+=tn; } nRep+=r.reports||1; repDays[r.day]=1; });
+  /* acres harvested so far: the field map acres of every field cut up to this date */
+  farms.forEach(function(f){ var c=cut[f.id]; if(!c || !mapOk(f.id)) return; var ac=0; ftGroups(f.id).forEach(function(o){ if(c[o.key]) ac+=o.acres||0; }); if(ac>0){ var o=sgFarm(f.id); if(!o.acres || o.acresSrc==='map'){ o.acres=String(Math.round(ac*100)/100); o.acresSrc='map'; } acresBy[f.id]=ac; } });
   Object.keys(agg).forEach(function(fid){
     var o=sgFarm(fid);
     Object.keys(agg[fid]).forEach(function(k){
@@ -2930,6 +2951,8 @@ async function sgFetch(){
     });
   });
   SG.loading=false;
+  var rd=Object.keys(repDays).sort();
+  if(nRep || nLoads || nEnt){ SG.msg='Through '+dayLabel(t)+': '+(nRep?nRep+' mill report'+(nRep===1?'':'s')+' ('+rd.length+' day'+(rd.length===1?'':'s')+', the mill\'s certified tons and TRS)':'no mill reports yet')+(nLoads||nEnt?', plus '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from days with no mill report':'')+'.'+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(Object.keys(acresBy).length?' Acres harvested: the field map acres of every field cut.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
   SG.msg=(nLoads||nEnt) ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(farms.some(function(f){ return f.millStart && Object.keys(f.millStart).length; })?' Days before a mill\'s start date are left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
   sgSave(); sgRender();
 }
@@ -2937,7 +2960,7 @@ document.addEventListener('input',function(e){
   var el=e.target, f=el&&el.getAttribute&&el.getAttribute('data-sgf'); if(!f) return;
   var fid=el.getAttribute('data-fid'), i=el.getAttribute('data-i'), v=el.value;
   if(f==='defliq') SG.liq=v; else if(f==='share') SG.share=v;
-  else if(f==='acres') sgFarm(fid).acres=v;
+  else if(f==='acres'){ sgFarm(fid).acres=v; sgFarm(fid).acresSrc=''; }
   else if(f==='plan') sgFarm(fid).plan=v;
   else if(f==='est') sgFarm(fid).est=v;
   else if(f==='estTrs') sgFarm(fid).estTrs=v;
@@ -2945,7 +2968,7 @@ document.addEventListener('input',function(e){
   else { var r=sgFarm(fid).rows[Number(i)]; if(!r) return; r[f]=v; if(f!=='mill' && r.src){ r.src=''; var t=$('#sgT_'+fid+'_'+i); if(t) t.textContent=''; } }
   sgSave(); sgOut();
 });
-document.addEventListener('change',function(e){ if(e.target && e.target.id==='sgUseDay'){ SG.useDay=e.target.checked; try{ localStorage.setItem('cane-truck-log:sguseday',SG.useDay?'1':'0'); }catch(x){} return; } if(e.target && e.target.id==='sgFarm'){ SG.pick=e.target.value; sgRender(); return; } var sd=e.target && e.target.getAttribute && e.target.getAttribute('data-sgdate'); if(sd){ if(sd==='all') SG.gdate=e.target.value; else sgFarm(sd).date=e.target.value; sgSave(); sgCmpRefresh(); } });
+document.addEventListener('change',function(e){ if(e.target && e.target.id==='sgUseDay'){ SG.useDay=e.target.checked; try{ localStorage.setItem('cane-truck-log:sguseday',SG.useDay?'1':'0'); }catch(x){} return; } if(e.target && e.target.id==='sgFarm'){ SG.pick=e.target.value; sgRender(); return; } var sd=e.target && e.target.getAttribute && e.target.getAttribute('data-sgdate'); if(sd){ if(sd==='all') SG.gdate=e.target.value; else sgFarm(sd).date=e.target.value; sgSave(); sgCmpRefresh(); sgAuto(); } });
 document.addEventListener('click',function(e){
   var el=e.target.closest ? e.target.closest('[data-sg]') : null; if(!el) return;
   var a=el.getAttribute('data-sg'), fid=el.getAttribute('data-fid');
@@ -5691,7 +5714,7 @@ var WHATS_NEW=[
   'Once a farm has a field map, every track, field and variety list comes from the map. Old typed-in fields are no longer shown, and an administrator can clear them in Setup.',
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
-  'Cane Track: the date fills in as yesterday, the day the mill report covers.',
+  'Cane Track: the date fills in as yesterday, and the tons, TRS and acres fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t, and acres from the field map. Check it, then tap Save to keep the checkpoint.',
   'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
