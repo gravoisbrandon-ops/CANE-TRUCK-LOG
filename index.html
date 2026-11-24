@@ -345,6 +345,7 @@ td.n,th.n{text-align:right}
       <div class="card col" id="mrCard" data-sk="mrCard">
         <h2>Mill reports</h2>
         <p class="small">Each morning's mill report for the day before. Its tons, TRS, brix and fiber go on the trucks logged, so every load traces back to its field. Tap PDF to open the mill's own copy.</p>
+        <p class="small">A mill report from a mill not used here before may not read. If it does not, a copy goes to the site owner, who adds that mill's layout. You can also send the PDF to the site owner yourself.</p>
         <div id="mrBox"></div>
       </div>
     </section>
@@ -920,6 +921,11 @@ async function logLoad(t){
   else if(dm){ rec.track=dm[0].track; rec.field=dm[0].field; rec.variety=dm[0].variety; rec.stubble=dm[0].stubble; rec.harvester=dm[0].h; }
   if(dm){ try{ var sp=await hvEdgeSplit(t.farm, rec.dumps||dm);   /* 2026-11-22: split by field from the Edge wagons */
     if(sp){ rec.split=sp.parts; rec.splitWagons=sp.wagons; if(sp.guessed) rec.splitGuessed=sp.guessed; var top=sp.parts[0]; rec.track=top.track; rec.field=top.field; rec.variety=top.variety; rec.stubble=top.stubble; rec.mixed=sp.parts.length>1; } }catch(e){} }
+  if(dm && !rec.split){   /* 2026-11-24: a harvester cutting more than one field shares its wagons between them */
+    var bl={}, bo=[], nd=0; (rec.dumps||dm).filter(Boolean).forEach(function(x){ nd++; var ha=hvState(x.h)||{}, fl=[{ track:x.track, field:x.field, variety:x.variety, stubble:x.stubble }].concat((ha.session===x.s?ha.more:null)||[]);
+      fl.forEach(function(p){ var k=ftKey(p.track,p.field); if(!bl[k]){ bl[k]={ track:p.track||'', field:p.field||'', variety:p.variety||'', stubble:(p.stubble==null?'':p.stubble), share:0 }; bo.push(k); } bl[k].share+=1/fl.length; }); });
+    if(bo.length>1 && nd){ rec.split=bo.map(function(k){ var p=bl[k]; p.share=Math.round(p.share/nd*1000)/1000; return p; }).sort(function(a,b){ return b.share-a.share; }); rec.splitBlend=true; rec.mixed=true; }
+  }
   try{
     await ref.set(rec);
     markUsed(t,wd);
@@ -1655,12 +1661,24 @@ document.addEventListener('change',function(e){
   tmField(e);
 });
 
+function bnFireKey(){ var e=S.smokeCtx&&S.smokeCtx!=='form'?BN.log.filter(function(r){ return r.id===S.smokeCtx; })[0]:null; var t=e?e.track:BN.track, f=e?e.field:BN.field; return f?ftKey(t,f):''; }
 function bnSmokeShow(){
   var box=$('#bnSmoke'); if(!box) return;
   if(!BN.smokeOn){ box.innerHTML=''; box.removeAttribute('data-src'); return; }
   var src=S.smokeSrc||'smoke-trial.html';
-  if(box.getAttribute('data-src')!==src){ box.setAttribute('data-src',src); box.innerHTML='<div class="card"><div class="sec-head"><h2>Smoke projection</h2><button class="btn ghost sm" type="button" data-bn="smokeHide">Hide</button></div><p class="small">It is only a projection. The estimate saves with this burn.</p><iframe id="smokeFrameBn" title="Smoke map" src="'+esc(src)+'" allow="geolocation" style="width:100%;height:70vh;min-height:520px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe></div>'; }
+  if(box.getAttribute('data-src')!==src){ box.setAttribute('data-src',src); box.innerHTML='<div class="card"><div class="sec-head"><h2>Smoke projection</h2><button class="btn ghost sm" type="button" data-bn="smokeHide">Hide</button></div><p class="small">It is only a projection. The estimate saves with this burn.</p><iframe id="smokeFrameBn" title="Smoke map" data-farm="'+esc(BN.farm||S.farmId)+'" data-fire="'+esc(bnFireKey())+'" src="'+esc(src)+'" allow="geolocation" style="width:100%;height:70vh;min-height:520px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe></div>'; }
 }
+window.addEventListener('message',function(ev){
+  if(ev.origin!==location.origin || !ev.data || ev.data.type!=='smokeNeedFields') return;
+  var fr=Array.prototype.filter.call(document.querySelectorAll('iframe'),function(f){ return f.contentWindow===ev.source; })[0]; if(!fr) return;
+  var farm=fr.getAttribute('data-farm')||S.farmId, fire=(fr.getAttribute('data-fire')||'').split(','), tries=0;
+  var send=function(){
+    if(!(farm in FT.map) || FT.mapBusy[farm]){ if(tries++<20) setTimeout(send,500); return; }
+    if(!FT.map[farm]) return;
+    ev.source.postMessage({ type:'smokeFields', fields:ftGroups(farm).map(function(o){ return { fire:fire.indexOf(o.key)>=0, g:[].concat.apply([],o.parts.map(function(p){ return p.g; })) }; }) }, location.origin);
+  };
+  if(!(farm in FT.map)) ftLoadMap(farm); send();
+});
 function smokeOpen(lat,lon,ms,ac,wx,id){
   lat=Number(lat); lon=Number(lon); if(!isFinite(lat)||!isFinite(lon)||(!lat&&!lon)){ toast('Set the burn location first. In Burn log, type your town or press Use my location.'); return; }
   var d=new Date(ms||Date.now()), p2=function(n){ return (n<10?'0':'')+n; }, t=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'T'+p2(d.getHours())+':00';
@@ -1851,9 +1869,10 @@ function dcRender(){
   f('#dcA','a'); f('#dcB','b'); f('#dcD','d'); f('#dcN','n'); dcOut();
 }
 function toolsShow(){
+  if(S.tool==='smoke'){ S.tool='burn'; BN.smokeOn=true; }   /* 2026-11-24: the smoke map lives in the Burn log */
   var t=S.tool||'sugar';
   $('#toolTank').hidden=(t!=='tank'); $('#toolSugar').hidden=(t!=='sugar'); $('#toolSeasons').hidden=(t!=='seasons'); $('#toolBurn').hidden=(t!=='burn'); $('#toolYield').hidden=(t!=='yield'); $('#toolDays').hidden=(t!=='days'); $('#toolHarvest').hidden=(t!=='harvest');
-  var sm=$('#smokeChip'); if(sm){ sm.hidden=false; sm.textContent='Smoke map'; } if(false){ S.tool='sugar'; t='sugar'; $('#toolSugar').hidden=false; } $('#toolSmoke').hidden=(t!=='smoke');
+  var sm=$('#smokeChip'); if(sm) sm.hidden=true; if(false){ S.tool='sugar'; t='sugar'; $('#toolSugar').hidden=false; } $('#toolSmoke').hidden=(t!=='smoke');
   if(t==='smoke'){ var ts=$('#toolSmoke'), src=S.smokeSrc||'smoke-trial.html'; if(ts.getAttribute('data-src')!==src){ ts.setAttribute('data-src',src); ts.innerHTML='<iframe id="smokeFrame" title="Smoke map trial" src="'+esc(src)+'" allow="geolocation" style="width:100%;height:calc(100vh - 230px);min-height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'; } }
   var b=document.querySelectorAll('#toolPick .fchip'); for(var i=0;i<b.length;i++) b[i].setAttribute('aria-pressed', b[i].getAttribute('data-tool')===t?'true':'false');
   if(t==='tank' && !TM.rendered){ TM.rendered=true; tmRender(); }
@@ -2313,7 +2332,14 @@ document.addEventListener('click',function(e){
   else if(a==='smokeSaved'){ var sid=el.getAttribute('data-id'); BN.showSmoke=(BN.showSmoke===sid?'':sid); bnLogRender(); }
   else if(a==='useActive'){ if(BN.farm!==S.farmId){ toast('Switch the Board to this farm first. The harvesting field is set there.'); return; } if(!(S.active.track||S.active.field)){ toast('No track or field is picked on the Board yet.'); return; } BN.track=S.active.track||''; BN.field=S.active.field||''; BN.fromActive=true; bnRender(); }
   else if(a==='smokeHide'){ BN.smokeOn=false; bnSmokeShow(); }
-  else if(a==='smokeNow'){ smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres,BN.wx,'form'); }
+  else if(a==='smokeNow'){
+    /* where the fire is: the field on the map, else the burn's location, else this phone */
+    var bf=BN.farm||S.farmId, go=ftGroups(bf).filter(function(x){ return BN.field && x.key===ftKey(BN.track,BN.field); })[0];
+    if(go && go.c) smokeOpen(go.c[0],go.c[1],bnMs(),BN.acres,BN.wx,'form');
+    else if(Number(BN.lat) && Number(BN.lon)) smokeOpen(BN.lat,BN.lon,bnMs(),BN.acres,BN.wx,'form');
+    else if(navigator.geolocation) navigator.geolocation.getCurrentPosition(function(p){ smokeOpen(p.coords.latitude,p.coords.longitude,bnMs(),BN.acres,BN.wx,'form'); }, function(){ toast('Pick the field, or allow location, to place the fire.'); }, { timeout:15000 });
+    else toast('Pick the field to place the fire.');
+  }
   else if(a==='now'){ var n=bnNow(); BN.date=n.date; BN.time=n.time; bnRender(); }
   else if(a==='save'||a==='saveNew'){
     if(!(BN.field||'').trim()){ toast('Enter the field ID.'); return; }
@@ -4645,7 +4671,7 @@ function hvKey(name){ return 'h_'+String(name).toLowerCase().replace(/[^a-z0-9]+
 function hvRaw(name){ return S.harv[hvKey(name)]||{}; }
 function hvState(name){ var a=S.harv[hvKey(name)]; return (a && a.session && !a.closed) ? a : null; }
 function hvOpen(){ return harvOf(S.farmId).map(function(n){ var a=hvState(n); return a ? Object.assign({ name:n }, a) : null; }).filter(Boolean); }
-function hvText(a){ var p=[]; if(a.field) p.push(a.field); if(a.track) p.push(a.track); if(a.variety) p.push(a.variety); var st=stubLabel(a.stubble); if(st) p.push(st); return p.join(' · ')||'Field not named'; }
+function hvText(a){ var p=[]; if(a.field) p.push(a.field+((a.more||[]).length?' + '+a.more.map(function(m){ return m.field; }).join(' + '):'')); if(a.track) p.push(a.track); if(a.variety) p.push(a.variety); var st=stubLabel(a.stubble); if(st) p.push(st); return p.join(' · ')||'Field not named'; }
 function hvSlot(a){ return { h:a.name||a.harvester||'', s:a.session||'', track:a.track||'', field:a.field||'', variety:a.variety||'', stubble:(a.stubble==null?'':a.stubble) }; }
 function hvDefaultDumps(){
   var op=hvOpen(); if(!op.length) return null;
@@ -4768,7 +4794,29 @@ function hvEditSave(e,patch){
 }
 
 /* sheets: open the next field, close a field, weigh-wagon check */
-function hvSheet(mode,name){ S.edit=null; S.hv={ mode:mode, h:name, msg:'' }; $('#sheetWrap').hidden=false; hvRenderSheet(); if(mode==='weigh') hvLoadSession(); }
+function hvSheet(mode,name){ S.edit=null; S.hv={ mode:mode, h:name, msg:'' }; $('#sheetWrap').hidden=false; hvRenderSheet(); if(mode==='weigh') hvLoadSession();
+  if(mode==='open' && S.farmId && !(S.farmId in FT.map)){ ftLoadMap(S.farmId); var tr=0, iv=setInterval(function(){ if((S.farmId in FT.map && !FT.mapBusy[S.farmId]) || tr++>20){ clearInterval(iv); if(S.hv && S.hv.mode==='open'){ var t=$('#hvTrack'), f=$('#hvField'); var tv=t?t.value:'', fv=f?f.value:''; hvRenderSheet(); if($('#hvTrack')) $('#hvTrack').value=tv; hvRefillFields(fv); } } },300); }
+}
+/* the fields to pick from: the farm's own list, and the field map's fields in that track */
+function hvFieldList(track){
+  var l=fieldsOf(S.farmId).slice(), t=String(track||'').trim().toLowerCase();
+  if(S.farmId in FT.map && FT.map[S.farmId]) ftGroups(S.farmId).forEach(function(o){ if((!t || o.track.toLowerCase()===t) && l.indexOf(o.id)<0) l.push(o.id); });
+  return azSort(l);
+}
+function hvRefillFields(keep){ var f=$('#hvField'), t=$('#hvTrack'); if(!f) return; var cur=keep!=null?keep:f.value, L=hvFieldList(t?t.value:'');
+  if(cur && L.indexOf(cur)<0) L.push(cur); f.innerHTML='<option value="">Not set</option>'+L.map(function(x){ return '<option value="'+esc(x)+'"'+(x===cur?' selected':'')+'>'+esc(x)+'</option>'; }).join(''); hvAutoFill(); }
+/* variety and this harvest's stubble from the field map, for the track and field picked */
+function hvAutoFill(){
+  var t=$('#hvTrack'), f=$('#hvField'), vs=$('#hvVariety'), st=$('#hvStub'), note=$('#hvAuto'); if(!f || !f.value) { if(note) note.textContent=''; return; }
+  var k=ftKey(t?t.value:'', f.value), G=ftGroups(S.farmId), o=G.filter(function(x){ return x.key===k; })[0];
+  if(!o && !(t&&t.value)){ var c=G.filter(function(x){ return x.id.toLowerCase()===String(f.value).toLowerCase(); }); if(c.length===1) o=c[0]; }
+  if(!o){ if(note) note.textContent=''; return; }
+  if(t && !t.value && o.track){ if(!Array.prototype.some.call(t.options,function(x){ return x.value===o.track; })) t.insertAdjacentHTML('beforeend','<option value="'+esc(o.track)+'">'+esc(o.track)+'</option>'); t.value=o.track; }
+  if(vs && o.variety){ if(!Array.prototype.some.call(vs.options,function(x){ return x.value===o.variety; })) vs.insertAdjacentHTML('beforeend','<option value="'+esc(o.variety)+'">'+esc(o.variety)+'</option>'); vs.value=o.variety; }
+  if(st && o.stub.n!=null) st.value=String(o.stub.n);
+  if(note) note.textContent='Variety and stubble filled in from the field map: '+[o.variety, o.stub.text, (Math.round(o.acres*10)/10)+' ac'].filter(Boolean).join(' · ')+'.';
+}
+document.addEventListener('change',function(e){ if(!S.hv || S.hv.mode!=='open' || !e.target) return; if(e.target.id==='hvTrack') hvRefillFields(); else if(e.target.id==='hvField') hvAutoFill(); });
 function hvSel(id,label,list,cur,none){
   var l=list.slice(); if(cur && l.indexOf(cur)<0) l.push(cur);
   return '<label class="f">'+label+'<select id="'+id+'"><option value="">'+(none||'Not set')+'</option>'+l.map(function(x){ return '<option value="'+esc(x)+'"'+(x===cur?' selected':'')+'>'+esc(x)+'</option>'; }).join('')+'</select></label>';
@@ -4787,9 +4835,11 @@ function hvRenderSheet(){
     var base=a||S.active||{};
     h='<div class="sheet-head"><h2 id="sheetTitle">'+esc(v.h)+': '+(a?'next field':'open a field')+'</h2><button class="close" type="button" data-act="closeSheet" aria-label="Close">&times;</button></div>'+
       hvSel('hvTrack','Track',azSort(tracksOf(S.farmId)),base.track||'')+
-      hvSel('hvField','Field',azSort(fieldsOf(S.farmId)),base.field||'')+
+      hvSel('hvField','Field',hvFieldList(base.track||''),base.field||'')+
       hvSel('hvVariety','Cane variety',azSort(varietiesOf(S.farmId)),base.variety||'')+
       '<label class="f">Stubble<select id="hvStub"><option value="">Not set</option>'+STUB.map(function(x,i){ return '<option value="'+i+'"'+(String(base.stubble)===String(i)?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></label>'+
+      '<p class="small" id="hvAuto"></p>'+
+      (a?'<button class="btn" type="button" data-hv="addField">'+((a.more||[]).length?'Add this field too ('+((a.more||[]).length+2)+' open)':'Add this field: cutting both')+'</button><p class="small">Cutting across into another field? Add it and keep '+esc(hvText(a))+' open. Loads from '+esc(v.h)+' are then shared between all open fields until you open a single field again.</p>':'')+
       (a?hvFinishFields(a):'')+
       '<button class="btn primary" type="button" data-hv="doOpen">'+(a?'Close that field and open this one':'Open this field')+'</button>';
   } else if(v.mode==='close'){
@@ -4823,7 +4873,7 @@ async function hvDoOpen(){
   var fin=a?hvFinishPatch():null, now=Date.now(), sid=newId('hs');
   v.busy=true;
   try{
-    if(a) await dref('farms/'+farm+'/harvest/'+a.session).update(fin);
+    if(a){ await dref('farms/'+farm+'/harvest/'+a.session).update(fin); await hvCloseMore(farm, a, fin); }
     var sess=Object.assign({ harvester:name, day:today(), openedAt:now, openedBy:byName(), checks:[] }, nf);
     if(fin && fin.acres==null && a.field===nf.field && a.acres) sess.acres=a.acres;
     await dref('farms/'+farm+'/harvest/'+sid).set(sess);
@@ -4834,12 +4884,29 @@ async function hvDoOpen(){
     closeEdit(); toast(name+' is in '+(nf.field||nf.track)+'.');
   }catch(e){ v.busy=false; fail(e); }
 }
+async function hvDoAddField(){
+  var v=S.hv; if(!v || !S.canWrite || v.busy) return;
+  var farm=S.farmId, name=v.h, a=hvState(name); if(!a){ hvDoOpen(); return; }
+  var nf={ track:$('#hvTrack').value, field:$('#hvField').value, variety:$('#hvVariety').value, stubble:$('#hvStub').value===''?'':Number($('#hvStub').value) };
+  if(!nf.field){ v.msg='Pick the field being added.'; hvRenderSheet(); return; }
+  var all=[{ track:a.track, field:a.field }].concat(a.more||[]);
+  if(all.some(function(x){ return ftKey(x.track,x.field)===ftKey(nf.track,nf.field); })){ v.msg=(nf.field)+' is already being cut.'; hvRenderSheet(); return; }
+  var now=Date.now(), sid=newId('hs'); v.busy=true;
+  try{
+    await dref('farms/'+farm+'/harvest/'+sid).set(Object.assign({ harvester:name, day:today(), openedAt:now, openedBy:byName(), checks:[], with:a.session }, nf));
+    var more=(a.more||[]).concat([Object.assign({ session:sid }, nf)]);
+    await dref('farms/'+farm+'/active/'+hvKey(name)).update({ more:more, at:now });
+    closeEdit(); toast(name+' is cutting '+[a.field].concat(more.map(function(x){ return x.field; })).join(' + ')+'.');
+  }catch(e){ v.busy=false; fail(e); }
+}
+async function hvCloseMore(farm, a, fin){ for(var i=0;i<(a.more||[]).length;i++){ var m=a.more[i]; if(m.session){ try{ await dref('farms/'+farm+'/harvest/'+m.session).update({ closedAt:(fin&&fin.closedAt)||Date.now(), closedBy:byName() }); }catch(e){} } } }
 async function hvDoClose(){
   var v=S.hv; if(!v || !S.canWrite || v.busy) return;
   var farm=S.farmId, name=v.h, a=hvState(name); if(!a){ closeEdit(); return; }
   v.busy=true;
   try{
     await dref('farms/'+farm+'/harvest/'+a.session).update(hvFinishPatch());
+    await hvCloseMore(farm, a);
     await dref('farms/'+farm+'/active/'+hvKey(name)).set(Object.assign({ harvester:name, closed:true, lastField:a.field||'', lastTrack:a.track||'', at:Date.now(), by:byName() }, a.code?{ code:a.code }:{}, a.queue?{ queue:a.queue }:{}, a.ew?{ ew:a.ew }:{}));
     closeEdit(); toast(name+': '+(a.field||a.track||'field')+' closed.');
   }catch(e){ v.busy=false; fail(e); }
@@ -4870,6 +4937,7 @@ document.addEventListener('click',function(e){
   var a=el.getAttribute('data-hv'), h=el.getAttribute('data-h');
   if(a==='open'||a==='close'||a==='weigh'){ if(needName()) return; hvSheet(a,h); }
   else if(a==='doOpen') hvDoOpen();
+  else if(a==='addField') hvDoAddField();
   else if(a==='doClose') hvDoClose();
   else if(a==='doWeigh') hvDoWeigh();
 });
@@ -5382,6 +5450,9 @@ function mrPaint(){
         if(d.wx) h+='<p class="small"><b>Weather that day</b> '+esc(mrWxLong(d.wx))+'</p>';
         if(un.length) h+='<p class="small"><b>Weigh-ins with no logged load</b> (a truck not logged, or logged at the wrong time). Log the load or fix its time, then tap Match again.</p>'+mrTable(['Truck',un.some(function(u){ return u.time; })?'Weighed':'Ticket','Tons','TRS'], un.map(function(u){ return [u.truck, u.time?mrTime(u.time):u.rcpt, mrN(u.tons), u.trs==null?'–':mrN(u.trs,0)]; }));
         if(nw.length) h+='<p class="small"><b>Logged that day with no mill weight</b></p>'+mrTable(['Truck','Loaded','Field'], nw.map(function(n){ return [n.no, timeOf(n.loadedAt), n.field||'–']; }));
+        if(d.blended && d.blended.fields){ var B=d.blended;
+          h+='<p class="small"><b>Blended for the day</b>: no harvester was picked for '+B.loads+' load'+(B.loads===1?'':'s')+' from these fields, so their tons and TRS are one group, shared by acres. Pick the harvester and its field on the Board for field-by-field numbers.</p>'+
+            mrTable(['Field','Acres','Tons (by acres)'], B.fields.map(function(x){ return [(x.track?x.track+' ':'')+x.field, x.acres!=null?mrN(x.acres,1):'–', x.acres!=null&&B.acres?mrN(B.tons*x.acres/B.acres,1):'–']; }).concat([['Group: '+mrN(B.tons)+' tons · '+(B.tpa!=null?mrN(B.tpa)+' t/ac · ':'')+'TRS '+mrN(B.trs,0)+(B.lbsAc!=null?' · '+Math.round(B.lbsAc).toLocaleString()+' lb sugar/ac':''), B.acres!=null?mrN(B.acres,1):'–', mrN(B.tons,1)]]), true); }
         var bf=d.byField||[];
         if(bf.length){
           var tt=0, tl=0; bf.forEach(function(x){ tt+=Number(x.tons)||0; tl+=Number(x.lbsTrs)||0; });
@@ -5406,15 +5477,24 @@ function mrPaint(){
     st+='<div class="addrow"><button class="btn sm" type="button" data-mr="keyNew">'+(confirmKey==='mrKeyNew'?'Sure?':(k.exists||MR.newKey?'New address':'Make address'))+'</button>'+(k.exists||MR.newKey?'<button class="btn warn sm" type="button" data-mr="keyOff">'+(confirmKey==='mrKeyOff'?'Sure?':'Turn off')+'</button>':'')+'</div>';
   }
   var fm=farmById(f)||{}, wl=mrWxSpot(f);
-  st+='<p class="small" style="margin-top:12px"><b>Weather</b> for each harvest day comes from Open-Meteo, at '+(fm.wxLat!=null?'this farm\'s spot':'the River Parishes (no spot set)')+': '+wl.lat.toFixed(3)+', '+wl.lon.toFixed(3)+(MR.wxBusy?' · looking up…':'')+'</p>';
+  st+='<p class="small" style="margin-top:12px"><b>Weather</b> for each harvest day comes from Open-Meteo, at '+(fm.wxLat!=null?'this farm\'s spot':(wl.fromMap?'the middle of this farm\'s field map':'the River Parishes (no spot set)'))+': '+wl.lat.toFixed(3)+', '+wl.lon.toFixed(3)+(MR.wxBusy?' · looking up…':'')+'</p>';
   if(S.isAdmin){
     if(MR.wxEdit) st+='<div class="addrow"><input type="text" id="mrWxIn" inputmode="decimal" placeholder="30.03, -90.77" value="'+esc(wl.lat+', '+wl.lon)+'"><button class="btn sm" type="button" data-mr="wxSave">Save</button><button class="btn ghost sm" type="button" data-mr="wxHere">Use where I am</button></div>';
     else st+='<div class="addrow"><button class="btn ghost sm" type="button" data-mr="wxEdit">Change weather spot</button></div>';
   }
+  if(S.platform){
+    var U=MR.unknown;
+    if(U===undefined){ MR.unknown=null; rpc('mill_report_unknown_list',{}).then(function(r){ MR.unknown=r||[]; mrPaint(); }).catch(function(){ MR.unknown=[]; }); }
+    else if(U && U.length){ st+='<p class="small" style="margin-top:12px"><b>Report layouts to add</b> (site owner): PDFs the reader could not read. Send them to Claude to add the layout, then tap Done.</p>'+
+      U.map(function(u){ return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto"><div class="info"><span class="l2" style="white-space:normal">'+esc((u.portal||'')+' · '+(u.name||'PDF')+' · '+new Date(u.at).toLocaleDateString()+(u.by?' · '+u.by:''))+'</span></div><div class="acts"><button class="btn ghost sm" type="button" data-mr="updf" data-id="'+esc(u.id)+'">PDF</button><button class="btn ghost sm" type="button" data-mr="udone" data-id="'+esc(u.id)+'">Done</button></div></div>'; }).join(''); }
+  }
   h+='<div class="lbl" style="margin-top:18px">Settings</div>'+st;
   box.innerHTML=h;
 }
-function mrWxSpot(f){ var fm=farmById(f)||{}; return (fm.wxLat!=null && fm.wxLon!=null && isFinite(fm.wxLat) && isFinite(fm.wxLon)) ? { lat:+fm.wxLat, lon:+fm.wxLon } : MR_WX_DEF; }
+function mrWxSpot(f){ var fm=farmById(f)||{}; if(fm.wxLat!=null && fm.wxLon!=null && isFinite(fm.wxLat) && isFinite(fm.wxLon)) return { lat:+fm.wxLat, lon:+fm.wxLon };
+  /* no spot set: the middle of the farm's field map, so a grower anywhere gets their own weather */
+  var mp=(typeof FT!=='undefined')&&FT.map&&FT.map[f]; if(mp && mp.fields && mp.fields.length){ var la=0, lo=0, n=0; mp.fields.forEach(function(x){ if(x.c){ la+=x.c[0]; lo+=x.c[1]; n++; } }); if(n) return { lat:+(la/n).toFixed(4), lon:+(lo/n).toFixed(4), fromMap:true }; }
+  return MR_WX_DEF; }
 function mrF(v){ return v==null?'–':Math.round(v)+'°'; }
 function mrIn(v){ return v==null?'–':Number(v).toFixed(2); }
 function mrWxShort(w){ return mrF(w.hi)+'/'+mrF(w.lo)+'F, rain '+mrIn(w.rain)+' in'+(w.rain3>w.rain?' ('+mrIn(w.rain3)+' in over 3 days)':'')+(w.low7!=null&&w.low7<=32?', froze '+mrF(w.low7):''); }
@@ -5464,11 +5544,11 @@ function mrCompare(reps){
       return [mrDay(k), mrN(x.tons,0), x.tw?mrN(x.tt/x.tw,0):'–', x.wx?mrF(w.hi)+' / '+mrF(w.lo):'–', x.wx?mrIn(w.rain)+' ('+mrIn(w.rain3)+')':'–', x.wx&&w.rh!=null?Math.round(w.rh)+'%':'–', x.wx?mrF(w.low7)+(w.low7!=null&&w.low7<=32?' freeze':''):'–']; }));
 }
 /* the mill's own PDF, saved when the report came in */
-async function mrOpenPdf(id, el){
+async function mrOpenPdf(id, el, fn){
   var w=null; try{ w=window.open('', '_blank'); }catch(e){}
   if(el) el.disabled=true;
   try{
-    var r=await rpc('mill_report_pdf',{ p_id:id });
+    var r=await rpc(fn||'mill_report_pdf',{ p_id:id });
     if(!r || !r.pdf){ if(w) w.close(); toast('That PDF was not saved.'); return; }
     var bin=atob(r.pdf), u8=new Uint8Array(bin.length); for(var i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
     var url=URL.createObjectURL(new Blob([u8],{ type:'application/pdf' }));
@@ -5487,7 +5567,7 @@ function mrSay(res){
     else if(r.status==='unplaced') parts.push(mrDay(r.day)+' '+(r.account||'')+': no logged trucks fit yet (kept to try again)');
     else parts.push('Could not use a report'+(r.why?': '+r.why:''));
   });
-  ((res&&res.files)||[]).forEach(function(x){ parts.push((x.file||'File')+': '+x.note); });
+  ((res&&res.files)||[]).forEach(function(x){ parts.push((x.file||'File')+': '+x.note+'. This mill report layout has not been used here before'+(x.sent?', so a copy was sent to the site owner to add it. You will be able to upload it once it is added.':'. Send the PDF to the site owner to have it added.')); });
   if(res && res.status==='nothing' && !parts.length) parts.push('No cane receipt found in that file.');
   return parts.join(' · ') || 'Done.';
 }
@@ -5520,6 +5600,8 @@ document.addEventListener('click',function(e){
   else if(a==='keyOff'){ if(!confirmTap('mrKeyOff')){ mrPaint(); return; } rpc('mill_report_key_off',{}).then(function(){ MR.newKey=''; MR.key={ exists:false }; toast('Email in turned off'); mrPaint(); }).catch(fail); }
   else if(a==='cmp'){ MR.cmp=!MR.cmp; mrPaint(); }
   else if(a==='pdf'){ mrOpenPdf(id, el); }
+  else if(a==='updf'){ mrOpenPdf(id, el, 'mill_report_unknown_get'); }
+  else if(a==='udone'){ rpc('mill_report_unknown_done',{ p_id:id }).then(function(){ MR.unknown=undefined; mrPaint(); }).catch(fail); }
   else if(a==='wxEdit'){ MR.wxEdit=true; mrPaint(); }
   else if(a==='wxHere'){ if(!navigator.geolocation){ toast('This phone cannot share its location'); return; } navigator.geolocation.getCurrentPosition(function(p){ var i=$('#mrWxIn'); if(i) i.value=p.coords.latitude.toFixed(4)+', '+p.coords.longitude.toFixed(4); }, function(){ toast('Location not shared'); }, { timeout:15000 }); }
   else if(a==='wxSave'){ var i=$('#mrWxIn'), m=String(i&&i.value||'').match(/(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)/), f2=mrFarm(), q=farmById(f2);
@@ -5542,7 +5624,11 @@ var WHATS_NEW=[
   'During harvest the Board opens first; after harvest the Farm tab does. Set End harvest beside Begin harvest in the Report.',
   'Backups: every update saves a copy of all farms, loads and accounts in the database first.',
   'Field records: on any field, tap Records, then Add record for a spray, fertilizer, planting, scouting or a note. The weather for that time fills in by itself. Everyone on the farm can add one.',
-  'Weather shows by itself on each field\'s Harvest, Burn and Records, and the smoke map is in Burn for everyone (a projection only).',
+  'The smoke map shows your field outlines, with the field being burned in orange.',
+  'Harvest sheet: pick a field and its variety and stubble fill in from the field map. Cutting across into another field? Add this field: cutting both, and that harvester\'s loads are shared between the fields.',
+  'No harvester picked? That day\'s loads are blended: the fields cut that day share the tons and TRS by acres, shown in a Blended for the day table (Farm tab and Mill tab). A field typed "43,47,56" or "32.39" counts as those fields.',
+  'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
+  'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
   'The mill report is the certified tons and TRS: once a load has it, its tons and TRS cannot be changed in the app, and a load the mill did not core carries the tract\'s TRS and CRS.',
   'Export (bottom of the Farm tab): every field with this harvest\'s results as a shapefile or GeoJSON for Yote Farmview and other farm programs, and Harvest by field and Field records as CSV for Excel.'
 ];
@@ -5652,17 +5738,38 @@ async function ftLoadWx(farm){ if(farm in FT.wx || !isLead()) return; FT.wx[farm
 /* each field's share of every load (a split truck is shared by its fields) */
 function ftAgg(farm, groups){
   var byKey={}, byBase={}; groups.forEach(function(o){ byKey[o.key]=o; var b=o.key.split('|')[1]; (byBase[b]=byBase[b]||[]).push(o); });
-  var A={}; groups.forEach(function(o){ A[o.key]={ n:0, tons:0, tw:0, cT:0, trs:0, bT:0, brix:0, fT:0, fiber:0, days:{}, rows:[] }; });
+  var A={}; groups.forEach(function(o){ A[o.key]={ n:0, tons:0, tw:0, cT:0, trs:0, bT:0, brix:0, fT:0, fiber:0, days:{}, rows:[], blend:{} }; });
+  var find=function(track, field){ var o=byKey[ftKey(track, field)]; if(!o && !String(track||'').trim()){ var c=byBase[ftBase(field)]; if(c && c.length===1) o=c[0]; } return o; };
+  /* 2026-11-24: a load with no harvester behind it (none picked, no Edge 101, no split) is blended for the day: that day's
+     fields from such loads (a field typed "43,47,56" or "32.39" is those fields) share its tons and TRS by acres */
+  var unh=function(x){ return !x.harvester && !(x.dumps&&x.dumps.length) && !(x.split&&x.split.length); };
+  var fl=function(f){ return String(f||'').split(/\s*[,.+\/&;]\s*/).filter(Boolean); };
+  var DG={};
+  (FT.loads[farm]||[]).forEach(function(x){ if(!unh(x)) return; fl(x.field).forEach(function(f){ var o=find(x.track,f); if(o){ var g=DG[x.day]||(DG[x.day]={ keys:{}, acres:0, n:0, tons:0, cT:0, trs:0 }); if(!g.keys[o.key]){ g.keys[o.key]=o; g.acres+=o.acres||0; } } }); });
+  var add=function(o, x, sh, blendDay){
+    var a=A[o.key], t=Number(x.tons)||0; a.n+=sh; a.days[x.day]=1; a.rows.push({ x:x, sh:sh, blend:!!blendDay }); if(blendDay) a.blend[blendDay]=1;
+    if(t>0){ a.tons+=t*sh; a.tw+=t*sh; if(x.trs!=null){ a.cT+=t*sh; a.trs+=t*sh*Number(x.trs); } if(x.brix!=null){ a.bT+=t*sh; a.brix+=t*sh*Number(x.brix); } if(x.fiber!=null){ a.fT+=t*sh; a.fiber+=t*sh*Number(x.fiber); } }
+  };
   (FT.loads[farm]||[]).forEach(function(x){
-    loadParts(x).forEach(function(p){
-      var k=ftKey(p.track, p.field), o=byKey[k];
-      if(!o && !String(p.track||'').trim()){ var c=byBase[ftBase(p.field)]; if(c && c.length===1) o=c[0]; }
-      if(!o) return; var a=A[o.key], sh=Number(p.share)||1, t=Number(x.tons)||0;
-      a.n+=sh; a.days[x.day]=1; a.rows.push({ x:x, sh:sh });
-      if(t>0){ a.tons+=t*sh; a.tw+=t*sh; if(x.trs!=null){ a.cT+=t*sh; a.trs+=t*sh*Number(x.trs); } if(x.brix!=null){ a.bT+=t*sh; a.brix+=t*sh*Number(x.brix); } if(x.fiber!=null){ a.fT+=t*sh; a.fiber+=t*sh*Number(x.fiber); } }
-    });
+    var g=unh(x)?DG[x.day]:null, ks=g?Object.keys(g.keys):[];
+    if(g && ks.length>1){
+      var t=Number(x.tons)||0; g.n++; if(t>0){ g.tons+=t; if(x.trs!=null){ g.cT+=t; g.trs+=t*Number(x.trs); } }
+      ks.forEach(function(k){ var o=g.keys[k]; add(o, x, g.acres>0?(o.acres||0)/g.acres:1/ks.length, x.day); });
+      return;
+    }
+    if(g && ks.length===1){ add(g.keys[ks[0]], x, 1, ''); return; }
+    loadParts(x).forEach(function(p){ var o=find(p.track, p.field); if(o) add(o, x, Number(p.share)||1, ''); });
   });
+  Object.keys(DG).forEach(function(d){ if(Object.keys(DG[d].keys).length<2) delete DG[d]; });
+  A.__blend=DG;
   return A;
+}
+/* the blended days a field was part of: one line each, and a table of the group */
+function ftBlendHtml(farm, o, A){
+  var DG=A.__blend||{}, days=Object.keys(A[o.key].blend||{}).sort().reverse(); if(!days.length) return '';
+  return '<p class="small" style="border:1px solid var(--line);border-radius:8px;padding:8px"><b>Blended for the day.</b> No harvester was picked for these loads, so the day\'s tons and TRS are shared by the fields cut that day, by acres. Pick the harvester and its field on the Board for field-by-field numbers.</p>'+
+    mrTable(['Day','Fields in the group','Acres','Tons','T/ac','TRS'], days.map(function(d){ var g=DG[d], ks=Object.keys(g.keys), trs=g.cT?g.trs/g.cT:null;
+      return [mrDay(d), ks.map(function(k){ return g.keys[k].id; }).join(', '), f1(g.acres), g.tons?f1(g.tons):'–', g.tons&&g.acres?f1(g.tons/g.acres):'–', trs!=null?Math.round(trs):'–']; }));
 }
 function ftN(n){ return Math.abs(n-Math.round(n))<0.01 ? String(Math.round(n)) : f1(n); }
 function ftMi(d){ return d==null?'':(d<0.1?'here':(d<10?d.toFixed(1):Math.round(d))+' mi'); }
@@ -5676,7 +5783,7 @@ function ftRender(){
   ftLocate(false);
   var a=document.activeElement; if(a && body.contains(a) && /INPUT|SELECT/.test(a.tagName) && a.id==='ftQ') { ftList(); return; }
   if(a && /INPUT|SELECT|TEXTAREA/.test(a.tagName) && a.closest && a.closest('#frForm')) return;   /* someone is typing a record */
-  var sig=JSON.stringify([farm, !!FT.map[farm], FT.mapBusy[farm], (FT.loads[farm]||[]).length, FT.loadsBusy[farm], FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)], FT.posMsg, FT.track, FT.open, FT.sect, !!FT.up, FT.upBusy, FT.upMsg, FT.showAll, S.farms.length, ftMain(), FT.sess[farm]&&FT.sess[farm].length, Object.keys(FT.wx[farm]||{}).length, BN.log.length, confirmKey, (FR.recs[farm]||[]).length, !!FR.form, FR.form&&FR.form.busy, FT.smoke, FX.busy, FX.msg]);
+  var sig=JSON.stringify([farm, !!FT.map[farm], FT.mapBusy[farm], (FT.loads[farm]||[]).length, FT.loadsBusy[farm], FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)], FT.posMsg, FT.track, FT.open, FT.sect, !!FT.up, FT.upBusy, FT.upMsg, FT.showAll, S.farms.length, ftMain(), FT.sess[farm]&&FT.sess[farm].length, Object.keys(FT.wx[farm]||{}).length, BN.log.length, confirmKey, (FR.recs[farm]||[]).length, !!FR.form, FR.form&&FR.form.busy, FT.smoke, FX.busy, FX.msg, FT.selMode, Object.keys(FT.sel).join(','), FT.msect]);
   if(sig===FT.sig) return; FT.sig=sig;
   var h='', mp=FT.map[farm];
   /* main farm */
@@ -5690,9 +5797,10 @@ function ftRender(){
   else if(!mp) h+='<p class="small">'+(FT.mapErr?'Run the latest schema.sql in Supabase to turn on field maps.':'No field map yet.')+(isLead()?' Upload the Yote Farmview export below (a zipped shapefile or a .geojson).':' An administrator or manager uploads it.')+'</p>';
   else {
     var tr={}; mp.fields.forEach(function(x){ if(x.track) tr[x.track]=1; });
-    h+='<div class="addrow"><input type="search" id="ftQ" placeholder="Field or track" value="'+esc(FT.q)+'" aria-label="Find a field"><button class="btn ghost sm" type="button" data-ft="near">Nearest first</button></div>';
+    h+='<div class="addrow"><input type="search" id="ftQ" placeholder="Field or track" value="'+esc(FT.q)+'" aria-label="Find a field"><button class="btn ghost sm" type="button" data-ft="near">Nearest first</button></div><div class="addrow"><button class="btn'+(FT.selMode?'':' ghost')+' sm" type="button" data-fs="'+(FT.selMode?'done':'start')+'">'+(FT.selMode?'Done selecting':'Select several fields')+'</button></div>';
     var tl=azSort(Object.keys(tr)); if(tl.length>1) h+='<div class="fchips" role="group" aria-label="Track">'+['All'].concat(tl).map(function(t){ var v=t==='All'?'':t; return '<button type="button" class="fchip" data-ft="track" data-v="'+esc(v)+'" aria-pressed="'+(FT.track===v)+'">'+esc(t)+'</button>'; }).join('')+'</div>';
     h+='<p class="small" id="ftNote">'+esc(FT.posMsg || (FT.pos?'Nearest to you first.':''))+(FT.loadsBusy[farm]?' Reading this harvest\'s loads…':'')+(mp.nextSeason?' Stubble shown for this harvest (the map\'s is next season\'s).':'')+'</p>';
+    if(FT.selMode) h+='<div id="ftSel">'+ftSelPanel(farm)+'</div>';
     h+='<div id="ftList"></div>';
   }
   h+='</div>';
@@ -5715,10 +5823,11 @@ function ftList(){
     var a=A[o.key], days=Object.keys(a.days).sort(), st=o.stub, op=FT.open===o.key;
     var l2=[o.variety+(o.mixedVar?' +':''), st.text, (Math.round(o.acres*10)/10)+' ac', ftMi(o.d)].filter(Boolean).join(' · ');
     var nrec=ftRecsOf(farm,o.key).length;
-    var l3=(days.length?'Cut '+mrDay(days[days.length-1])+(days.length>1?' ('+days.length+' days)':'')+' · '+ftN(a.n)+' load'+(Math.abs(a.n-1)<0.01?'':'s')+(a.tw?' · '+f1(a.tons/(o.acres||1))+' t/ac':''):'Not cut this harvest')+(nrec?' · '+nrec+' record'+(nrec===1?'':'s'):'');
+    var l3=(days.length?'Cut '+mrDay(days[days.length-1])+(days.length>1?' ('+days.length+' days)':'')+' · '+ftN(a.n)+' load'+(Math.abs(a.n-1)<0.01?'':'s')+(a.tw?' · '+f1(a.tons/(o.acres||1))+' t/ac':''):'Not cut this harvest')+(nrec?' · '+nrec+' record'+(nrec===1?'':'s'):'')+(Object.keys(a.blend||{}).length?' · blended':'');
     h+='<div class="ros-row" id="ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')+'" style="grid-template-columns:minmax(0,1fr)"><div class="info"><span class="l1">Field '+esc(o.id)+(o.track?' · '+esc(o.track):'')+(o.parts.length>1?' <span class="small">('+o.parts.length+' parts)</span>':'')+'</span><span class="l2" style="white-space:normal">'+esc(l2)+'</span><span class="l2" style="white-space:normal">'+esc(l3)+'</span></div>'+
-      '<div class="fchips" style="margin-top:6px">'+[['harvest','Harvest'],['burn','Burn'],['records','Records']].map(function(b){ return '<button type="button" class="fchip" data-ft="sect" data-k="'+esc(o.key)+'" data-v="'+b[0]+'" aria-pressed="'+(op && FT.sect===b[0])+'">'+b[1]+'</button>'; }).join('')+'</div></div>';
-    if(op) h+='<div class="card col" style="margin:6px 0 10px">'+ftSection(farm, o, a)+'</div>';
+      (FT.selMode?'<div class="fchips" style="margin-top:6px"><button type="button" class="fchip" data-fs="pick" data-k="'+esc(o.key)+'" aria-pressed="'+(!!FT.sel[o.key])+'">'+(FT.sel[o.key]?'✓ Selected':'Select')+'</button></div></div>':
+      '<div class="fchips" style="margin-top:6px">'+[['harvest','Harvest'],['burn','Burn'],['records','Records']].map(function(b){ return '<button type="button" class="fchip" data-ft="sect" data-k="'+esc(o.key)+'" data-v="'+b[0]+'" aria-pressed="'+(op && FT.sect===b[0])+'">'+b[1]+'</button>'; }).join('')+'</div></div>');
+    if(op && !FT.selMode) h+='<div class="card col" style="margin:6px 0 10px">'+ftSection(farm, o, a)+'</div>';
   });
   if(!L.length) h='<p class="small">No fields match.</p>';
   else if(lim<L.length) h+='<div class="addrow"><button class="btn ghost sm" type="button" data-ft="all">Show all '+L.length+' fields</button></div>';
@@ -5732,6 +5841,7 @@ function ftSection(farm, o, a){
     if(!(farm in FT.sess)) ftLoadSess(farm);
     var ss=(FT.sess[farm]||[]).filter(function(r){ return ftKey(r.track, r.field)===o.key; }).sort(function(x,y){ return (y.openedAt||0)-(x.openedAt||0); });
     h+='<p class="small"><b>This harvest:</b> '+esc(sum)+'</p>';
+    h+=ftBlendHtml(farm, o, ftAgg(farm, ftGroups(farm)));
     if(FT.sess[farm]===null) h+='<p class="small">Loading harvester sessions…</p>';
     else if(ss.length) h+=mrTable(['Opened','Harvester','Monitor t','Acres cut'], ss.map(function(r){ return [new Date(r.openedAt).toLocaleString([],{ month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }), r.harvester||'–', r.monitorTons!=null?f1(r.monitorTons):'–', r.cutAcres!=null?f1(r.cutAcres):'–']; }));
     else h+='<p class="small">No harvester sessions in this field yet.</p>';
@@ -5740,7 +5850,7 @@ function ftSection(farm, o, a){
     if(isOffice() || S.isMgr) h+='<div class="addrow"><button class="btn sm" type="button" data-ft="goHarvest">Open Harvest by field</button></div>';
   } else if(FT.sect==='burn'){
     if(!BN.loaded){ bnLoad().then(function(){ FT.sig=''; ftRender(); }); }
-    var bs=(BN.log||[]).filter(function(e){ return e.farm===farm && ftKey(e.track, e.field)===o.key; }).sort(function(x,y){ return (y.burnedAt||0)-(x.burnedAt||0); });
+    var bs=(BN.log||[]).filter(function(e){ return e.farm===farm && bnFieldKeys(e).indexOf(o.key)>=0; }).sort(function(x,y){ return (y.burnedAt||0)-(x.burnedAt||0); });
     if(!BN.loaded) h+='<p class="small">Loading the burn log…</p>';
     else if(bs.length) h+=mrTable(['Burned','Acres','Category day'], bs.map(function(e){ return [bnWhen(e), e.acres||'–', e.catDay||'–']; }));
     else h+='<p class="small">No burns logged for this field.</p>';
@@ -5755,10 +5865,10 @@ function ftSection(farm, o, a){
     if(recs.length) h+=recs.map(function(r){ return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr) auto"><div class="info"><span class="l2" style="white-space:normal">'+esc(ftRecLine(r))+'</span></div>'+((isLead()||r.mine)?'<div class="acts"><button class="btn ghost sm" type="button" data-fr="del" data-id="'+esc(r.id)+'">'+(confirmKey==='frDel:'+r.id?'Sure?':'Delete')+'</button></div>':'')+'</div>'; }).join('');
     else if(!FR.form) h+='<p class="small">'+(FR.recs[farm]?'No records yet.':'Loading…')+'</p>';
     if(FR.form && FR.form.key===o.key) h+=ftRecForm(farm,o); else h+='<div class="addrow"><button class="btn sm" type="button" data-fr="new">Add record</button></div>';
-    h+='<div class="lbl" style="margin-top:12px">Harvest</div><p class="small"><b>This harvest:</b> '+esc(sum)+'</p>';
+    h+='<div class="lbl" style="margin-top:12px">Harvest</div><p class="small"><b>This harvest:</b> '+esc(sum)+'</p>'+ftBlendHtml(farm, o, ftAgg(farm, ftGroups(farm)));
     if(o.parts.length>1) h+='<p class="small"><b>Parts:</b> '+esc(parts.join(' · '))+'</p>';
     if(rows.length){
-      h+=mrTable(['Loaded','Truck','Tons','TRS','Brix','Fiber'], rows.slice(0,60).map(function(r){ var x=r.x, t=Number(x.tons)||0; return [mrDay(x.day)+' '+timeOf(x.loadedAt), (x.no||'')+(r.sh<1?' ('+Math.round(r.sh*100)+'%)':''), t?f1(t*r.sh):'–', x.trs!=null?Math.round(x.trs):'–', x.brix!=null?Number(x.brix).toFixed(1):'–', x.fiber!=null?Number(x.fiber).toFixed(1):'–']; }));
+      h+=mrTable(['Loaded','Truck','Tons','TRS','Brix','Fiber'], rows.slice(0,60).map(function(r){ var x=r.x, t=Number(x.tons)||0; return [mrDay(x.day)+' '+timeOf(x.loadedAt), (x.no||'')+(r.sh<1?' ('+Math.round(r.sh*100)+'%'+(r.blend?' blended':'')+')':''), t?f1(t*r.sh):'–', x.trs!=null?Math.round(x.trs):'–', x.brix!=null?Number(x.brix).toFixed(1):'–', x.fiber!=null?Number(x.fiber).toFixed(1):'–']; }));
       var wd=Object.keys(a.days).sort().filter(function(d){ return W[d]; });
       if(wd.length) h+='<p class="small"><b>Weather on the days it was cut</b><br>'+wd.map(function(d){ return esc(mrDay(d)+': '+mrWxShort(W[d])); }).join('<br>')+'</p>';
     } else h+='<p class="small">No loads from this field this harvest.</p>';
@@ -5877,7 +5987,8 @@ function ftRecForm(farm, o){
   }
   h+='<label class="f">'+(F.type==='Spray'||F.type==='Fertilizer'?'Applied by':'By')+'<input type="text" id="frWho" value="'+esc(F.who)+'"></label>';
   h+='<label class="f">Notes<input type="text" id="frNotes" value="'+esc(F.notes)+'" placeholder="Optional"></label>';
-  var same=ftGroups(farm).filter(function(x){ return x.track===o.track && x.key!==o.key; }).sort(function(a,b){ return a.id.localeCompare(b.id,undefined,{numeric:true}); });
+  if(F.multi){ var ml=ftGroups(farm).filter(function(x){ return x.key===F.key || F.also[x.key]; }); h+='<p class="small"><b>On '+ml.length+' fields:</b> '+esc(ml.map(function(x){ return x.id+(x.track?' '+x.track:''); }).join(', '))+'</p>'; }
+  var same=F.multi?[]:ftGroups(farm).filter(function(x){ return x.track===o.track && x.key!==o.key; }).sort(function(a,b){ return a.id.localeCompare(b.id,undefined,{numeric:true}); });
   if(same.length){
     var n=Object.keys(F.also).length;
     h+='<details'+(n?' open':'')+'><summary class="small" style="cursor:pointer">Also on other '+esc(o.track||'')+' fields'+(n?' ('+n+')':'')+'</summary><div class="fchips" style="margin-top:6px">'+same.map(function(x){ return '<button type="button" class="fchip" data-fr="also" data-v="'+esc(x.key)+'" aria-pressed="'+(!!F.also[x.key])+'">'+esc(x.id)+'</button>'; }).join('')+'</div></details>';
@@ -5910,7 +6021,7 @@ function ftSmoke(o){
   var d=new Date(), p2=function(n){ return (n<10?'0':'')+n; }, t=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'T'+p2(d.getHours())+':00';
   var src='smoke-trial.html?lat='+o.c[0].toFixed(4)+'&lon='+o.c[1].toFixed(4)+'&t='+encodeURIComponent(t)+'&ash=1';
   return '<p class="small" style="border:1px solid var(--line);border-radius:8px;padding:8px"><b>Projection only.</b> Real smoke, ash and fog can change with the wind and weather. This is not an official forecast. Check burn rules and conditions before you light.</p>'+
-    '<iframe title="Smoke map" src="'+esc(src)+'" style="width:100%;height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'+
+    '<iframe title="Smoke map" data-farm="'+esc(S.farmId)+'" data-fire="'+esc(o.key)+'" src="'+esc(src)+'" style="width:100%;height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'+
     '<div class="addrow"><button class="btn ghost sm" type="button" data-fr="smokeHide">Hide smoke map</button></div>';
 }
 document.addEventListener('click',function(e){
@@ -6080,7 +6191,7 @@ function fmDraw(){
   if(!box) return;
   if(!mp || !mp.fields || S.tab!=='farm'){ return; }
   var G=ftGroups(farm), A=ftAgg(farm,G), mode=FM.mode;
-  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
+  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.selMode, Object.keys(FT.sel).join(','), FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
   if(sig===FM.sig && FM.map) return; FM.sig=sig;
   fmLeaflet().then(function(){
     if(!$('#ftMapBox')) return;
@@ -6102,13 +6213,13 @@ function fmDraw(){
       if(mode==='cut'){ fill=cut?'#2ecc71':(notCane?'#bdc3c7':'#f1c40f'); op=cut?0.55:0.35; }
       else if(v==null){ fill='#ffffff'; op=0.08; }
       else { fill=ramp[cls(v)]; op=0.7; }
-      var sel=FT.open===o.key;
+      var sel=FT.selMode?!!FT.sel[o.key]:FT.open===o.key;
       o.parts.forEach(function(p){
         var ll=p.g.map(function(r){ return r.map(function(pt){ return [pt[1],pt[0]]; }); });
         ll.forEach(function(r){ r.forEach(function(x){ bounds.push(x); }); });
         var poly=L.polygon(ll,{ color:sel?'#ffffff':'#1a2a1f', weight:sel?3:1, fillColor:fill, fillOpacity:op });
         poly.bindTooltip('Field '+o.id+(o.track?' · '+o.track:'')+(mode!=='cut'?' · '+fmFmt(mode,v):(cut?' · cut':'')),{ sticky:true });
-        poly.on('click',function(){ FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
+        poly.on('click',function(){ if(FT.selMode){ if(FT.sel[o.key]) delete FT.sel[o.key]; else FT.sel[o.key]=1; FT.sig=''; FM.sig=''; ftRender(); return; } FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
           setTimeout(function(){ var r=document.getElementById('ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')); if(r && r.scrollIntoView) r.scrollIntoView({ block:'start', behavior:'smooth' }); },80); });
         FM.layer.addLayer(poly);
       });
@@ -6125,6 +6236,69 @@ function fmDraw(){
 }
 document.addEventListener('click',function(e){ var el=e.target.closest && e.target.closest('[data-fm]'); if(!el) return; FM.mode=el.getAttribute('data-fm'); FM.sig='';
   Array.prototype.forEach.call(document.querySelectorAll('[data-fm]'),function(b){ b.setAttribute('aria-pressed',String(b===el)); }); fmDraw(); });
+
+/* ---------- 2026-11-24: select several fields (list or map) for Harvest, Burn and Records together ---------- */
+FT.selMode=false; FT.sel={}; FT.msect='';
+/* a burn's fields: "39" or "39, 40" with its track, or "39 Johnson, 12 Kilonia" across tracks */
+function bnFieldKeys(e){ return String(e.field||'').split(/\s*,\s*/).filter(Boolean).map(function(p){ var m=p.match(/^(\S+)\s+(.+)$/); return (m && !String(e.track||'').trim()) ? ftKey(m[2],m[1]) : ftKey(e.track,p); }); }
+function ftSelList(farm){ return ftGroups(farm).filter(function(o){ return FT.sel[o.key]; }); }
+function ftSelPanel(farm){
+  var L=ftSelList(farm), n=L.length;
+  var h='<div class="card col" style="margin:8px 0;border:2px solid var(--ink)">';
+  if(!n){ return h+'<p class="small"><b>Select fields:</b> tap fields in the list or on the map. Then pick Harvest, Burn or Records for all of them.</p><div class="addrow"><button class="btn ghost sm" type="button" data-fs="done">Done</button></div></div>'; }
+  var G=ftGroups(farm), A=ftAgg(farm,G), ac=0, n2=0, tons=0, cT=0, trsT=0, bT=0, bx=0, fT=0, fb=0;
+  L.forEach(function(o){ var a=A[o.key]; ac+=o.acres||0; n2+=a.n; tons+=a.tw; cT+=a.cT; trsT+=a.trs; bT+=a.bT; bx+=a.brix; fT+=a.fT; fb+=a.fiber; });
+  var trs=cT?trsT/cT:null;
+  h+='<p class="small"><b>'+n+' field'+(n===1?'':'s')+' · '+f1(ac)+' ac</b>: '+esc(L.map(function(o){ return o.id+(o.track?' '+o.track:''); }).join(', '))+'</p>';
+  h+='<div class="fchips">'+[['harvest','Harvest'],['burn','Burn'],['records','Records']].map(function(b){ return '<button type="button" class="fchip" data-fs="sect" data-v="'+b[0]+'" aria-pressed="'+(FT.msect===b[0])+'">'+b[1]+'</button>'; }).join('')+'<button type="button" class="btn ghost sm" data-fs="clear">Clear</button></div>';
+  var c=L[0].c; if(c && FT.msect) h+='<p class="small" data-wxnow="'+c[0]+','+c[1]+'">Getting the weather…</p>';
+  var sum=ftN(n2)+' loads · '+(tons?f1(tons)+' tons · '+f1(tons/(ac||1))+' t/ac':'no mill tons yet')+(trs!=null?' · TRS '+Math.round(trs)+' · '+Math.round(tons*trs/(ac||1)).toLocaleString()+' lb sugar/ac':'')+(bT?' · brix '+(bx/bT).toFixed(1):'')+(fT?' · fiber '+(fb/fT).toFixed(1):'');
+  if(FT.msect==='harvest'){
+    h+='<p class="small"><b>Together this harvest:</b> '+esc(sum)+'</p>';
+    h+=mrTable(['Field','Acres','Tons','T/ac','TRS'], L.map(function(o){ var a=A[o.key], t=a.tw, r=a.cT?a.trs/a.cT:null; return [o.id+(o.track?' '+o.track:''), f1(o.acres), t?f1(t):'–', t&&o.acres?f1(t/o.acres):'–', r!=null?Math.round(r):'–']; }));
+  } else if(FT.msect==='burn'){
+    if(!BN.loaded){ bnLoad().then(function(){ FT.sig=''; ftRender(); }); }
+    var keys=L.map(function(o){ return o.key; }), bs=(BN.log||[]).filter(function(e){ return e.farm===farm && bnFieldKeys(e).some(function(k){ return keys.indexOf(k)>=0; }); });
+    h+=bs.length?mrTable(['Burned','Field','Acres'], bs.map(function(e){ return [bnWhen(e), e.field||'–', e.acres||'–']; })):'<p class="small">'+(BN.loaded?'No burns logged for these fields.':'Loading the burn log…')+'</p>';
+    if(isOffice() || S.isMgr) h+='<div class="addrow"><button class="btn sm" type="button" data-fs="goBurn">Log one burn for these '+n+' fields</button></div>';
+    h+=ftSmokeMulti(farm, L);
+  } else if(FT.msect==='records'){
+    var recs=(FR.recs[farm]||[]).filter(function(r){ return FT.sel[r.fkey]; });
+    if(FR.form && FR.form.multi) h+=ftRecForm(farm, L[0]);
+    else h+='<div class="addrow"><button class="btn sm" type="button" data-fs="newRec">Add one record to these '+n+' fields</button></div>';
+    h+=recs.length?recs.slice(0,40).map(function(r){ return '<div class="ros-row" style="grid-template-columns:minmax(0,1fr)"><div class="info"><span class="l2" style="white-space:normal">'+esc((r.field||'')+(r.track?' '+r.track:'')+': '+ftRecLine(r))+'</span></div></div>'; }).join(''):'<p class="small">No records yet for these fields.</p>';
+    h+='<p class="small"><b>Together this harvest:</b> '+esc(sum)+'</p>';
+  }
+  return h+'</div>';
+}
+function ftSmokeMulti(farm, L){
+  if(FT.smoke!=='multi') return '<div class="addrow"><button class="btn ghost sm" type="button" data-fs="smoke">Smoke map</button></div>';
+  var la=0, lo=0; L.forEach(function(o){ la+=o.c[0]; lo+=o.c[1]; }); la/=L.length; lo/=L.length;
+  var d=new Date(), p2=function(n){ return (n<10?'0':'')+n; }, t=d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())+'T'+p2(d.getHours())+':00';
+  var src='smoke-trial.html?lat='+la.toFixed(4)+'&lon='+lo.toFixed(4)+'&t='+encodeURIComponent(t)+'&ash=1';
+  return '<p class="small" style="border:1px solid var(--line);border-radius:8px;padding:8px"><b>Projection only.</b> Real smoke, ash and fog can change with the wind and weather. This is not an official forecast. Check burn rules and conditions before you light.</p>'+
+    '<iframe title="Smoke map" data-farm="'+esc(farm)+'" data-fire="'+esc(L.map(function(o){ return o.key; }).join(','))+'" src="'+esc(src)+'" style="width:100%;height:560px;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'+
+    '<div class="addrow"><button class="btn ghost sm" type="button" data-fs="smokeHide">Hide smoke map</button></div>';
+}
+document.addEventListener('click',function(e){
+  var el=e.target.closest && e.target.closest('[data-fs]'); if(!el) return;
+  var a=el.getAttribute('data-fs'), farm=S.farmId;
+  if(a==='start'){ FT.selMode=true; FT.open=''; FT.sect=''; FT.msect=''; FR.form=null; }
+  else if(a==='done'){ FT.selMode=false; FT.sel={}; FT.msect=''; if(FR.form&&FR.form.multi) FR.form=null; FT.smoke=''; }
+  else if(a==='clear'){ FT.sel={}; FT.msect=''; FT.smoke=''; if(FR.form&&FR.form.multi) FR.form=null; }
+  else if(a==='pick'){ var k=el.getAttribute('data-k'); if(FT.sel[k]) delete FT.sel[k]; else FT.sel[k]=1; }
+  else if(a==='sect'){ var v=el.getAttribute('data-v'); FT.msect=FT.msect===v?'':v; FT.smoke=''; if(FR.form&&FR.form.multi) FR.form=null; }
+  else if(a==='smoke'){ FT.smoke='multi'; }
+  else if(a==='smokeHide'){ FT.smoke=''; }
+  else if(a==='newRec'){ var L=ftSelList(farm); if(!L.length) return; var also={}; L.slice(1).forEach(function(o){ also[o.key]=1; });
+    FR.form={ key:L[0].key, multi:true, type:'Spray', date:today(), time:ftNowHM(), products:[{ name:'', rate:'' }], who:(S.profile&&S.profile.name)||'', notes:'', also:also };
+    if(isLead() && !TM.loaded){ try{ tmLoad().then(function(){ FT.sig=''; ftRender(); }); }catch(x){} } }
+  else if(a==='goBurn'){ var L2=ftSelList(farm); if(!L2.length) return; var tr=L2[0].track, same=L2.every(function(o){ return o.track===tr; });
+    BN.farm=farm; BN.viewFarm=farm; BN.track=same?tr:''; BN.field=L2.map(function(o){ return same?o.id:(o.id+(o.track?' '+o.track:'')); }).join(', ');
+    BN.acres=String(Math.round(L2.reduce(function(s,o){ return s+(o.acres||0); },0)*10)/10); BN.edit=''; BN.auto=true; BN.fromActive=false;
+    S.tab='tools'; S.tool='burn'; S.tabTouched=true; schedule(); setTimeout(function(){ try{ toolsShow(); bnRender(); }catch(x){} window.scrollTo(0,0); }, 50); return; }
+  FT.sig=''; FM.sig=''; ftRender();
+});
 syncTruckForm();
 startLang();
 init();
