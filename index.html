@@ -452,12 +452,6 @@ td.n,th.n{text-align:right}
         <p class="small">Give each mill's key to whoever runs that mill's scale app, one key for all your growers. It sends each net weight (tons, and TRS if it has it) and the quota, and they fill in on the Board and in the reports. Truck numbers must match the truck numbers here.</p>
         <div id="scaleList" class="ros"></div>
       </div>
-      <div class="card col" id="backupCard" hidden>
-        <h2>Backup</h2>
-        <p class="small">Every time schema.sql is run for an update, the database first saves a copy of everything (farms, loads, trucks, tools, people and their sign-in emails, no passwords). The last 5 copies are kept in Supabase. You can also download your portal here and keep the file.</p>
-        <div class="addrow"><button class="btn" type="button" data-ft="backup">Download backup</button></div>
-        <p class="small" id="backupMsg"></p>
-      </div>
       <div class="card" id="joinOtherCard" hidden>
         <h2>Join a farm instead</h2>
         <p class="small">Made your own portal by mistake? If you are the only person in it and it is new, paste the invite link or code you were given. You will ask to join that farm instead, and the farm you made here is left behind.</p>
@@ -466,6 +460,7 @@ td.n,th.n{text-align:right}
       </div>
       <div class="card col" id="backupCard" data-sk="backupCard" hidden>
         <h2>Backup</h2>
+        <p class="small">Each update also saves a copy of everything in the database first (the last 5 are kept in Supabase).</p>
         <p class="small">Saves a copy of everything to this phone as one file: farms, trucks, every logged load this harvest, and your saved sets, burn logs and other tools. Tap Prepare, wait for it to finish, then tap Save to phone. Keep the file somewhere safe, like Files or iCloud. Do this once a week.</p>
         <div class="addrow"><button class="btn" type="button" data-act="bkPrep" id="bkPrep">Prepare backup</button><button class="btn" type="button" data-act="bkSave" id="bkSave" hidden>Save to phone</button></div>
         <p class="small" id="bkMsg"></p>
@@ -5545,7 +5540,7 @@ var WHATS_NEW=[
   'Mill reports read the Tract layout receipt and Raceland\'s Daily Transaction Report too, and each day gets its weather.',
   'Main farm: if you see more than one farm, pick the one the app opens on (Farm tab).',
   'During harvest the Board opens first; after harvest the Farm tab does. Set End harvest beside Begin harvest in the Report.',
-  'Backups: every update saves a copy of all farms, loads and accounts first. Administrators can also download a backup in Setup.',
+  'Backups: every update saves a copy of all farms, loads and accounts in the database first.',
   'Field records: on any field, tap Records, then Add record for a spray, fertilizer, planting, scouting or a note. The weather for that time fills in by itself. Everyone on the farm can add one.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records, and the smoke map is in Burn for everyone (a projection only).',
   'The mill report is the certified tons and TRS: once a load has it, its tons and TRS cannot be changed in the app, and a load the mill did not core carries the tract\'s TRS and CRS.',
@@ -5584,7 +5579,7 @@ function wnRender(){
 }
 
 /* ----- Backup download (administrators) ----- */
-function bkRender(){ var c=$('#backupCard'); if(c) c.hidden=!S.isAdmin; }
+function bkRender(){}
 async function bkDownload(btn){
   if(!S.isAdmin) return; var m=$('#backupMsg'); if(btn) btn.disabled=true; if(m) m.textContent='Gathering everything…';
   try{
