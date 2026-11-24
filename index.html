@@ -2431,6 +2431,15 @@ function sgMergeExt(o,ex,withPlan){
   });
   e.acres=ac?String(Math.round(ac*100)/100):o.acres; if(withPlan && pl) e.plan=String(Math.round(pl*100)/100); e.rows=rows; return e;
 }
+/* groups side by side: each line its own acres, tons, TRS and sugar; the last line adds them */
+function sgGroupTable(gl,totLabel,sh){
+  var T={ ac:0, t:0, sg:0, st:0, tw:0, at:0, as:0, ast:0 }, n=function(x,d){ return x==null||!isFinite(x)?'–':d?x.toFixed(d):sgNf(x); };
+  var line=function(lb,ac,t,sg,st,tw,at,as,ast,b){ var tpa=ac>0&&at>0?at/ac:null, per=ast>0?as/ast:null; var cells=[lb,ac>0?f1(ac):'–',t>0?f1(t):'–',n(tpa,2),st>0?(tw/st).toFixed(1):'–',(tpa!=null&&per!=null)?sgNf(tpa*per):'–'].concat(sh!=null?[(tpa!=null&&per!=null)?sgNf(tpa*per*sh/100):'–']:[]).concat([st>0?sgNf(sg):'–']);
+    return '<tr'+(b?' style="font-weight:700"':'')+'>'+cells.map(function(c,i){ return '<td'+(i?' class="n"':'')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; };
+  var body=gl.map(function(g){ var ac=sgN(g[1])||0, c=g[2]; T.t+=c.tons; T.sg+=c.sugar; T.st+=c.sTons; T.tw+=c.trsW; if(ac>0&&c.tons>0){ T.ac+=ac; T.at+=c.tons; T.as+=c.sugar; T.ast+=c.sTons; } return line(g[0],ac,c.tons,c.sugar,c.sTons,c.trsW,c.tons,c.sugar,c.sTons,false); }).join('');
+  var head=['','Acres','Tons','Tons/acre','Avg TRS','Lb sugar/acre'].concat(sh!=null?['Grower lb/acre']:[]).concat(['Total lb sugar']);
+  return '<div class="tablewrap"><table><thead><tr>'+head.map(function(x,i){ return '<th'+(i?' class="n"':'')+'>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+body+line(totLabel,T.ac,T.t,T.sg,T.st,T.tw,T.at,T.as,T.ast,true)+'</tbody></table></div>';
+}
 /* all farms page: each farm's own entries plus cane other farms cut for it */
 function sgEffC(id){ return sgMergeExt(sgFarm(id),sgExtFor(id),false); }
 /* the cutting farm's whole crew: its own entries plus the cane it cuts for other farms */
@@ -2525,10 +2534,12 @@ function sgOut(){
         wo.innerHTML='<h2 style="margin-top:16px">Crew total, with cane cut for '+esc(nmh)+'</h2><p class="small">'+esc(f.name)+' plus '+esc(nmh)+' together. It is kept separate from the farm numbers above.</p><div class="stats">'+sgBoxes(ch,ah,sh)+'</div>'+(rh?'<h2 style="margin-top:16px">Crew estimate and projections</h2><div class="stats">'+sgRemBoxes(rh,'est')+'</div>':''); } else wo.innerHTML='';
       var exIn=sgExtFor(f.id);
       if(exIn.length){ var hn={}; exIn.forEach(function(z){ hn[z.host.name]=1; }); var nmi=Object.keys(hn).join(' and '), oi=sgEffC(f.id), ci=sgCalc(oi.rows), ai=sgN(oi.acres), ri=sgRemain(oi,ci);
-        wo.innerHTML+='<h2 style="margin-top:16px">'+esc(f.name)+' total, with cane cut by '+esc(nmi)+'</h2><p class="small">'+esc(f.name)+'\'s own harvest plus the cane '+esc(nmi)+' cut for it. It is kept separate from the farm numbers above.</p><div class="stats">'+sgBoxes(ci,ai,sh)+'</div>'+(ri?'<h2 style="margin-top:16px">'+esc(f.name)+' estimate and projections, with that cane</h2><div class="stats">'+sgRemBoxes(ri,'est')+'</div>':''); } } var xo=$('#sgX_'+f.id); if(xo) xo.innerHTML=sgExtNote(f.id); var rr=sgRemain(oe,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var cel=$('#sgC_'+f.id); if(cel){ var cs0=swChartsHtml(f.id)||''; if(cel.getAttribute('data-s')!==cs0){ cel.setAttribute('data-s',cs0); cel.innerHTML=cs0; } } var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
+        var gl=[[f.name+' harvest group',ac,c]]; exIn.forEach(function(z){ gl.push([z.host.name+' cut for '+f.name,sgN(z.x.acres),sgCalc([{ mill:z.x.mill||'', tons:z.x.tons, trs:z.x.trs, liq:'', src:'' }])]); });
+        wo.innerHTML+='<h2 style="margin-top:16px">'+esc(f.name)+' total</h2><p class="small">'+esc(f.name)+'\'s harvest group and the cane '+esc(nmi)+' cut for it, each on its own line. Only the total line adds them.</p>'+sgGroupTable(gl,f.name+' total',sh); } } var xo=$('#sgX_'+f.id); if(xo) xo.innerHTML=sgExtNote(f.id); var rr=sgRemain(oe,c); var rel=$('#sgR_'+f.id); if(rel) rel.innerHTML=sgRemBoxes(rr,'est'); var cel=$('#sgC_'+f.id); if(cel){ var cs0=swChartsHtml(f.id)||''; if(cel.getAttribute('data-s')!==cs0){ cel.setAttribute('data-s',cs0); cel.innerHTML=cs0; } } var pel=$('#sgP_'+f.id); if(pel) pel.innerHTML=sgRemBoxes(rr,'proj')||'<p class="small">Enter the total acres to harvest and an estimate to see projections.</p>';
     var rrOwn=sgRemain(oe,c); if(rrOwn){ rr=rrOwn; remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; if(rr.proj!=null&&rr.per!=null) remAll.sug+=rr.proj*rr.per; else remAll.noSug=true; remAll.rows.push([f.name,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',f1(rr.hauled),rr.left!=null?sgNf(rr.left):'–',rr.proj!=null?sgNf(rr.proj):'–',sgFin(rr).finTpa!=null?rr.finTpa.toFixed(2):'–',rr.finLpa!=null?sgNf(rr.finLpa):'–']); remAll.n++; }
-    all.tons+=cx.tons; all.sugar+=cx.sugar; all.sTons+=cx.sTons; all.trsW+=cx.trsW; cx.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
-    if(acx && cx.tons>0){ allAc+=acx; accTons+=cx.tons; accSugar+=cx.sugar; accSt+=cx.sTons; }
+    all.tons+=c.tons; all.sugar+=c.sugar; all.sTons+=c.sTons; all.trsW+=c.trsW; c.miss.forEach(function(m){ all.miss.push(f.name+' / '+m); });
+    if(ac && c.tons>0){ allAc+=ac; accTons+=c.tons; accSugar+=c.sugar; accSt+=c.sTons; }
+    sgExtOut(f.id).forEach(function(z){ var ax=sgN(z.x.acres)||0, cz=sgCalc([{ mill:z.x.mill||'', tons:z.x.tons, trs:z.x.trs, liq:'', src:'' }]); all.tons+=cz.tons; all.sugar+=cz.sugar; all.sTons+=cz.sTons; all.trsW+=cz.trsW; if(ax>0 && cz.tons>0){ allAc+=ax; accTons+=cz.tons; accSugar+=cz.sugar; accSt+=cz.sTons; } });
   });
   S.farms.forEach(function(f){ sgExtRem(f.id).forEach(function(z){ var rr=z.r; remAll.plan+=rr.plan; remAll.done+=rr.done; remAll.rem+=rr.rem; if(rr.left!=null) remAll.left+=rr.left; else remAll.noEst=true; remAll.hauled+=rr.hauled; if(rr.proj!=null&&rr.per!=null) remAll.sug+=rr.proj*rr.per; else remAll.noSug=true; remAll.rows.push([z.label,f1(rr.plan),f1(rr.done),f1(rr.rem),rr.est!=null?rr.est.toFixed(2):'–',f1(rr.hauled),rr.left!=null?sgNf(rr.left):'–',rr.proj!=null?sgNf(rr.proj):'–',sgFin(rr).finTpa!=null?rr.finTpa.toFixed(2):'–',rr.finLpa!=null?sgNf(rr.finLpa):'–']); remAll.n++; }); });
   var cal=$('#sgCAll'); if(cal){ var ca0=swChartsHtml('*'); if(cal.getAttribute('data-s')!==ca0){ cal.setAttribute('data-s',ca0); cal.innerHTML=ca0; } }
@@ -2616,7 +2627,7 @@ function sgRender(){
         '<div class="small" id="sgL_'+esc(f.id)+'_'+i+'"></div></div>';
     });
     h+='<div style="margin-top:12px"><button class="btn" type="button" data-sg="add" data-fid="'+esc(f.id)+'">+ Add a mill</button></div>'+sgExtHtml(f,o)+
-      '<h2 style="margin-top:16px">'+esc(f.name)+' combined, harvested to date</h2><div class="stats" id="sgO_'+esc(f.id)+'"></div><div id="sgW_'+esc(f.id)+'"></div>'+
+      '<h2 style="margin-top:16px">'+esc(f.name)+' combined, harvested to date</h2><div class="stats" id="sgO_'+esc(f.id)+'"></div><div id="sgW_'+esc(f.id)+'"></div>'+sgCkBox(f.id)+
       '<h2 style="margin-top:16px">Estimate for the rest</h2><div class="toolbar"><label class="f">Total acres to harvest<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="plan" data-fid="'+esc(f.id)+'" value="'+esc(o.plan||'')+'"></label>'+
       '<label class="f">Remainder est. tons per acre<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="est" data-fid="'+esc(f.id)+'" value="'+esc(o.est||'')+'" placeholder="blank = tons per acre so far"></label>'+
       '<label class="f">Remainder est. TRS<input type="number" step="0.01" min="0" inputmode="decimal" data-sgf="estTrs" data-fid="'+esc(f.id)+'" value="'+esc(o.estTrs||'')+'" placeholder="blank = TRS so far"></label></div>'+
@@ -2624,7 +2635,7 @@ function sgRender(){
       '<h2 style="margin-top:16px">Projections</h2><div class="stats" id="sgP_'+esc(f.id)+'"></div>'+
       sgSaveBox(f.id,o.date)+'<div id="sgC_'+esc(f.id)+'"></div></div>';
   });
-  if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2>'+sgDateBox('all',SG.gdate)+'<div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined, harvested to date</h2><div class="stats" id="sgAll"></div><h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div>'+sgSaveBox('all',SG.gdate)+'<div id="sgCAll"></div></div>';
+  if(vw==='*') h+='<div class="card"><h2>All farms, broken down</h2>'+sgDateBox('all',SG.gdate)+'<div id="sgBreak"></div><h2 style="margin-top:16px">All farms combined, harvested to date</h2><div class="stats" id="sgAll"></div>'+sgCkBox('all')+'<h2 style="margin-top:16px">Left to harvest and ship, all farms</h2><div id="sgRemAll"></div>'+sgSaveBox('all',SG.gdate)+'<div id="sgCAll"></div></div>';
   h+='<div class="card"><div class="toolbar"><button class="btn" type="button" data-pdf="sugar">Share PDF report</button><button class="btn ghost" type="button" data-pdf="sugar" data-view="1">View PDF</button></div><p class="small">A PDF of the numbers on this screen, to send by text, email or print.</p></div>';
   root.innerHTML=h; sgOut(); sgLogRender(); sgFoot(); sgModeRender(); sgMark();
 }
@@ -2650,13 +2661,13 @@ function sgAggM(ms){ var t=0,sg=0,st=0,tw=0; ms.forEach(function(m){ var n=sgN(m
 function sgDateBox(scope,date){ return '<label class="f">Date of this data set<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||sgDefDay())+'"></label>'; }
 /* 2026-11-24: Cane Track data is the day before (the mill report comes the next morning) */
 function sgDefDay(){ return addDays(today(),-1); }
+function sgCkBox(scope){ return '<h2 style="margin-top:16px">Checkpoints</h2><div data-sgcmp="'+esc(scope)+'"></div>'; }
 function sgSaveBox(scope,date){
   return '<div class="sgsave" style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px"><div class="toolbar">'+
     '<button class="btn" type="button" data-sg="save" data-scope="'+esc(scope)+'">Save as new set</button>'+
     '<button class="btn" type="button" data-sg="update" data-scope="'+esc(scope)+'" hidden>Update this set</button>'+
     '<button class="btn ghost" type="button" data-sg="cancel" data-scope="'+esc(scope)+'" hidden>Cancel edit</button></div>'+
     '<p class="small" data-sgmode="'+esc(scope)+'"></p>'+
-    '<div class="lbl" style="margin-top:12px">Checkpoints</div><div data-sgcmp="'+esc(scope)+'"></div>'+
     '<div class="lbl" style="margin-top:12px">Progress</div><div data-sgprog="'+esc(scope)+'"></div>'+
     '<div class="lbl" style="margin-top:12px">Saved log</div><div data-sglog="'+esc(scope)+'"></div>'+
     '<div class="toolbar"><button class="btn ghost sm" type="button" data-sg="csvAll" data-scope="'+esc(scope)+'">Download all as CSV</button></div></div>';
@@ -2665,9 +2676,10 @@ function sgSnapshot(scope){
   var farms=[], date=scope==='all' ? (SG.gdate||sgDefDay()) : (sgFarm(scope).date||sgDefDay());
   S.farms.forEach(function(f){
     if(scope!=='all' && f.id!==scope) return;
-    var o=(scope==='all'?sgEffC:sgEff)(f.id), ms=[];
+    var o=sgEff(f.id), ms=[];
     o.rows.forEach(function(r){ if(sgN(r.tons)==null && sgN(r.trs)==null) return; var lq=sgPct(r.liq); if(lq==null) lq=sgPct(SG.liq); if(lq==null) lq=100; ms.push({ mill:r.mill||'', tons:sgN(r.tons)||0, trs:sgN(r.trs)||0, liq:lq }); });
     if(ms.length || sgN(o.acres)) farms.push({ id:f.id, name:f.name, acres:sgN(o.acres)||0, mills:ms });
+    if(scope==='all') sgExtOut(f.id).forEach(function(z){ var lq=sgPct(SG.liq); if(lq==null) lq=100; farms.push({ id:f.id+'>'+z.to.id, name:f.name+' cut for '+z.to.name, ext:true, acres:sgN(z.x.acres)||0, mills:[{ mill:z.x.mill||'', tons:sgN(z.x.tons)||0, trs:sgN(z.x.trs)||0, liq:lq }] }); });
   });
   return { id:scope+'|'+date+'|'+Date.now(), scope:scope, date:date, savedAt:Date.now(), by:(S.profile&&S.profile.name)||'', share:sgN(SG.share), farms:farms };
 }
@@ -5721,6 +5733,8 @@ var WHATS_NEW=[
   'Once a farm has a field map, every track, field and variety list comes from the map. Old typed-in fields are no longer shown, and an administrator can clear them in Setup.',
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
+  'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Cane Track: Checkpoints now sit above the estimate and projections, so the screen reads in order: mill numbers, harvested to date, checkpoints, estimate, projections.',
   'Cane Track: the date fills in as yesterday, and the tons and TRS fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t. You type the acres. Check it, then tap Save to keep the checkpoint.',
   'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
