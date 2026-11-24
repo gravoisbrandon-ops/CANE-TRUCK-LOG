@@ -5756,7 +5756,9 @@ function ftStub(label, next){
 function ftVar(code, farm){
   var c=String(code||'').trim(); if(!c) return '';
   var names=rawVarieties(farm).slice(); (FT.loads[farm]||[]).forEach(function(x){ if(x.variety && names.indexOf(x.variety)<0) names.push(x.variety); });
-  for(var i=0;i<names.length;i++){ var d=String(names[i]).match(/(\d+)\s*$/); if(String(names[i]).toLowerCase()===c.toLowerCase() || (d && d[1]===c)) return names[i]; }
+  names=names.filter(function(n){ return !/[,+\/&;]/.test(String(n)); });   /* 2026-11-24: never a mixed entry like "885,739,267" */
+  for(var j=0;j<names.length;j++){ if(String(names[j]).toLowerCase()===c.toLowerCase()) return names[j]; }
+  for(var i=0;i<names.length;i++){ var d=String(names[i]).match(/(\d+)\s*$/); if(d && d[1]===c) return names[i]; }
   return c;
 }
 function ftGroups(farm){
