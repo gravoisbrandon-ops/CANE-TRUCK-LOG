@@ -809,7 +809,7 @@ async function toolsRefresh(){
 }
 setInterval(toolsRefresh, 8000);
 setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(isLead()) loadPeople(); if(S.tab==='board') loadPending(); } }, 5000);
-document.addEventListener('visibilitychange', function(){ if(!document.hidden && S.authed && !S.pending){ poke(); schedule(); setTimeout(toolsRefresh,300); } });
+document.addEventListener('visibilitychange', function(){ if(document.hidden){ S.hiddenAt=Date.now(); return; } if(S.authed && !S.pending){ if(S.hiddenAt && Date.now()-S.hiddenAt>20*60000){ S.farmTouched=false; if(ftApplyMain()) toast('Back on your main farm, '+farmName(ftMain())+'.'); } poke(); schedule(); setTimeout(toolsRefresh,300); } });
 function col(p){ return collection(p); }
 function dref(p){ return docRef(p); }
 function docs(snap){ return snap.docs.map(function(d){ var o=Object.assign({}, d.data()); o.id=d.id; return o; }); }
@@ -1031,7 +1031,7 @@ async function enter(nm){
   applyWho(w,nm); prefLoad();
 }
 /* 2026-11-24: this person's own settings (main farm) live with the account, so every phone opens on it */
-function prefLoad(){ if(S.pending){ S.prefsLoaded=true; return; } rpc('user_pref_get',{}).then(function(p){ S.prefs=p||{}; if(S.prefs.mainFarm!=null) lsSet(FT_MAIN_KEY,S.prefs.mainFarm||''); S.prefsLoaded=true; schedule(); }).catch(function(){ S.prefsLoaded=true; schedule(); }); }
+function prefLoad(){ if(S.pending){ S.prefsLoaded=true; return; } rpc('user_pref_get',{}).then(function(p){ S.prefs=p||{}; if(S.prefs.mainFarm!=null) lsSet(FT_MAIN_KEY,S.prefs.mainFarm||''); S.prefsLoaded=true; if(S.farms.length) ftApplyMain(); schedule(); }).catch(function(){ S.prefsLoaded=true; schedule(); }); }
 function prefSave(k,v){ try{ rpc('user_pref_set',{ p_key:k, p_val:v }).catch(function(){}); }catch(e){} }
 async function refreshWho(){
   try{
@@ -2635,7 +2635,9 @@ function sgShow(){
   if(!SG.logLoaded) sgLoad();
 }
 function sgAggM(ms){ var t=0,sg=0,st=0,tw=0; ms.forEach(function(m){ var n=sgN(m.tons), r=sgN(m.trs), l=sgN(m.liq); if(n!=null&&n>0){ t+=n; if(r!=null&&r>0){ sg+=n*r*(l==null?100:l)/100; st+=n; tw+=n*r; } } }); return { tons:t, sugar:sg, sTons:st, trsW:tw }; }
-function sgDateBox(scope,date){ return '<label class="f">Date of this data set<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||today())+'"></label>'; }
+function sgDateBox(scope,date){ return '<label class="f">Date of this data set<input type="date" data-sgdate="'+esc(scope)+'" value="'+esc(date||sgDefDay())+'"></label>'; }
+/* 2026-11-24: Cane Track data is the day before (the mill report comes the next morning) */
+function sgDefDay(){ return addDays(today(),-1); }
 function sgSaveBox(scope,date){
   return '<div class="sgsave" style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px"><div class="toolbar">'+
     '<button class="btn" type="button" data-sg="save" data-scope="'+esc(scope)+'">Save as new set</button>'+
@@ -2648,7 +2650,7 @@ function sgSaveBox(scope,date){
     '<div class="toolbar"><button class="btn ghost sm" type="button" data-sg="csvAll" data-scope="'+esc(scope)+'">Download all as CSV</button></div></div>';
 }
 function sgSnapshot(scope){
-  var farms=[], date=scope==='all' ? (SG.gdate||today()) : (sgFarm(scope).date||today());
+  var farms=[], date=scope==='all' ? (SG.gdate||sgDefDay()) : (sgFarm(scope).date||sgDefDay());
   S.farms.forEach(function(f){
     if(scope!=='all' && f.id!==scope) return;
     var o=(scope==='all'?sgEffC:sgEff)(f.id), ms=[];
@@ -4616,7 +4618,7 @@ document.addEventListener('change', function(e){
   else if(id==='selField'){ S.active.field=e.target.value; if(mapOk(S.farmId) && S.active.field){ var mo=ftGroups(S.farmId).filter(function(o){ return o.id===S.active.field && (!S.active.track || o.track===S.active.track); }); if(mo.length===1){ S.active.track=mo[0].track||S.active.track; if(mo[0].variety) S.active.variety=mo[0].variety; } } saveActive(); last.board=''; schedule(); }
   else if(id==='selVariety'){ S.active.variety=e.target.value; saveActive(); last.board=''; schedule(); }
   else if(id==='selFarm' && isOffice()){
-    S.profile=Object.assign({name:'',role:'office',farm:''}, S.profile||{}); S.profile.farm=e.target.value; saveProfile(); schedule();
+    S.profile=Object.assign({name:'',role:'office',farm:''}, S.profile||{}); S.profile.farm=e.target.value; saveProfile(); S.farmTouched=true; schedule();
   }
   else if(e.target.classList && e.target.classList.contains('pperson')){
     var row=e.target.closest('.ros-row'), sels=row.querySelectorAll('select.pperson');
@@ -5689,6 +5691,7 @@ var WHATS_NEW=[
   'Once a farm has a field map, every track, field and variety list comes from the map. Old typed-in fields are no longer shown, and an administrator can clear them in Setup.',
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
+  'Cane Track: the date fills in as yesterday, the day the mill report covers.',
   'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
   'Select fields (Farm tab): pick several fields on the list or the map, then see Harvest for all of them together, log one burn, or add one record to all of them.',
   'Weather shows by itself on each field\'s Harvest, Burn and Records. The smoke map now lives in the Burn log (See smoke map) and in each field\'s Burn, for everyone (a projection only).',
@@ -5707,14 +5710,17 @@ function inHarvest(f){
   var lu=''; (S.trucks||[]).forEach(function(x){ if(x.farm===f.id && x.lastUsed && x.lastUsed>lu) lu=x.lastUsed; });
   return dayDiff(lu||st, t)<=14;
 }
+/* 2026-11-24: open on the main farm right away (no switching a few seconds later), and again when the app comes back after a while */
+function ftApplyMain(){ var m=ftMain(); if(!isOffice() || !m || !farmById(m) || S.farmTouched) return false;
+  S.profile=Object.assign({ name:'', role:'office', farm:'' }, S.profile||{}); if(S.profile.farm===m) return false; S.profile.farm=m; try{ saveProfile(); }catch(e){} return true; }
 function ftStartup(){
   if(S.ftStarted || !S.farms.length || S.pending || S.isMill) return;
+  ftApplyMain();
   if(!S.trucksSeenAt) S.trucksSeenAt=Date.now();
   if(!(S.trucks||[]).length && Date.now()-S.trucksSeenAt<4000){ setTimeout(schedule, 1000); return; }
   if(!S.prefsLoaded && Date.now()-S.trucksSeenAt<5000){ setTimeout(schedule, 400); return; }   /* the main farm saved with the account */   /* wait a moment for the trucks (when each was last used) */
   S.ftStarted=true;
-  var m=ftMain();
-  if(isOffice() && m && farmById(m)){ S.profile=Object.assign({ name:'', role:'office', farm:'' }, S.profile||{}); if(S.profile.farm!==m){ S.profile.farm=m; try{ saveProfile(); }catch(e){} } }
+  var m=ftMain(); ftApplyMain();
   if(!S.tabTouched && S.tab==='board') S.tab=inHarvest(farmById(m && farmById(m) && isOffice() ? m : (S.farmId || (S.profile&&S.profile.farm) || S.farms[0].id))) ? 'board' : 'farm';
 }
 
