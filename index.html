@@ -334,6 +334,7 @@ td.n,th.n{text-align:right}
     </section>
 
     <section id="view-farm" hidden aria-label="Farm overview" style="display:flex;flex-direction:column;gap:16px">
+      <div id="ftPickBar" hidden></div>
       <div class="card col" id="ftMapCard" hidden style="padding:10px">
         <div class="fchips" role="group" aria-label="Color the fields by" id="ftModes"></div>
         <div id="ftMapBox" style="height:360px;border-radius:10px;overflow:hidden;margin-top:8px;background:#dfe6df"></div>
@@ -5812,8 +5813,10 @@ function ftRender(){
     mainH+='<div class="card col"><label class="f">Main farm (the app opens on it)<select id="ftMain"><option value="">None</option>'+S.farms.map(function(x){ return '<option value="'+esc(x.id)+'"'+(x.id===ftMain()?' selected':'')+'>'+esc(x.name)+'</option>'; }).join('')+'</select></label>'+
       '<p class="small">Viewing <b>'+esc(farmName(farm))+'</b>. Switch farms with the bar at the top.</p></div>';
   }
-  if(HVPICK && HVPICK.kind==='burn'){ var pn=Object.keys(HVPICK.sel).length; h+='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the fields being burned</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on each field, or tap them on the map.</p><div class="toolbar"><button class="btn primary sm" type="button" data-ft="pickUse"'+(pn?'':' disabled')+'>'+(pn?'Use '+pn+' field'+(pn===1?'':'s'):'Pick a field')+'</button><button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>'; }
-  else if(HVPICK) h+='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the field for '+esc(HVPICK.h)+'</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on a field, or tap it on the map.</p><div class="toolbar"><button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>';
+  var pb='';
+  if(HVPICK && HVPICK.kind==='burn'){ var pn=Object.keys(HVPICK.sel).length; pb='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the fields being burned</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on each field, or tap them on the map.</p><div class="toolbar">'+(pn?'<button class="btn sm" type="button" data-ft="pickUse">Use '+pn+' field'+(pn===1?'':'s')+'</button>':'')+'<button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>'; }
+  else if(HVPICK) pb='<div class="card col" style="border-color:var(--accent,#2e7d32)"><b>Pick the field for '+esc(HVPICK.h)+'</b><p class="small">Nearest fields are first. Tap <b>Pick</b> on a field, or tap it on the map.</p><div class="toolbar"><button class="btn ghost sm" type="button" data-ft="pickNone">Back without picking</button></div></div>';
+  var pbe=$('#ftPickBar'); if(pbe){ pbe.innerHTML=pb; pbe.hidden=!pb; }
   h+='<div class="card col"><h2>'+esc(farmName(farm))+' fields</h2>';
   if(FT.mapBusy[farm] && !mp) h+='<p class="small">Loading the field map…</p>';
   else if(!mp) h+='<p class="small">'+(FT.mapErr?'Run the latest schema.sql in Supabase to turn on field maps.':'No field map yet.')+(isLead()?' Upload the Yote Farmview export below (a zipped shapefile or a .geojson).':' An administrator or manager uploads it.')+'</p>';
