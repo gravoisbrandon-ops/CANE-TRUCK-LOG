@@ -39,7 +39,7 @@ begin
   insert into backup_runs (note) values ('before running schema.sql') returning id into r;
   for t in select table_name from information_schema.tables
             where table_schema = 'public' and table_type = 'BASE TABLE'
-              and table_name not in ('backup_runs', 'backup_rows', 'mill_report_files', 'docs_history') loop
+              and table_name not in ('backup_runs', 'backup_rows', 'mill_report_files', 'mill_report_unknown', 'docs_history') loop
     execute format('insert into backup_rows (run_id, tbl, row) select %s, %L, to_jsonb(x) from public.%I x', r, t, t);
   end loop;
   if to_regclass('auth.users') is not null then
@@ -364,6 +364,9 @@ begin
   elsif p_parent = 'tools' and w.o_role = 'manager' and w.o_farm is not null then   -- a manager sees their own farm's Burn log and Sugar per acre, and the shared Tank mix
     select coalesce(jsonb_agg(jsonb_build_object('id', substr(d.id, length(w.o_org) + 2), 'data', d.data) order by d.path), '[]'::jsonb) into res
       from (select * from docs where parent = 'tools' and id in (w.o_org || '.burnlog-' || w.o_farm, w.o_org || '.sugarlog-' || w.o_farm, w.o_org || '.yield-' || w.o_farm, w.o_org || '.tankmix') limit p_limit) d;
+  elsif p_parent = 'tools' and w.o_role = 'crew' and w.o_farm is not null then   -- 2026-11-24: crew read their own farm's Burn log (Farm tab > Burn)
+    select coalesce(jsonb_agg(jsonb_build_object('id', substr(d.id, length(w.o_org) + 2), 'data', d.data) order by d.path), '[]'::jsonb) into res
+      from (select * from docs where parent = 'tools' and id = w.o_org || '.burnlog-' || w.o_farm limit p_limit) d;
   elsif p_parent = 'trucks' then
     select coalesce(jsonb_agg(jsonb_build_object('id', d.id, 'data', d.data) order by d.path), '[]'::jsonb) into res
       from (select * from docs where parent = 'trucks' and _farm_in(w.o_org, data->>'farm') and (w.o_role = 'admin' or data->>'farm' = w.o_farm) limit p_limit) d;
@@ -1376,7 +1379,7 @@ begin
       sms := _mr_ms(p_day, e->>'time');
       select d.path, d.data->>'millReport' as mr into b from docs d
         where d.parent = any(parents) and lower(coalesce(d.data->>'mill', '')) = lower(p_mill)
-          and _mr_truck_ok(d.data->>'no', e->>'truck')
+          and (_mr_truck_ok(d.data->>'no', e->>'truck') or (coalesce(e->>'trailer', '') <> '' and upper(coalesce(d.data->>'no', '')) = upper(e->>'trailer')))
           and (d.data->>'loadedAt') ~ '^[0-9]+$'
           and (d.data->>'loadedAt')::bigint between sms - 4 * 3600000 and sms - 10 * 60000
         order by (d.data->>'loadedAt')::bigint desc limit 1;
@@ -1408,7 +1411,7 @@ create or replace function public._mr_apply(p_org text, p_only text, p_rep jsonb
 language plpgsql security definer set search_path = public as $$
 declare dday date; loads jsonb; hc text; fm record; ml text; g text; fh text; r jsonb; sc int; bn int := -1; best jsonb; bf text; bm text;
   rk text := _mr_rkey(p_rep); pr jsonb; e jsonb; ld jsonb; patch jsonb; trs numeric; tons numeric; usedI int[] := '{}'; un jsonb := '[]'::jsonb;
-  tcrs numeric; mt numeric := 0; rtons numeric := 0; avgTrs numeric; bfld jsonb; nolog jsonb; trk text; dpath text;
+  nk int; blend jsonb; tcrs numeric; mt numeric := 0; rtons numeric := 0; avgTrs numeric; bfld jsonb; nolog jsonb; trk text; dpath text;
 begin
   begin dday := (p_rep->>'day')::date; exception when others then return jsonb_build_object('status', 'bad', 'why', 'no date'); end;
   loads := p_rep->'loads';
@@ -1439,9 +1442,10 @@ begin
         select nullif(x.value, '') into fh from jsonb_each_text(coalesce(fm.data->'haulerMillCodes', '{}'::jsonb)) x where lower(x.key) = lower(ml) limit 1;
         fh := coalesce(fh, nullif(fm.data->>'haulerCode', ''));
       end if;
-      if hc is not null and fh is not null and ltrim(fh, '0') <> ltrim(hc, '0') then continue; end if;
+      -- (a hauler number set in Setup that differs from the report's only lowers the score: the trucks and times decide)
       r := _mr_pairs(fm.id, ml, dday, loads);
       sc := (r->>'n')::int * 4 + case when coalesce(g, '') <> '' then 2 else 0 end
+            - case when hc is not null and fh is not null and ltrim(fh, '0') <> ltrim(hc, '0') then 3 else 0 end
             + case when coalesce(p_rep->>'mill', '') <> '' and position(lower(split_part(ml, ' ', 1)) in lower(p_rep->>'mill')) > 0 then 1 else 0 end;
       if (r->>'n')::int > 0 and sc > bn then bn := sc; best := r; bf := fm.id; bm := ml; end if;
     end loop;
@@ -1508,6 +1512,36 @@ begin
       and lower(coalesce(d.data->>'mill', '')) = lower(bm) and d.data->>'millReport' is null
       and (trk is null or lower(coalesce(d.data->>'track', '')) = trk) and (d.data->>'loadedAt') ~ '^[0-9]+$';
 
+  -- 2026-11-24: loads with no harvester behind them (none picked, no Edge 101, no split) from two or more fields that day
+  -- are blended: the day's tons and TRS for those fields are one group, shared by each field's acres (from its field map)
+  -- (a field typed as "43,47,56" or "32.39" is those fields)
+  select count(*) into nk from (select distinct lower(trim(coalesce(d.data->>'track', ''))) || '|' || lower(trim(split_part(ff, '-', 1)))
+    from docs d, regexp_split_to_table(coalesce(d.data->>'field', ''), '\s*[,.+/&;]\s*') ff where trim(ff) <> '' and d.parent in ('farms/' || bf || '/days/' || dday::text || '/loads', 'farms/' || bf || '/days/' || (dday - 1)::text || '/loads')
+      and d.data->>'millReport' = rk and coalesce(d.data->>'harvester', '') = '' and coalesce(d.data->>'field', '') <> ''
+      and jsonb_typeof(d.data->'split') is distinct from 'array' and jsonb_typeof(d.data->'dumps') is distinct from 'array') q;
+  blend := null;
+  if nk >= 2 then
+    select jsonb_build_object('fields', jsonb_agg(jsonb_build_object('track', g.t, 'field', g.f, 'acres', g.ac) order by g.t, g.f),
+             'loads', max(g.n), 'tons', round(max(g.tons), 2), 'trs', round(max(g.trs), 2),
+             'acres', round(sum(g.ac), 2), 'tpa', case when sum(g.ac) > 0 then round(max(g.tons) / sum(g.ac), 2) end,
+             'lbsAc', case when sum(g.ac) > 0 and max(g.trs) is not null then round(max(g.tons) * max(g.trs) / sum(g.ac)) end)
+      into blend
+      from (select k.t, k.f,
+              (select sum((x->>'acres')::numeric) from field_maps fmp, jsonb_array_elements(fmp.data->'fields') x
+                where fmp.farm = bf and lower(trim(coalesce(x->>'track', ''))) || '|' || lower(trim(split_part(x->>'field', '-', 1))) = k.key) as ac,
+              t.n, t.tons, t.trs
+              from (select distinct lower(trim(coalesce(d.data->>'track', ''))) || '|' || lower(trim(split_part(ff, '-', 1))) as key,
+                           coalesce(d.data->>'track', '') as t, trim(split_part(ff, '-', 1)) as f
+                      from docs d, regexp_split_to_table(coalesce(d.data->>'field', ''), '\s*[,.+/&;]\s*') ff where trim(ff) <> '' and d.parent in ('farms/' || bf || '/days/' || dday::text || '/loads', 'farms/' || bf || '/days/' || (dday - 1)::text || '/loads')
+                       and d.data->>'millReport' = rk and coalesce(d.data->>'harvester', '') = '' and coalesce(d.data->>'field', '') <> ''
+                       and jsonb_typeof(d.data->'split') is distinct from 'array' and jsonb_typeof(d.data->'dumps') is distinct from 'array') k,
+                   (select count(*) as n, sum(_mr_num(d.data->'tons')) as tons,
+                           sum(_mr_num(d.data->'tons') * _mr_num(d.data->'trs')) / nullif(sum(case when d.data->>'trs' is not null then _mr_num(d.data->'tons') end), 0) as trs
+                      from docs d where d.parent in ('farms/' || bf || '/days/' || dday::text || '/loads', 'farms/' || bf || '/days/' || (dday - 1)::text || '/loads')
+                       and d.data->>'millReport' = rk and coalesce(d.data->>'harvester', '') = '' and coalesce(d.data->>'field', '') <> ''
+                       and jsonb_typeof(d.data->'split') is distinct from 'array' and jsonb_typeof(d.data->'dumps') is distinct from 'array') t) g;
+  end if;
+
   -- by field: each load's tons split by its parts (one part, or the Edge 101 split), TRS from the loads the mill cored
   select coalesce(jsonb_agg(jsonb_build_object('track', q.track, 'field', q.field, 'variety', q.variety, 'stubble', q.stubble,
            'loads', round(q.loads, 2), 'tons', round(q.tons, 2), 'coredTons', round(q.ck, 2),
@@ -1529,6 +1563,8 @@ begin
         ) p
        where d.parent in ('farms/' || bf || '/days/' || dday::text || '/loads', 'farms/' || bf || '/days/' || (dday - 1)::text || '/loads')
          and d.data->>'millReport' = rk
+         and not (blend is not null and coalesce(d.data->>'harvester', '') = '' and coalesce(d.data->>'field', '') <> ''
+                  and jsonb_typeof(d.data->'split') is distinct from 'array' and jsonb_typeof(d.data->'dumps') is distinct from 'array')
        group by 1, 2, 3, 4) q;
 
   perform _doc_put(dpath, jsonb_strip_nulls(jsonb_build_object(
@@ -1536,7 +1572,7 @@ begin
     'account', p_rep->>'account', 'accountName', p_rep->>'accountName', 'cropDay', p_rep->'cropDay', 'file', p_rep->>'file',
     'loads', jsonb_array_length(loads), 'tons', round(rtons, 2), 'matched', (best->>'n')::int, 'matchedTons', round(mt, 2),
     'cored', (select count(*) from jsonb_array_elements(loads) x where _mr_num(x->'trs') is not null),
-    'trs', round(avgTrs, 2), 'totals', p_rep->'totals', 'unmatched', un, 'noWeight', nolog, 'byField', bfld,
+    'trs', round(avgTrs, 2), 'totals', p_rep->'totals', 'unmatched', un, 'noWeight', nolog, 'byField', bfld, 'blended', blend,
     'source', p_source, 'at', (extract(epoch from now()) * 1000)::bigint, 'report', p_rep)));
   return jsonb_build_object('status', 'ok', 'farm', bf, 'mill', bm, 'day', dday, 'account', p_rep->>'accountName', 'id', rk,
     'loads', jsonb_array_length(loads), 'matched', (best->>'n')::int, 'unmatched', jsonb_array_length(un), 'noWeight', jsonb_array_length(nolog),
@@ -1883,3 +1919,70 @@ end $$;
 revoke execute on function public._fr_ok(text) from public, anon, authenticated;
 revoke execute on function public.field_record_add(text, jsonb, jsonb), public.field_record_list(text), public.field_record_del(text, boolean) from public, anon;
 grant execute on function public.field_record_add(text, jsonb, jsonb), public.field_record_list(text), public.field_record_del(text, boolean) to authenticated;
+
+-- ===== 2026-11-24: mill report layouts the reader does not know yet, kept for the site owner =====
+-- When a PDF that comes in is not a layout the app can read, a copy is kept here (once per file), so the site owner
+-- can see it in the Mill tab ("Report layouts to add") and have the reader taught that mill's layout.
+create table if not exists public.mill_report_unknown (
+  id      uuid primary key default gen_random_uuid(),
+  org     text not null,
+  sha     text not null,
+  name    text,
+  note    text,
+  pdf     text not null,
+  bytes   int,
+  by_name text,
+  at      timestamptz not null default now(),
+  unique (org, sha)
+);
+alter table public.mill_report_unknown enable row level security;
+revoke all on public.mill_report_unknown from anon, authenticated;
+
+-- p_key: the email path (the portal's mill report key); without it, the signed-in administrator or manager.
+create or replace function public.mill_report_unknown_add(p_key text, p_pdf text, p_name text, p_note text) returns void
+language plpgsql security definer set search_path = public as $$
+declare o text; w record; b bytea; nm text;
+begin
+  if coalesce(p_key, '') <> '' then
+    select org into o from mill_report_keys where key_hash = encode(sha256(convert_to(p_key, 'utf8')), 'hex');
+    if o is null then raise exception 'bad key' using errcode = '42501'; end if;
+    nm := 'email';
+  else
+    select * into w from _who();
+    if w.o_role not in ('admin', 'manager') then raise exception 'denied' using errcode = '42501'; end if;
+    o := w.o_org; select name into nm from profiles where user_id = auth.uid();
+  end if;
+  if coalesce(p_pdf, '') = '' or length(p_pdf) > 12000000 then return; end if;
+  begin b := decode(p_pdf, 'base64'); exception when others then return; end;
+  if substring(b from 1 for 5) <> convert_to('%PDF-', 'utf8') then return; end if;
+  insert into mill_report_unknown (org, sha, name, note, pdf, bytes, by_name)
+    values (o, encode(sha256(b), 'hex'), left(p_name, 160), left(p_note, 300), p_pdf, length(b), nm)
+    on conflict (org, sha) do nothing;
+end $$;
+
+-- The site owner's list, a file, and done.
+create or replace function public.mill_report_unknown_list() returns jsonb
+language plpgsql security definer set search_path = public as $$
+begin
+  if not _is_platform_owner(auth.uid()) then raise exception 'denied' using errcode = '42501'; end if;
+  return (select coalesce(jsonb_agg(jsonb_build_object('id', u.id, 'portal', (select name from orgs where id = u.org), 'name', u.name, 'note', u.note,
+            'bytes', u.bytes, 'by', u.by_name, 'at', (extract(epoch from u.at) * 1000)::bigint) order by u.at desc), '[]'::jsonb) from mill_report_unknown u);
+end $$;
+create or replace function public.mill_report_unknown_get(p_id text) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare u record;
+begin
+  if not _is_platform_owner(auth.uid()) then raise exception 'denied' using errcode = '42501'; end if;
+  select * into u from mill_report_unknown where id::text = p_id;
+  if not found then return null; end if;
+  return jsonb_build_object('name', u.name, 'pdf', u.pdf, 'bytes', u.bytes);
+end $$;
+create or replace function public.mill_report_unknown_done(p_id text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not _is_platform_owner(auth.uid()) then raise exception 'denied' using errcode = '42501'; end if;
+  delete from mill_report_unknown where id::text = p_id;
+end $$;
+revoke execute on function public.mill_report_unknown_add(text, text, text, text), public.mill_report_unknown_list(), public.mill_report_unknown_get(text), public.mill_report_unknown_done(text) from public, anon;
+grant execute on function public.mill_report_unknown_add(text, text, text, text) to anon, authenticated;
+grant execute on function public.mill_report_unknown_list(), public.mill_report_unknown_get(text), public.mill_report_unknown_done(text) to authenticated;

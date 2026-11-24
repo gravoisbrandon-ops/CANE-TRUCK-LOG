@@ -51,6 +51,11 @@ var OBS=null; (function(){ var m={wd:'dir',ws:'ws',tr:'tr',mx:'mx',rh:'rh',tf:'t
 var src=fromLog?{lat:qlat,lng:qlon}:{lat:30.03,lng:-90.77}, H=null, startT=qt, nowT=''; /* H: hourly arrays */
 var map=L.map('map').setView([src.lat,src.lng],9);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; OpenStreetMap'}).addTo(map);
+/* 2026-11-24: the farm's field outlines from the truck log (the field burning in orange), sent by the page this map sits in */
+var fieldLayer=L.layerGroup().addTo(map);
+window.addEventListener('message',function(e){ if(e.origin!==location.origin || !e.data || e.data.type!=='smokeFields') return; fieldLayer.clearLayers();
+  (e.data.fields||[]).forEach(function(f){ (f.g||[]).forEach(function(r){ L.polygon(r.map(function(p){ return [p[1],p[0]]; }),{ color:f.fire?'#ff6b00':'#1a2a1f', weight:f.fire?3:1, opacity:f.fire?1:0.7, fill:!!f.fire, fillColor:'#ff6b00', fillOpacity:0.3, interactive:false }).addTo(fieldLayer); }); }); });
+try{ if(window.parent!==window) window.parent.postMessage({ type:'smokeNeedFields' }, location.origin); }catch(e){}
 var fireIcon=L.divIcon({className:'',html:'<div style="font-size:30px;line-height:30px;text-align:center;width:34px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">&#128293;</div>',iconSize:[34,34],iconAnchor:[17,30]});
 var marker=L.marker([src.lat,src.lng],{draggable:true,icon:fireIcon,title:'Start of the fire. Drag to move.'}).addTo(map), layer=L.layerGroup().addTo(map);
 function dest(lat,lng,brg,m){var a=m/R,b=brg*D2R,p=lat*D2R,l=lng*D2R;
