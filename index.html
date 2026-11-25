@@ -5771,6 +5771,7 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Farm map: Mill vs machine. Each field is colored by how the mill\'s certified tons compare with the harvester\'s monitor tons, with the post-cal factor for each harvester under the map.',
   'Cane Track: each mill\'s tons and TRS now come from the grower\'s year-to-date total on the latest mill report, the mill\'s own season number. Days after that report add on.',
   'Mill tab: Paste the report or a link. Paste the mill report text, or a link to the PDF (Google Drive, Dropbox or the mill\'s site), or upload the PDF as before.',
   'Report: average fiber for the day at the top, Core sampled (how many loads the mill sampled; the rest get the tract TRS), and each load marked sampled or tract. Fields picked together (40, 33 and 33 + 40) show as one line.',
@@ -6333,7 +6334,11 @@ document.addEventListener('click',function(e){ var el=e.target.closest && e.targ
 
 /* ---------- 2026-11-24: the field map on the Farm tab (satellite, outlines colored by Cut, Tons/ac, TRS, Sugar/ac, Brix or Fiber) ---------- */
 var FM={ map:null, layer:null, me:null, farm:'', mode:'cut', sig:'', loading:false, fit:'' };
-var FM_MODES=[['cut','Cut'],['tpa','Tons/ac'],['trs','TRS'],['sug','Sugar/ac'],['brix','Brix'],['fiber','Fiber']];
+var FM_MODES=[['cut','Cut'],['tpa','Tons/ac'],['trs','TRS'],['sug','Sugar/ac'],['brix','Brix'],['fiber','Fiber'],['mvm','Mill vs machine']];
+/* 2026-11-25: the harvester's monitor tons against the mill's certified tons, field by field, and the post-cal it points to */
+var FM_DIV=['#d7301f','#fdae6b','#1a9850','#9ecae1','#2171b5'];   /* mill well under, under, within 3%, over, well over */
+function fmMachine(farm){ var M={}, H={}; (FT.sess[farm]||[]).forEach(function(r){ if(r.monitorTons==null) return; var k=ftKey(r.track,r.field); M[k]=(M[k]||0)+(Number(r.monitorTons)||0); (H[k]=H[k]||{})[r.harvester||'']=1; }); return { t:M, h:H }; }
+function fmMvmCls(v){ return v<-10?0:v<-3?1:v<=3?2:v<=10?3:4; }
 var FM_RAMP=['#d73027','#fc8d59','#fee08b','#91cf60','#1a9850'];        /* low to high */
 var FM_BLUE=['#eff3ff','#bdd7e7','#6baed6','#3182bd','#08519c'];
 function fmLeaflet(){
@@ -6344,8 +6349,10 @@ function fmLeaflet(){
   });
   return FM.loading;
 }
-function fmVal(mode, o, a){
+function fmVal(mode, o, a, mm){
   var ac=o.acres||0, tons=a.tw, trs=a.cT?a.trs/a.cT:null;
+  if(mode==='mvm'){ var mt=mm&&mm.t[o.key]; if(a.blend && Object.keys(a.blend).length) return null;   /* a blended day is shared by acres, not by what the harvester cut */
+    return (mt>0 && tons>0) ? (tons/mt-1)*100 : null; }
   if(mode==='tpa') return tons&&ac?tons/ac:null;
   if(mode==='trs') return trs;
   if(mode==='sug') return trs!=null&&tons&&ac?tons*trs/ac:null;
@@ -6353,13 +6360,15 @@ function fmVal(mode, o, a){
   if(mode==='fiber') return a.fT?a.fiber/a.fT:null;
   return null;
 }
-function fmFmt(mode,v){ return v==null?'–':(mode==='sug'?Math.round(v).toLocaleString():(mode==='trs'?Math.round(v):v.toFixed(1))); }
+function fmFmt(mode,v){ return v==null?'–':mode==='mvm'?((v>=0?'+':'')+v.toFixed(1)+'%'):(mode==='sug'?Math.round(v).toLocaleString():(mode==='trs'?Math.round(v):v.toFixed(1))); }
 function fmDraw(){
   var box=$('#ftMapBox'), farm=S.farmId, mp=FT.map[farm];
   if(!box) return;
   if(!mp || !mp.fields || S.tab!=='farm'){ return; }
   var G=ftGroups(farm), A=ftAgg(farm,G), mode=FM.mode;
-  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, !!mp.nextSeason, FT.open, FT.selMode, Object.keys(FT.sel).join(','), HVPICK&&Object.keys(HVPICK.sel||{}).join(','), FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
+  if(mode==='mvm' && !(farm in FT.sess)) ftLoadSess(farm);
+  var MM=mode==='mvm'?fmMachine(farm):null;
+  var sig=JSON.stringify([farm, mode, G.length, (FT.loads[farm]||[]).length, MM&&Object.keys(MM.t).length, !!mp.nextSeason, FT.open, FT.selMode, Object.keys(FT.sel).join(','), HVPICK&&Object.keys(HVPICK.sel||{}).join(','), FT.pos&&[FT.pos.lat.toFixed(4),FT.pos.lon.toFixed(4)]]);
   if(sig===FM.sig && FM.map) return; FM.sig=sig;
   fmLeaflet().then(function(){
     if(!$('#ftMapBox')) return;
@@ -6370,23 +6379,24 @@ function fmDraw(){
     }
     FM.layer.clearLayers();
     /* the color of each field */
-    var vals=G.map(function(o){ return fmVal(mode,o,A[o.key]); }).filter(function(v){ return v!=null; }).sort(function(x,y){ return x-y; });
+    var vals=G.map(function(o){ return fmVal(mode,o,A[o.key],MM); }).filter(function(v){ return v!=null; }).sort(function(x,y){ return x-y; });
     var cuts=[]; if(vals.length){ for(var q=1;q<5;q++) cuts.push(vals[Math.min(vals.length-1,Math.floor(vals.length*q/5))]); }
     var ramp=mode==='fiber'?FM_BLUE:FM_RAMP;
     var cls=function(v){ var i=0; while(i<cuts.length && v>cuts[i]) i++; return i; };
     var bounds=[];
     G.forEach(function(o){
-      var a=A[o.key], cut=Object.keys(a.days).length>0, v=fmVal(mode,o,a), notCane=o.stub.n==null;
+      var a=A[o.key], cut=Object.keys(a.days).length>0, v=fmVal(mode,o,a,MM), notCane=o.stub.n==null;
       var fill, op;
       if(mode==='cut'){ fill=cut?'#2ecc71':(notCane?'#bdc3c7':'#f1c40f'); op=cut?0.55:0.35; }
       else if(v==null){ fill='#ffffff'; op=0.08; }
+      else if(mode==='mvm'){ fill=FM_DIV[fmMvmCls(v)]; op=0.7; }
       else { fill=ramp[cls(v)]; op=0.7; }
       var sel=(HVPICK&&HVPICK.sel)?!!HVPICK.sel[o.key]:FT.selMode?!!FT.sel[o.key]:FT.open===o.key;
       o.parts.forEach(function(p){
         var ll=p.g.map(function(r){ return r.map(function(pt){ return [pt[1],pt[0]]; }); });
         ll.forEach(function(r){ r.forEach(function(x){ bounds.push(x); }); });
         var poly=L.polygon(ll,{ color:sel?'#ffffff':'#1a2a1f', weight:sel?3:1, fillColor:fill, fillOpacity:op });
-        poly.bindTooltip('Field '+o.id+(o.track?' · '+o.track:'')+(mode!=='cut'?' · '+fmFmt(mode,v):(cut?' · cut':'')),{ sticky:true });
+        poly.bindTooltip('Field '+o.id+(o.track?' · '+o.track:'')+(mode==='mvm'&&v!=null?' · machine '+f1(MM.t[o.key])+' t · mill '+f1(a.tw)+' t · mill '+fmFmt(mode,v):mode!=='cut'?' · '+fmFmt(mode,v):(cut?' · cut':'')),{ sticky:true });
         poly.on('click',function(){ if(HVPICK){ pkToggle(o.key); return; } if(FT.selMode){ if(FT.sel[o.key]) delete FT.sel[o.key]; else FT.sel[o.key]=1; FT.sig=''; FM.sig=''; ftRender(); return; } FT.open=o.key; FT.sect='records'; FT.q=''; FT.track=''; FT.showAll=true; FT.sig=''; ftRender();
           setTimeout(function(){ var r=document.getElementById('ftRow-'+o.key.replace(/[^a-z0-9]/gi,'_')); if(r && r.scrollIntoView) r.scrollIntoView({ block:'start', behavior:'smooth' }); },80); });
         FM.layer.addLayer(poly);
@@ -6397,7 +6407,16 @@ function fmDraw(){
     setTimeout(function(){ try{ FM.map.invalidateSize(); }catch(e){} },60);
     /* the key under the map */
     var lg=$('#ftLegend'); if(!lg) return;
-    if(mode==='cut') lg.innerHTML='<span class="fmk" style="background:#2ecc71"></span>Cut this harvest <span class="fmk" style="background:#f1c40f"></span>Not cut yet <span class="fmk" style="background:#bdc3c7"></span>Not in cane';
+    if(mode==='mvm'){
+      var tm=0, tl=0, byH={}; G.forEach(function(o){ var mt=MM.t[o.key], a=A[o.key]; if(!(mt>0 && a.tw>0) || (a.blend && Object.keys(a.blend).length)) return; tm+=mt; tl+=a.tw; var hs=Object.keys(MM.h[o.key]||{}); if(hs.length===1){ var b=byH[hs[0]]||(byH[hs[0]]={ m:0, l:0, n:0 }); b.m+=mt; b.l+=a.tw; b.n++; } });
+      var fx=function(l,m){ var d=(l/m-1)*100; return (d>=0?'+':'')+d.toFixed(1)+'% (post-cal ×'+(l/m).toFixed(3)+')'; };
+      lg.innerHTML=!tm?'No fields with both monitor tons and mill tons yet. Monitor tons come from Close field on the Board (or the Edge 101); mill tons from the mill reports.':
+        '<span class="fmk" style="background:'+FM_DIV[0]+'"></span>mill over 10% under <span class="fmk" style="background:'+FM_DIV[1]+'"></span>3–10% under <span class="fmk" style="background:'+FM_DIV[2]+'"></span>within 3% <span class="fmk" style="background:'+FM_DIV[3]+'"></span>3–10% over <span class="fmk" style="background:'+FM_DIV[4]+'"></span>over 10% over'+
+        '<div style="margin-top:6px"><b>All fields:</b> machine '+f1(tm)+' t · mill '+f1(tl)+' t · mill '+fx(tl,tm)+'</div>'+
+        Object.keys(byH).sort().map(function(h){ var b=byH[h]; return '<div><b>'+esc(h||'Harvester')+'</b> ('+b.n+' field'+(b.n===1?'':'s')+' it cut alone): mill '+fx(b.l,b.m)+'</div>'; }).join('')+
+        '<div class="small" style="margin-top:4px">Fields with a blended day (no harvester picked) are left out. Post-cal is the number to multiply the monitor by so it reads like the mill. Set it in the monitor if you want the machine to match.</div>';
+    }
+    else if(mode==='cut') lg.innerHTML='<span class="fmk" style="background:#2ecc71"></span>Cut this harvest <span class="fmk" style="background:#f1c40f"></span>Not cut yet <span class="fmk" style="background:#bdc3c7"></span>Not in cane';
     else if(!vals.length) lg.textContent='No '+FM_MODES.filter(function(m){ return m[0]===mode; })[0][1]+' yet: it fills in as the mill reports come in.';
     else { var lo=[vals[0]].concat(cuts), hi=cuts.concat([vals[vals.length-1]]); lg.innerHTML=ramp.map(function(c,i){ return '<span class="fmk" style="background:'+c+'"></span>'+fmFmt(mode,lo[i])+(hi[i]!==lo[i]?'–'+fmFmt(mode,hi[i]):''); }).join(' ')+' <span class="fmk" style="background:#fff;border:1px solid #999"></span>none yet'; }
   }).catch(function(){ var lg=$('#ftLegend'); if(lg) lg.textContent='The map could not load. Check your signal and try again.'; });
