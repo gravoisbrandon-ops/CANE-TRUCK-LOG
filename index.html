@@ -5544,8 +5544,8 @@ function mrPaint(){
   var ae=document.activeElement; if(ae && ae.id==='mrPaste' && !MR.busy && MR.paste) return;   /* don't redraw under someone pasting */
   var f=mrFarm(), h='', st='';
   h+='<p class="small"><b>'+esc(farmName(f))+'</b></p>';
-  h+='<div class="addrow"><label class="btn" for="mrFile">'+(MR.busy?'Reading the report…':'Upload mill report (PDF)')+'</label><input type="file" id="mrFile" accept=".pdf,application/pdf" multiple hidden><button class="btn ghost" type="button" data-mr="pasteOpen">'+(MR.paste?'Close paste':'Paste the report')+'</button></div>';
-  if(MR.paste) h+='<div class="col" style="margin-top:8px"><label class="f">Paste the mill report<textarea id="mrPaste" rows="8" placeholder="Open the report, select all, copy, and paste it here." style="width:100%;font:13px/1.35 ui-monospace,Menlo,monospace">'+esc(MR.pasteText||'')+'</textarea></label><div class="addrow"><button class="btn" type="button" data-mr="pasteSend"'+(MR.busy?' disabled':'')+'>'+(MR.busy?'Reading…':'Read the pasted report')+'</button></div><p class="small">Works with the same reports as the PDF. If the pasted text can\'t be read, upload the PDF instead.</p></div>';
+  h+='<div class="addrow"><label class="btn" for="mrFile">'+(MR.busy?'Reading the report…':'Upload mill report (PDF)')+'</label><input type="file" id="mrFile" accept=".pdf,application/pdf" multiple hidden><button class="btn ghost" type="button" data-mr="pasteOpen">'+(MR.paste?'Close paste':'Paste the report or a link')+'</button></div>';
+  if(MR.paste) h+='<div class="col" style="margin-top:8px"><label class="f">Paste the mill report, or a link to the PDF<textarea id="mrPaste" rows="8" placeholder="Paste the report text here, or a link to the PDF (from the email, Google Drive or Dropbox)." style="width:100%;font:13px/1.35 ui-monospace,Menlo,monospace">'+esc(MR.pasteText||'')+'</textarea></label><div class="addrow"><button class="btn" type="button" data-mr="pasteSend"'+(MR.busy?' disabled':'')+'>'+(MR.busy?'Reading…':'Read it')+'</button></div><p class="small">A link has to open the PDF itself. A link that needs you to sign in (like a Yahoo attachment) won\'t work: download the PDF and upload it instead.</p></div>';
   if(MR.msg) h+='<p class="small">'+esc(MR.msg)+'</p>';
   if(MR.list && (MR.list.reports||[]).length>1) h+='<div class="addrow"><button class="btn ghost sm" type="button" data-mr="cmp">'+(MR.cmp?'Hide':'Compare')+' harvest days and weather</button></div>'+(MR.cmp?mrCompare(MR.list.reports):'');
   var L=MR.list;
@@ -5694,7 +5694,7 @@ async function mrPasteSend(){
     var r=await fetch(mrApiUrl(), { method:'POST', headers:{ 'Content-Type':'text/plain; charset=utf-8', Authorization:'Bearer '+(SESS&&SESS.access_token||'') }, body:t });
     var j=null; try{ j=await r.json(); }catch(e){}
     if(!r.ok) out='Pasted report: '+((j&&j.error)||('could not send (HTTP '+r.status+')'));
-    else if(j && j.status==='nothing'){ var nt=(j.files&&j.files[0]&&j.files[0].note)||'no loads found'; out='Could not read the pasted text ('+nt+'). Upload the PDF instead, or copy the whole report and try again.'; }
+    else if(j && j.status==='nothing'){ var nt=(j.files&&j.files[0]&&j.files[0].note)||'no loads found'; out=(/^\s*https?:\/\//.test(t)?'Could not use that link ('+nt+'). Download the PDF and upload it instead.':'Could not read the pasted text ('+nt+'). Upload the PDF instead, or copy the whole report and try again.'); }
     else { out=mrSay(j); if(j && j.status==='done'){ MR.pasteText=''; MR.paste=false; } }
   }catch(e){ out='No signal. Check your connection and try again.'; }
   MR.busy=false; MR.msg=out; last.board=''; last.report=''; mrLoad(true); mrPaint(); schedule();
@@ -5763,7 +5763,7 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
-  'Mill tab: Paste the report. Copy the mill report text (from the email or the PDF) and paste it in, or upload the PDF as before.',
+  'Mill tab: Paste the report or a link. Paste the mill report text, or a link to the PDF (Google Drive, Dropbox or the mill\'s site), or upload the PDF as before.',
   'Report: average fiber for the day at the top, Core sampled (how many loads the mill sampled; the rest get the tract TRS), and each load marked sampled or tract. Fields picked together (40, 33 and 33 + 40) show as one line.',
   'Cane Track: Checkpoints now sit above the estimate and projections, so the screen reads in order: mill numbers, harvested to date, checkpoints, estimate, projections.',
   'Cane Track: the date fills in as yesterday, and the tons and TRS fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t. You type the acres. Check it, then tap Save to keep the checkpoint.',
