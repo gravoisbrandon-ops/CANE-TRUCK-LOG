@@ -4506,6 +4506,7 @@ document.addEventListener('click', function(e){
     case 'toggleAll': S.showAll=!S.showAll; last.board=''; schedule(); break;
     case 'toggleEdit': S.boardEdit=!S.boardEdit; if(!S.boardEdit) S.quick=null; last.board=''; schedule(); break;
     case 'listsOpen': openLists(false); break;
+    case 'addHarvOpen': openLists(false); setTimeout(function(){ var i=document.querySelector('[data-form="addHarvester"] input'); if(i){ try{ i.scrollIntoView({block:'center'}); }catch(e){} i.focus(); } },60); break;
     case 'listsClose': S.lists=false; renderQuick(); break;
     case 'scanLoadMills': scanLoadMills(el.getAttribute('data-farm')); break;
     case 'fixLoadMills': { var bx2=el.closest('[data-orph]'), sl2=bx2&&bx2.querySelector('select'), fo=el.getAttribute('data-farm'), od=el.getAttribute('data-old'); if(sl2&&sl2.value){ toast('Updating the loads...'); moveLoadMills(fo,od,sl2.value).then(function(n){ toast(n+' load'+(n===1?'':'s')+' moved to '+sl2.value+'.'); scanLoadMills(fo); }); } break; }
@@ -4807,7 +4808,8 @@ function hvQ(n){ return (hvRaw(n).queue)||[]; }
 function hvSources(){ return harvOf(S.farmId).filter(function(n){ return hvState(n) || (HV_WAGONS && hvQ(n).length); }); }
 function hvPick(){ var src=hvSources(); return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
 function hvBoardHtml(){
-  var hs=harvOf(S.farmId); if(!hs.length) return '';
+  var hs=harvOf(S.farmId), addB=S.canWrite?'<button class="btn ghost sm" type="button" data-act="addHarvOpen">+ Add harvester</button>':'';
+  if(!hs.length) return addB?'<div class="card"><div class="lbl">Harvesters</div><p class="small">Add your harvesters to open fields on them, log trucks by harvester and compare the monitor with the mill.</p><div>'+addB+'</div></div>':'';
   var rows=hs.map(function(n){
     var a=hvState(n), q=hvQ(n);
     var btns=S.canWrite ? '<button class="btn sm" type="button" data-hv="open" data-h="'+esc(n)+'">'+(a?'Next field':'Open field')+'</button>'+
@@ -4837,7 +4839,7 @@ function hvBoardHtml(){
   } else if(src.length===1){
     from='<p class="small">Tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. The 3rd wagon logs the truck as loaded.'+(hvQ(src[0]).length?' The full wagons waiting go in first, with the field they were cut in.':' Tapping the truck number still logs it right away, with every wagon from '+esc(src[0])+'.')+'</p>';
   }
-  return '<div class="card"><div class="lbl">Harvesters</div>'+rows+from+'</div>';
+  return '<div class="card"><div class="lbl">Harvesters</div>'+rows+from+(addB?'<div style="margin-top:8px">'+addB+'</div>':'')+'</div>';
 }
 async function hvQueueAdd(name){
   var a=hvState(name); if(!a || !S.canWrite || needName()) return;
