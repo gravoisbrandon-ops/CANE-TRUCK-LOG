@@ -3431,7 +3431,7 @@ function dtBreakHtml(days,scopeLbl,farm){
   var by={}, any=false;
   days.forEach(function(d){
     dayCombine(farm,d,loadsFor(d)).forEach(function(it){
-      if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && it.field!==S.report.field)) return;
+      if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && !fieldHas(it.field,S.report.field))) return;
       var k=it.track+'\u0001'+it.field, a=by[k]||(by[k]={ track:it.track, field:it.field, tons:0, tw:0, tt:0, loads:0, ent:0, lg:0 });
       a.tons+=it.tons; a.tw+=it.tw; a.tt+=it.tt; a.loads+=it.loads; if(it.src==='entered'){ a.ent++; any=true; } else a.lg++;
     });
@@ -3442,7 +3442,7 @@ function dtBreakHtml(days,scopeLbl,farm){
   var T=0, W=0, TT=0, L=0; rows.forEach(function(a){ T+=a.tons; W+=a.tw; TT+=a.tt; L+=a.loads; });
   var body=rows.map(function(a){ var trs=a.tt>0?a.tw/a.tt:null; return [esc(a.track||'–'),esc(a.field||'–'),a.loads?fLoads(a.loads):'–',f1(a.tons),trs?Math.round(trs):'–',trs?Math.round(a.tons*trs).toLocaleString():'–',a.ent&&a.lg?'typed + loads':(a.ent?'typed':'loads')]; });
   body.push(['<b>Total</b>','',L?fLoads(L):'–','<b>'+f1(T)+'</b>',TT>0?'<b>'+Math.round(W/TT)+'</b>':'–',TT>0?'<b>'+Math.round(W).toLocaleString()+'</b>':'–','']);
-  var bm={}; days.forEach(function(d){ dayCombine(farm,d,loadsFor(d)).forEach(function(it){ if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && it.field!==S.report.field)) return; var k=it.mill||'No mill', m=bm[k]||(bm[k]={ tons:0, tw:0, tt:0 }); m.tons+=it.tons; m.tw+=it.tw; m.tt+=it.tt; }); });
+  var bm={}; days.forEach(function(d){ dayCombine(farm,d,loadsFor(d)).forEach(function(it){ if((S.report.mill && it.mill!==S.report.mill) || (S.report.track && it.track!==S.report.track) || (S.report.field && !fieldHas(it.field,S.report.field))) return; var k=it.mill||'No mill', m=bm[k]||(bm[k]={ tons:0, tw:0, tt:0 }); m.tons+=it.tons; m.tw+=it.tw; m.tt+=it.tt; }); });
   var mk=Object.keys(bm).filter(function(k){ return bm[k].tons>0; }), mh='';
   if(mk.length>1 || (mk.length&&mk[0]!=='No mill')) mh='<div class="lbl">'+esc(scopeLbl)+' by mill, with typed totals</div>'+tbl(['Mill','Tons','TRS','Lb sugar'],mk.sort().map(function(k){ var m=bm[k], t=m.tt>0?m.tw/m.tt:null; return [esc(k),f1(m.tons),t?Math.round(t):'–',t?Math.round(m.tons*t).toLocaleString():'–']; }));
   return mh+'<div class="lbl">'+esc(scopeLbl)+' breakdown by track and field</div>'+tbl(['Track','Field','Loads','Tons','TRS','Lb sugar','From'],body)+'<p class="small">Totals typed in for a day stand in for the loads they cover. TRS is the tons-weighted average.</p>';
@@ -3634,7 +3634,7 @@ function reportDays(){
   return out;
 }
 function loadsFor(d){ return d===S.loadsDay ? S.loads : (S.report.cache[d]||[]); }
-function repPass(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track && !S.report.field || loadParts(x).some(function(p){ return (!S.report.track || (p.track||'')===S.report.track) && (!S.report.field || (p.field||'')===S.report.field); })); }
+function repPass(x){ return (!S.report.mill || x.mill===S.report.mill) && (!S.report.track && !S.report.field || loadParts(x).some(function(p){ return (!S.report.track || (p.track||'')===S.report.track) && (!S.report.field || fieldHas(p.field,S.report.field)); })); }
 function repLoads(d){ return loadsFor(d).filter(repPass); }
 /* time between loads: for each truck, the time from one load to its next load the same day (the round trip).
    Under 10 minutes (a double tap) or over 4 hours (a break, or the end of the day) is not counted. It belongs to the track the truck left from. */
@@ -3676,6 +3676,13 @@ function sumTons(rows){ var t=0; rows.forEach(function(x){ var n=tonsOf(x); if(n
 function weighedOf(rows){ return rows.filter(function(x){ return tonsOf(x)!=null; }).length; }
 function avgTrs(rows){ var a=0,w=0; rows.forEach(function(x){ var n=tonsOf(x), r=Number(x.trs); if(n!=null && x.trs!=null && isFinite(r) && r>0){ a+=n*r; w+=n; } }); return w ? a/w : null; }
 function avgBrix(rows){ var a=0,w=0; rows.forEach(function(x){ var b=Number(x.brix); if(x.brix!=null && x.brix!=='' && isFinite(b) && b>0){ var n=tonsOf(x); if(n==null) n=1; a+=n*b; w+=n; } }); return w ? a/w : null; }
+function avgFiber(rows){ var a=0,w=0; rows.forEach(function(x){ var b=Number(x.fiber); if(x.fiber!=null && x.fiber!=='' && isFinite(b) && b>0){ var n=tonsOf(x); if(n==null) n=1; a+=n*b; w+=n; } }); return w ? a/w : null; }
+/* 2026-11-25: not every truck is core sampled; the mill still puts a TRS on every load (the tract's for the rest) */
+function isSampled(x){ return x.trsFrom==='core' || (x.trsFrom==null && (x.brix!=null&&x.brix!==''||x.millSample)); }
+function sampledCount(rows){ var s=0,t=0; rows.forEach(function(x){ if(x.trs!=null && x.trs!=='' && Number(x.trs)>0){ t++; if(isSampled(x)) s++; } }); return { s:s, t:t }; }
+/* "40, 33" and "33 + 40" are the same fields: one label, sorted */
+function fieldHas(f,sel){ f=fieldNorm(f); return f===sel || f.split(' + ').indexOf(sel)>=0; }
+function fieldNorm(f){ f=String(f==null?'':f).trim(); if(!/[,.+\/&;]/.test(f)) return f; var p=f.split(/\s*[,.+\/&;]\s*/).filter(Boolean), u=[]; p.forEach(function(x){ if(u.indexOf(x)<0) u.push(x); }); return u.sort(function(a,b){ return a.localeCompare(b,undefined,{numeric:true}); }).join(' + '); }
 function finalCount(rows){ var f=0, t=0; rows.forEach(function(x){ if(x.trs!=null && x.trs!=='' && Number(x.trs)>0){ t++; if(x.trsFinal) f++; } }); return { f:f, t:t }; }
 function tonsPerLoad(rows){ var t=0, c=0; rows.forEach(function(x){ var n=tonsOf(x); if(n!=null){ t+=n; c++; } }); return c ? t/c : null; }
 function tpt(rows){ var v=tonsPerLoad(rows); return v==null ? '–' : f1(v); }
@@ -3684,7 +3691,7 @@ function dayStats(list){
   var L=list.filter(function(x){ return x.loadedAt; });
   var ids={}; L.forEach(function(x){ ids[x.truck]=1; });
   var times=L.map(function(x){ return x.loadedAt; });
-  return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), brix:avgBrix(L), fin:finalCount(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
+  return { tons:sumTons(L), weighed:weighedOf(L), trs:avgTrs(L), brix:avgBrix(L), fiber:avgFiber(L), smp:sampledCount(L), fin:finalCount(L), loaded:L.length, trucks:Object.keys(ids).length, first:times.length?Math.min.apply(null,times):null, last:times.length?Math.max.apply(null,times):null, rows:L };
 }
 /* 2026-11-22: a day whose loads could not be fetched (weak signal, a timeout) used to be kept as an empty day, and
    "All crop" only fetches days it does not have yet, so those days stayed blank with no warning. Now a failed day
@@ -3778,8 +3785,10 @@ function renderReport(){
       '<div class="stat"><span class="lbl">Trucks used</span><b>'+sd.trucks+'</b></div>'+
       (sd.weighed?'<div class="stat"><span class="lbl">Tons to date</span><b>'+f1(sd.tons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(sd.rows)+'</b></div><div class="stat"><span class="lbl">Tons per day</span><b>'+(nd?f1(sd.tons/nd):'–')+'</b></div>':'')+
       (sd.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(sd.trs)+'</b></div>':'')+
+      (sd.fiber?'<div class="stat"><span class="lbl">Average fiber</span><b>'+sd.fiber.toFixed(1)+'</b><span class="small">'+sd.rows.filter(function(x){ return x.fiber; }).length+' sampled</span></div>':'')+
       (sd.brix?'<div class="stat"><span class="lbl">Average brix</span><b>'+sd.brix.toFixed(1)+'</b><span class="small">'+sd.rows.filter(function(x){ return x.brix; }).length+' sampled</span></div>':'')+
       (sd.fin&&sd.fin.t?'<div class="stat"><span class="lbl">TRS final</span><b>'+sd.fin.f+' of '+sd.fin.t+'</b></div>':'')+
+      (sd.smp&&sd.smp.t?'<div class="stat"><span class="lbl">Core sampled</span><b>'+sd.smp.s+' of '+sd.smp.t+'</b><span class="small">'+(sd.smp.t>sd.smp.s?'the rest get the tract TRS':'every load')+'</span></div>':'')+
       (cycAll.length?'<div class="stat"><span class="lbl">Avg between loads</span><b>'+fmtDur(avgOf(cycAll))+'</b></div>':'')+
       (rateAll>0?'<div class="stat"><span class="lbl">Loads per hour</span><b>'+f1(rateAll)+'</b></div>':'')+'</div>';
   } else {
@@ -3789,8 +3798,10 @@ function renderReport(){
     '<div class="stat"><span class="lbl">Last loaded</span><b>'+(ss.last?esc(timeOf(ss.last)):'–')+'</b></div>'+
     (ss.weighed?'<div class="stat"><span class="lbl">Tons</span><b>'+f1(ss.tons)+'</b></div><div class="stat"><span class="lbl">Tons per load</span><b>'+tpt(ss.rows)+'</b></div>':'')+
     (ss.trs?'<div class="stat"><span class="lbl">Average TRS</span><b>'+Math.round(ss.trs)+'</b></div>':'')+
+    (ss.fiber?'<div class="stat"><span class="lbl">Average fiber</span><b>'+ss.fiber.toFixed(1)+'</b><span class="small">'+ss.rows.filter(function(x){ return x.fiber; }).length+' sampled</span></div>':'')+
     (ss.brix?'<div class="stat"><span class="lbl">Average brix</span><b>'+ss.brix.toFixed(1)+'</b><span class="small">'+ss.rows.filter(function(x){ return x.brix; }).length+' sampled</span></div>':'')+
     (ss.fin&&ss.fin.t?'<div class="stat"><span class="lbl">TRS final</span><b>'+ss.fin.f+' of '+ss.fin.t+'</b></div>':'')+
+    (ss.smp&&ss.smp.t?'<div class="stat"><span class="lbl">Core sampled</span><b>'+ss.smp.s+' of '+ss.smp.t+'</b><span class="small">'+(ss.smp.t>ss.smp.s?'the rest get the tract TRS':'every load')+'</span></div>':'')+
     (cycAll.length?'<div class="stat"><span class="lbl">Avg between loads</span><b>'+fmtDur(avgOf(cycAll))+'</b></div>':'')+
     (rateAll>0?'<div class="stat"><span class="lbl">Loads per hour</span><b>'+f1(rateAll)+'</b></div>':'')+'</div>';
   }
@@ -3821,7 +3832,7 @@ function renderReport(){
   var WS=daily?W:(weighedOf(scopeRows)>0);
   if(season) ss=Object.assign({},ss,{ rows:scopeRows });
   var dtHtml=dtBreakHtml(scopeDays,scopeLbl,S.farmId);
-  var byField=tally(scopeRows,function(x){ return x.field||'No field set'; });
+  var byField=tally(scopeRows,function(x){ return fieldNorm(x.field)||'No field set'; });
   var byTrack=tally(scopeRows,function(x){ return x.track||'No track set'; });
   var byVariety=tally(scopeRows,function(x){ return x.variety||'No variety set'; });
   var byTruck=tally(season?scopeRows:ss.rows,function(x){ return 'Truck '+x.no; });
@@ -3848,8 +3859,8 @@ function renderReport(){
     var lbl=ids.length?esc(ids.join(', ')):esc(r.k);
     return [season?lbl:newNoChip(no,sel,lbl),r.n].concat((season?WS:W)?[f1(r.t)]:[]).concat(cells); }))+(cycSel.length?'<p class="small">Avg between is the time from a truck\'s load to its next load. Efficiency compares it only with other trucks hauling to the same mill from the same track, since each mill is a different distance: 100% is average for that mill, higher is faster. Gaps under 10 minutes or over 4 hours are not counted.</p>':'');
   var log=season?[]:ss.rows.slice().sort(function(a,b){ return b.loadedAt-a.loadedAt; }).slice(0,300);
-  if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]).concat(log.some(function(x){ return x.brix; })?['Brix']:[]),log.map(function(x){
-    return [newNoChip(x.no,sel,'<b>'+esc(millTruckNo(x.no,x.mill,S.farmId)||x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs)+(x.trsFinal?' <span class="small">final</span>':''):'–']:[]).concat(log.some(function(z){ return z.brix; })?[x.brix?Number(x.brix).toFixed(1):'–']:[]);
+  if(!season) html+='<div class="lbl">'+esc(dayLabel(sel))+' load log</div>'+tbl(['Truck','Mill','Track','Field','Loaded at','Logged by'].concat(W?['Tons','TRS']:[]).concat(log.some(function(x){ return x.brix; })?['Brix']:[]).concat(log.some(function(x){ return x.fiber; })?['Fiber']:[]),log.map(function(x){
+    return [newNoChip(x.no,sel,'<b>'+esc(millTruckNo(x.no,x.mill,S.farmId)||x.no)+'</b>'), (x.mill?'<span class="sw" style="background:'+millColor(S.farmId,x.mill)+'"></span>':'')+esc(x.mill||'–'), esc(x.track||'–'), esc(x.field||'–'), esc(timeOf(x.loadedAt)), esc(x.loadedBy||'')].concat(W?[tonsOf(x)!=null?f1(tonsOf(x)):'–', x.trs?Math.round(x.trs)+(x.trsFrom||x.certified?' <span class="small">'+(isSampled(x)?'sampled':'tract')+'</span>':(x.trsFinal?' <span class="small">final</span>':'')):'–']:[]).concat(log.some(function(z){ return z.brix; })?[x.brix?Number(x.brix).toFixed(1):'–']:[]).concat(log.some(function(z){ return z.fiber; })?[x.fiber?Number(x.fiber).toFixed(1):'–']:[]);
   }));
   var keep=document.activeElement && (document.activeElement.id==='rRange' || document.activeElement.id==='rMill' || document.activeElement.id==='rTrack' || document.activeElement.id==='rField') ? document.activeElement.id : '';
   $('#reportBody').innerHTML=html;
@@ -4754,7 +4765,7 @@ function hvFill(o){
 }
 /* 2026-11-22: a load split by field from the Edge 101's wagons (each wagon's tons per field).
    loadParts: the load's parts, each with its share (1 when the load is not split). */
-function loadParts(x){ var sp=x&&x.split; if(sp && sp.length) return sp; return [{ track:x.track||'', field:x.field||'', variety:x.variety||'', stubble:(x.stubble==null?'':x.stubble), share:1 }]; }
+function loadParts(x){ var sp=x&&x.split; if(sp && sp.length) return sp; return [{ track:x.track||'', field:fieldNorm(x.field), variety:x.variety||'', stubble:(x.stubble==null?'':x.stubble), share:1 }]; }
 function splitText(l){ return (l.split||[]).map(function(p){ return (p.field||p.track||'?')+(p.variety?' '+p.variety:'')+' '+Math.round((p.share||0)*100)+'%'; }).join(', '); }
 function fLoads(v){ return Math.abs(v-Math.round(v))<0.05 ? String(Math.round(v)) : v.toFixed(1); }
 /* the Edge wagons in this truck: for each harvester, its newest Edge wagons, one per wagon it put in */
@@ -4908,7 +4919,7 @@ var G0=null;
 /* the fields being cut now, set on the Board: track, field(s) and variety from the map */
 function bdSetFields(G){
   if(!G.length) return; var tr={}, vs=[]; G.forEach(function(o){ tr[o.track||'']=1; if(o.variety && vs.indexOf(o.variety)<0) vs.push(o.variety); });
-  var tl=Object.keys(tr); S.active.track=tl.length===1?tl[0]:G[0].track||''; S.active.field=G.map(function(o){ return o.id; }).join(', '); S.active.variety=vs.join(' + ');
+  var tl=Object.keys(tr); S.active.track=tl.length===1?tl[0]:G[0].track||''; S.active.field=fieldNorm(G.map(function(o){ return o.id; }).join(' + ')); S.active.variety=vs.join(' + ');
   saveActive(); last.board=''; schedule(); toast('Cutting '+S.active.field+(S.active.track?' · '+S.active.track:'')+(S.active.variety?' · '+S.active.variety:'')+'.');
 }
 function bdPickDone(use){ var p=HVPICK; if(!p) return; HVPICK=null; FT.sig=''; if(typeof FM!=='undefined') FM.sig='';
@@ -5530,9 +5541,11 @@ function mrDay(d){ try{ var p=String(d).split('-'); return new Date(+p[0],+p[1]-
 function mrTime(t){ var p=String(t||'').split(':'); if(p.length<2) return t||''; var h=+p[0], m=p[1]; return (h%12||12)+':'+m+(h<12?' AM':' PM'); }
 function mrPaint(){
   var box=$('#mrBox'); if(!box) return;
+  var ae=document.activeElement; if(ae && ae.id==='mrPaste' && !MR.busy && MR.paste) return;   /* don't redraw under someone pasting */
   var f=mrFarm(), h='', st='';
   h+='<p class="small"><b>'+esc(farmName(f))+'</b></p>';
-  h+='<div class="addrow"><label class="btn" for="mrFile">'+(MR.busy?'Reading the report…':'Upload mill report (PDF)')+'</label><input type="file" id="mrFile" accept=".pdf,application/pdf" multiple hidden></div>';
+  h+='<div class="addrow"><label class="btn" for="mrFile">'+(MR.busy?'Reading the report…':'Upload mill report (PDF)')+'</label><input type="file" id="mrFile" accept=".pdf,application/pdf" multiple hidden><button class="btn ghost" type="button" data-mr="pasteOpen">'+(MR.paste?'Close paste':'Paste the report')+'</button></div>';
+  if(MR.paste) h+='<div class="col" style="margin-top:8px"><label class="f">Paste the mill report<textarea id="mrPaste" rows="8" placeholder="Open the report, select all, copy, and paste it here." style="width:100%;font:13px/1.35 ui-monospace,Menlo,monospace">'+esc(MR.pasteText||'')+'</textarea></label><div class="addrow"><button class="btn" type="button" data-mr="pasteSend"'+(MR.busy?' disabled':'')+'>'+(MR.busy?'Reading…':'Read the pasted report')+'</button></div><p class="small">Works with the same reports as the PDF. If the pasted text can\'t be read, upload the PDF instead.</p></div>';
   if(MR.msg) h+='<p class="small">'+esc(MR.msg)+'</p>';
   if(MR.list && (MR.list.reports||[]).length>1) h+='<div class="addrow"><button class="btn ghost sm" type="button" data-mr="cmp">'+(MR.cmp?'Hide':'Compare')+' harvest days and weather</button></div>'+(MR.cmp?mrCompare(MR.list.reports):'');
   var L=MR.list;
@@ -5673,6 +5686,20 @@ function mrSay(res){
   if(res && res.status==='nothing' && !parts.length) parts.push('No cane receipt found in that file.');
   return parts.join(' · ') || 'Done.';
 }
+async function mrPasteSend(){
+  var t=(MR.pasteText||'').trim(); if(!t || MR.busy){ if(!t) toast('Paste the report first.'); return; }
+  MR.busy=true; MR.msg=''; mrPaint(); var out='';
+  try{
+    if(SESS && SESS.expires_at-60 < Date.now()/1000) await refreshSession();
+    var r=await fetch(mrApiUrl(), { method:'POST', headers:{ 'Content-Type':'text/plain; charset=utf-8', Authorization:'Bearer '+(SESS&&SESS.access_token||'') }, body:t });
+    var j=null; try{ j=await r.json(); }catch(e){}
+    if(!r.ok) out='Pasted report: '+((j&&j.error)||('could not send (HTTP '+r.status+')'));
+    else if(j && j.status==='nothing'){ var nt=(j.files&&j.files[0]&&j.files[0].note)||'no loads found'; out='Could not read the pasted text ('+nt+'). Upload the PDF instead, or copy the whole report and try again.'; }
+    else { out=mrSay(j); if(j && j.status==='done'){ MR.pasteText=''; MR.paste=false; } }
+  }catch(e){ out='No signal. Check your connection and try again.'; }
+  MR.busy=false; MR.msg=out; last.board=''; last.report=''; mrLoad(true); mrPaint(); schedule();
+}
+document.addEventListener('input',function(e){ if(e.target && e.target.id==='mrPaste') MR.pasteText=e.target.value; });
 async function mrUpload(files){
   if(!files || !files.length || MR.busy) return;
   MR.busy=true; MR.msg=''; mrPaint();
@@ -5696,6 +5723,8 @@ document.addEventListener('click',function(e){
   var el=e.target.closest && e.target.closest('[data-mr]'); if(!el) return;
   var a=el.getAttribute('data-mr'), id=el.getAttribute('data-id');
   if(a==='open'){ MR.open[id]=!MR.open[id]; mrPaint(); }
+  else if(a==='pasteOpen'){ MR.paste=!MR.paste; mrPaint(); if(MR.paste) setTimeout(function(){ var t=$('#mrPaste'); if(t) t.focus(); },50); }
+  else if(a==='pasteSend') mrPasteSend();
   else if(a==='again'){ var fm=el.getAttribute('data-farm'); el.disabled=true; rpc('mill_report_again',{ p_farm:fm||null, p_id:id }).then(function(r){ MR.msg=mrSay({ results:[r] }); last.report=''; mrLoad(true); }).catch(fail); }
   else if(a==='drop'){ if(confirmTap('mrDrop:'+id)) rpc('mill_report_drop',{ p_id:id }).then(function(){ mrLoad(true); }).catch(fail); else mrPaint(); }
   else if(a==='keyNew'){ if((MR.key&&MR.key.exists||MR.newKey) && !confirmTap('mrKeyNew')){ mrPaint(); return; } rpc('mill_report_key_new',{}).then(function(k){ MR.newKey=k; MR.key={ exists:true, created_at:new Date().toISOString() }; toast('Address made. Copy it now, it is shown only once.'); mrPaint(); }).catch(fail); }
@@ -5734,6 +5763,8 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Mill tab: Paste the report. Copy the mill report text (from the email or the PDF) and paste it in, or upload the PDF as before.',
+  'Report: average fiber for the day at the top, Core sampled (how many loads the mill sampled; the rest get the tract TRS), and each load marked sampled or tract. Fields picked together (40, 33 and 33 + 40) show as one line.',
   'Cane Track: Checkpoints now sit above the estimate and projections, so the screen reads in order: mill numbers, harvested to date, checkpoints, estimate, projections.',
   'Cane Track: the date fills in as yesterday, and the tons and TRS fill in on their own: the mill reports\' certified numbers for every day that has one, the truck log for days that don\'t. You type the acres. Check it, then tap Save to keep the checkpoint.',
   'Acres fill in from the field map when a field is picked: on the harvest sheet, in the Burn log (all fields picked added up) and on a field record. You can change them.',
