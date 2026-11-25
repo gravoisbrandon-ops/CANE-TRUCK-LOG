@@ -2928,9 +2928,11 @@ async function sgFetch(auto){
   SG.loading=true; SG.msg=''; sgRender();
   /* 2026-11-24: up to the date of this data set (yesterday by default). The mill reports are the final word:
      a day and mill with a mill report counts the report's tons and TRS; days without one count the truck log. */
-  var t=vw0==='*' ? (SG.gdate||sgDefDay()) : (sgFarm(vw0).date||sgDefDay()), jobs=[], MR={}, nRep=0, repDays={}, acresBy={};
+  var t=vw0==='*' ? (SG.gdate||sgDefDay()) : (sgFarm(vw0).date||sgDefDay()), jobs=[], MR={}, nRep=0, repDays={}, acresBy={}, repFail='', lastBy={}, YT={}, ytdTxt=[];
   for(var fi=0;fi<farms.length;fi++){ var f0=farms[fi], st0=harvestStartFor(f0);
-    try{ (await rpc('mill_report_sums',{ p_farm:f0.id, p_from:st0, p_to:t })||[]).forEach(function(r){ MR[f0.id+'|'+r.day+'|'+String(r.mill||'').toLowerCase()]=r; }); }catch(e){}
+    try{ (await rpc('mill_report_sums',{ p_farm:f0.id, p_from:st0, p_to:t })||[]).forEach(function(r){ MR[f0.id+'|'+r.day+'|'+String(r.mill||'').toLowerCase()]=r; }); }catch(e){ repFail=String(e&&e.message||e); }
+    /* 2026-11-25: the grower's year to date on the latest report from each mill is the season total; days after it add on */
+    try{ (await rpc('mill_report_ytd',{ p_farm:f0.id, p_to:t })||[]).forEach(function(y){ var tn=Number(y.tons)||0; if(!(tn>0)) return; var mk=f0.id+'|'+String(y.mill||'').toLowerCase(), a=YT[mk]||(YT[mk]={ mill:y.mill||'No mill', tons:0, tw:0, tt:0, day:'', fid:f0.id }); a.tons+=tn; if(Number(y.trs)>0){ a.tw+=tn*Number(y.trs); a.tt+=tn; } if(y.day>a.day) a.day=y.day; }); }catch(e){}
     if(!(f0.id in FT.map)) try{ await ftLoadMap(f0.id); }catch(e){} }
   farms.forEach(function(f){ var st=harvestStartFor(f); for(var k=0;k<250;k++){ var d=addDays(t,-k); if(d<st) break; jobs.push([f.id,d]); } });
   var agg={}, nLoads=0, nOpen=0, nEnt=0, fails=0, i=0, cut={};
@@ -2946,6 +2948,7 @@ async function sgFetch(auto){
           if(!(it.tons>0)) return;
           var k=it.mill||(it.src==='entered'&&fm.length===1?fm[0]:'No mill');
           if(MR[j[0]+'|'+j[1]+'|'+String(k).toLowerCase()]) return;   /* this day's mill report counts instead */
+          var yt=YT[j[0]+'|'+String(k).toLowerCase()]; if(yt && j[1]<=yt.day) return;   /* already in the mill's year to date */
           var fa=agg[j[0]]||(agg[j[0]]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 });
           a.tons+=it.tons; a.tw+=it.tw; a.tt+=it.tt; nLoads+=it.src==='entered'?0:it.loads; if(it.src==='entered') nEnt++;
         });
@@ -2953,8 +2956,10 @@ async function sgFetch(auto){
     }
   }
   await Promise.all([w(),w(),w(),w()]);
+  Object.keys(YT).forEach(function(mk){ var y=YT[mk], fa=agg[y.fid]||(agg[y.fid]={}), a=fa[y.mill]||(fa[y.mill]={ tons:0, tw:0, tt:0 }); a.tons+=y.tons; a.tw+=y.tw; a.tt+=y.tt; ytdTxt.push(y.mill+' '+sgNf(y.tons)+' tons as of '+dayLabel(y.day)); });
   Object.keys(MR).forEach(function(key){ var r=MR[key], fid=key.split('|')[0], k=r.mill||'No mill', tn=Number(r.tons)||0; if(!(tn>0)) return;
-    var fa=agg[fid]||(agg[fid]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 }); a.tons+=tn; if(Number(r.trs)>0){ a.tw+=tn*Number(r.trs); a.tt+=tn; } nRep+=r.reports||1; repDays[r.day]=1; });
+    var yt=YT[fid+'|'+String(k).toLowerCase()]; if(yt && r.day<=yt.day) return;
+    var fa=agg[fid]||(agg[fid]={}), a=fa[k]||(fa[k]={ tons:0, tw:0, tt:0 }); a.tons+=tn; if(Number(r.trs)>0){ a.tw+=tn*Number(r.trs); a.tt+=tn; } nRep+=r.reports||1; repDays[r.day]=1; if(!lastBy[k] || r.day>lastBy[k]) lastBy[k]=r.day; });
   /* acres harvested so far: the field map acres of every field cut up to this date */
   farms.forEach(function(f){ var c=cut[f.id]; if(!c || !mapOk(f.id)) return; var ac=0; ftGroups(f.id).forEach(function(o){ if(c[o.key]) ac+=o.acres||0; }); if(ac>0){ var o=sgFarm(f.id); if(o.acresSrc==='map'){ o.acres=''; o.acresSrc=''; } o.mapAcres=Math.round(ac*100)/100; acresBy[f.id]=ac; } });
   Object.keys(agg).forEach(function(fid){
@@ -2967,7 +2972,10 @@ async function sgFetch(auto){
   });
   SG.loading=false;
   var rd=Object.keys(repDays).sort();
-  if(nRep || nLoads || nEnt){ SG.msg='Through '+dayLabel(t)+': '+(nRep?nRep+' mill report'+(nRep===1?'':'s')+' ('+rd.length+' day'+(rd.length===1?'':'s')+', the mill\'s certified tons and TRS)':'no mill reports yet')+(nLoads||nEnt?', plus '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from days with no mill report':'')+'.'+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
+  var lastTxt=Object.keys(lastBy).sort().map(function(k){ return k+' through '+dayLabel(lastBy[k]); }).join('; ');
+  if(repFail){ SG.msg='Could not read the mill reports, so these numbers are from the truck log only. Run the latest schema.sql in Supabase (it adds mill_report_sums), then tap Fetch again.'; if(nLoads||nEnt){ sgSave(); } sgRender(); return; }
+  if(ytdTxt.length){ SG.msg='Season to date from the mill (the grower\'s year-to-date total on the latest report): '+ytdTxt.join('; ')+'.'+(nRep||nLoads||nEnt?' Days after that report add on from the newer reports and the truck log.':'')+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
+  if(nRep || nLoads || nEnt){ SG.msg='Through '+dayLabel(t)+': '+(nRep?nRep+' mill report'+(nRep===1?'':'s')+' ('+rd.length+' day'+(rd.length===1?'':'s')+', the mill\'s certified tons and TRS)':'no mill reports yet')+(nLoads||nEnt?', plus '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from days with no mill report':'')+'.'+(nOpen?' '+nOpen+' load'+(nOpen===1?'':'s')+' not weighed yet, left out.':'')+(lastTxt?' Latest mill report: '+lastTxt+'.':'')+(auto?' Filled in on its own. Check it, then tap Save.':''); sgSave(); sgRender(); return; }
   SG.msg=(nLoads||nEnt) ? 'Fetched '+nLoads+' weighed load'+(nLoads===1?'':'s')+(nEnt?' and '+nEnt+' end-of-day total'+(nEnt===1?'':'s'):'')+' from '+farms.length+' farm'+(farms.length===1?'':'s')+'.'+(nOpen?' '+nOpen+' not weighed yet, left out.':'')+(farms.some(function(f){ return f.millStart && Object.keys(f.millStart).length; })?' Days before a mill\'s start date are left out.':'')+(fails?' Some days could not be read, try again.':'') : (fails?'Could not read the loads, try again.':'No weighed loads found since the start of harvest.');
   sgSave(); sgRender();
 }
@@ -5763,6 +5771,7 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Cane Track: each mill\'s tons and TRS now come from the grower\'s year-to-date total on the latest mill report, the mill\'s own season number. Days after that report add on.',
   'Mill tab: Paste the report or a link. Paste the mill report text, or a link to the PDF (Google Drive, Dropbox or the mill\'s site), or upload the PDF as before.',
   'Report: average fiber for the day at the top, Core sampled (how many loads the mill sampled; the rest get the tract TRS), and each load marked sampled or tract. Fields picked together (40, 33 and 33 + 40) show as one line.',
   'Cane Track: Checkpoints now sit above the estimate and projections, so the screen reads in order: mill numbers, harvested to date, checkpoints, estimate, projections.',
