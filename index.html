@@ -83,13 +83,17 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .editing .num{border-style:dashed;border-color:var(--ink)}
 .num.again{outline:3px solid var(--ink);outline-offset:2px}
 .tw{display:flex;flex-direction:column;gap:5px}
-.wg{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.wg .top{grid-column:1/3;justify-self:center;width:calc(50% - 2px)}
+.wg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px}
+.wg button{min-width:0}
+.wg .top{grid-column:1/-1;width:100%;margin:0;padding:0;position:static;z-index:auto}
 .wg button{height:34px;border-radius:8px;border:2px dashed var(--line);background:var(--raise);color:#fff;font:700 13px/1 inherit;padding:0;touch-action:manipulation;cursor:pointer;text-shadow:0 0 2px rgba(0,0,0,.6)}
+.wg .wgt{display:block;font-size:13px}
+.wg .wgf{display:block;padding:1px 3px 0;font-size:11px;font-weight:600;line-height:1.15;white-space:normal;overflow-wrap:anywhere}
+.wg button.on{height:auto;min-height:34px;padding:3px 0}
 .wg button.on{border-style:solid;border-color:rgba(0,0,0,.25)}
 .wgb{display:grid;grid-template-columns:16px 16px;gap:2px;margin-top:3px}
 .wgb i{display:block;width:16px;height:8px;border-radius:3px;border:1px solid rgba(0,0,0,.3)}
-.wgb i.top{grid-column:1/3;justify-self:center}
+.wgb i.top{grid-column:1/-1;width:100%}
 .hvchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .hvchip{min-height:40px;padding:0 14px;border-radius:20px;border:3px solid transparent;color:#fff;font-weight:700;text-shadow:0 0 2px rgba(0,0,0,.6);cursor:pointer}
 .hvchip[aria-pressed=true]{border-color:var(--ink);box-shadow:0 0 0 2px var(--raise) inset}
@@ -4814,6 +4818,10 @@ function hvRaw(name){ return S.harv[hvKey(name)]||{}; }
 function hvState(name){ var a=S.harv[hvKey(name)]; return (a && a.session && !a.closed) ? a : null; }
 function hvOpen(){ return harvOf(S.farmId).map(function(n){ var a=hvState(n); return a ? Object.assign({ name:n }, a) : null; }).filter(Boolean); }
 function hvText(a){ var p=[]; if(a.field) p.push(a.field+((a.more||[]).length?' + '+a.more.map(function(m){ return m.field; }).join(' + '):'')); if(a.track) p.push(a.track); if(a.variety) p.push(a.variety); var st=stubLabel(a.stubble); if(st) p.push(st); return p.join(' · ')||'Field not named'; }
+/* 2026-11-26: the field(s) a harvester is cutting into: "39 + 40" */
+function hvFields(n){ var a=typeof n==='string'?hvState(n):n; if(!a) return ''; var l=[a.field].concat((a.more||[]).map(function(m){ return m.field; })).filter(Boolean); return l.length?uniqJoin(l,' + '):(a.track||''); }
+function wgFields(d){ if(!d) return ''; if(d.sp&&d.sp.length) return uniqJoin(d.sp.map(function(p){ return p.field; }).filter(Boolean),' + ');
+  var a=d.h?hvState(d.h):null, l=[d.field].concat((a&&a.session===d.s?a.more||[]:[]).map(function(m){ return m.field; })).filter(Boolean); return l.length?uniqJoin(l,' + '):(d.track||''); }
 function hvSlot(a){ return { h:a.name||a.harvester||'', s:a.session||'', track:a.track||'', field:a.field||'', variety:a.variety||'', stubble:(a.stubble==null?'':a.stubble) }; }
 function hvDefaultDumps(){
   var op=hvOpen(); if(!op.length) return null;
@@ -4901,20 +4909,20 @@ function hvBoardHtml(){
   if(!HV_WAGONS){
     if(src.length>1){ var cur0=hvPick();
       from='<div class="lbl" style="margin-top:10px">Trucks loading from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n);
-          return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur0?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+' · '+esc(a.field||a.track||'')+'</button>'; }).join('')+
-        '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cur0==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+'</button></div>'+
+          return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur0?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+' · '+esc(hvFields(a))+'</button>'; }).join('')+
+        '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cur0==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+' · '+esc(src.map(hvFields).filter(Boolean).join(' / '))+'</button></div>'+
         '<p class="small">'+(cur0==='*'?'Each truck is shared between the harvesters: by the Edge wagons each one sent since the last truck, or evenly when there are none. The mill\'s tons and TRS follow the share.':'Pick the harvester the truck is loading from, then tap the truck number. The load gets that harvester\'s field, track, variety and stubble. Both harvesters loading the same trucks? Pick '+(src.length===2?'Both':'All')+'.')+'</p>';
     } else if(src.length===1){ var a1=hvState(src[0]); from='<p class="small">Every truck tapped is logged to '+esc(a1.field||a1.track||'')+' ('+esc(src[0])+').</p>'; }
   } else if(src.length>1 && wagCfg(S.farmId).mode==='auto'){
     var cA=hvPick();
     from='<div class="lbl" style="margin-top:10px">'+tr('Next truck tapped is for')+'</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n);
-        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cA?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(a?' · '+esc(a.field||a.track||''):'')+'</button>'; }).join('')+
-      '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cA==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+'</button></div>'+
+        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cA?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(a?' · '+esc(hvFields(a)):'')+'</button>'; }).join('')+
+      '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cA==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+' · '+esc(src.map(hvFields).filter(Boolean).join(' / '))+'</button></div>'+
       '<p class="small">'+tr(cA==='*'?'Both harvesters load the same truck: tap it once.':'Two crews in two field groups: pick a harvester, then tap the truck it is loading. Each harvester\'s wagons drop into its own truck.')+'</p>';
   } else if(src.length>1){
     var cur=hvPick();
     from='<div class="lbl" style="margin-top:10px">Wagons coming from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n), q=hvQ(n);
-        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(q.length?' · '+q.length+' waiting':(a?' · '+esc(a.field||a.track||''):''))+'</button>'; }).join('')+'</div>'+
+        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(q.length?' · '+q.length+' waiting':(a?' · '+esc(hvFields(a)):''))+'</button>'; }).join('')+'</div>'+
       '<p class="small">Pick the harvester, then tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. A harvester with full wagons waiting gives those first, with the field they were cut in. The 3rd wagon in logs the truck as loaded. Tap a filled box to switch it to the other harvester or clear it.</p>';
   } else if(src.length===1){
     from='<p class="small">Tap a wagon box under the truck as each wagon dumps: the 2 bottoms first, then the split wagon on top. The 3rd wagon logs the truck as loaded.'+(hvQ(src[0]).length?' The full wagons waiting go in first, with the field they were cut in.':' Tapping the truck number still logs it right away, with every wagon from '+esc(src[0])+'.')+'</p>';
@@ -5206,8 +5214,8 @@ function hvTile(t,recent,btn){
   var n=wagN(), w=hvWagons(t.id)||Array(n).fill(null), auto=wagCfg(t.farm).mode==='auto', lb=auto&&S.loadingBy&&S.loadingBy[t.id], ld=!!(lb&&lb.length);
   if((!hvOpen().length && !hvQueue().length && !w.some(Boolean) && !ld) || !S.canWrite) return btn;
   var full=w.every(Boolean), nt=full && S.wag[t.id] && (S.wag[t.id].needTap || S.wag[t.id].full);
-  return '<div class="tw"'+(ld?' style="outline:3px solid #2e86de;outline-offset:2px;border-radius:12px"':'')+'>'+btn+(ld&&!full?'<span class="small" style="text-align:center;font-weight:700;color:#2e86de">'+tr('Loading now')+(lb.indexOf('*')<0?' · '+esc(lb.map(hvCode).join(' + ')):'')+'</span>':'')+(nt?'<span class="small" style="text-align:center;font-weight:700">'+tr('All wagons in: tap')+' '+esc(t.no)+'</span>':'')+'<div class="wg">'+wgOrder(n).map(function(i){ var d=w[i], cls=(i===n-1?'top':'')+(d?' on':'');
-    return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+wgName(i,n)+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?(d.h?esc(hvCode(d.h)):'&#10003;'):'<span style="color:var(--ink2)">'+(i===n-1?tr('Top'):(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
+  return '<div class="tw"'+(ld?' style="outline:3px solid #2e86de;outline-offset:2px;border-radius:12px"':'')+'>'+btn+(ld&&!full?'<span class="small" style="text-align:center;font-weight:700;color:#2e86de">'+tr('Loading now')+' · '+esc((lb.indexOf('*')<0?lb:hvOpen().map(function(o){ return o.name; })).map(function(h){ var f=hvFields(h); return hvCode(h)+(f?' '+f:''); }).join(' / '))+'</span>':'')+(nt?'<span class="small" style="text-align:center;font-weight:700">'+tr('All wagons in: tap')+' '+esc(t.no)+'</span>':'')+'<div class="wg">'+wgOrder(n).map(function(i){ var d=w[i], cls=(i===n-1?'top':'')+(d?' on':'');
+    return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+wgName(i,n)+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?'<span class="wgt">'+(d.h?esc(hvCode(d.h)):'&#10003;')+'</span>'+(wgFields(d)?'<span class="wgf">'+esc(wgFields(d))+'</span>':''):'<span style="color:var(--ink2)">'+(i===n-1?tr('Top'):(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
 }
 /* 2026-11-26: auto mode. A tap on a truck makes it the truck loading now; the Edge 101 wagons drop into its boxes as they are
    released (the ones released before the tap too). With every wagon in, the truck logs itself on the phone that set it, or on a tap. */
