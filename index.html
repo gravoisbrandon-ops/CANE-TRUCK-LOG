@@ -5108,7 +5108,7 @@ function hvBoardHtml(){
 }
 async function hvQueueAdd(name){
   var a=hvState(name); if(!a || !S.canWrite || needName()) return;
-  var lt=null; Object.keys(S.loadingBy||{}).forEach(function(tid){ var l=S.loadingBy[tid]; if(!lt && (l.indexOf(name)>=0 || l.indexOf('*')>=0)) lt=truckById(tid); });
+  var lt=null;   /* 2026-11-26: every wagon joins the line; the database moves the line into the truck loading, oldest first */
   if(lt){ var w=hvWagons(lt.id)||Array(wagN(lt.farm)).fill(null), i=w.indexOf(null);
     if(i>=0){ try{ var r=await rpc('wag_set',{ p_farm:lt.farm, p_truck:lt.id, p_i:i, p_slot:hvSlot(Object.assign({ name:name }, a)), p_from_queue:false, p_harvester:name });
         S.wag[lt.id]={ d:r.d, at:Date.now() }; poke(); last.board=''; schedule(); toast(hvCode(name)+' '+tr('wagon in truck')+' '+lt.no+' ('+wgName(i)+').');
