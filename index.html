@@ -1016,7 +1016,7 @@ function waitHtml(){
     h+='</div>'; }
   if(S.canWrite) h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+op.map(function(o){ return '<button class="btn sm" type="button" data-hvq="add" data-h="'+esc(o.name)+'" style="background:'+hvColor(o.name)+';border-color:'+hvColor(o.name)+';color:#fff">+ '+esc(hvCode(o.name))+'</button>'; }).join('')+'</div>';
   var olde=items.filter(function(x){ return x.kind==='e' && x.at && Date.now()-x.at>15*60000; }).length;
-  if(S.canWrite){ var eh={}; items.forEach(function(x){ if(x.kind==='e') eh[x.h]=(eh[x.h]||0)+1; });
+  if(S.canWrite){ var eh={}; items.forEach(function(x){ if(x.kind==='e' && x.at && Date.now()-x.at>15*60000) eh[x.h]=(eh[x.h]||0)+1; });   /* only wagons that look late, not one just cut */
     Object.keys(eh).forEach(function(hn){ h+='<div class="addrow" style="margin-top:8px"><button class="btn ghost sm" type="button" data-wqfill="'+esc(hn)+'" style="border-left:6px solid '+hvColor(hn)+'">'+tr('Fill')+' '+esc(hvCode(hn))+tr('\'s hand wagons with these, in order')+' ('+eh[hn]+')</button></div>'; }); }
   if(olde && S.canWrite) h+='<div class="addrow" style="margin-top:8px"><button class="btn ghost sm" type="button" data-act="wqSettle">'+tr('Already went in trucks? Put the late Edge wagons on the trucks loaded after them')+' ('+olde+')</button></div>';
   h+='<p class="small" style="margin-top:6px">'+tr('Hold a wagon and drag it: to another place in line, into a truck box, or from a truck back into line. Tap one to see it or delete it.')+'</p>';
