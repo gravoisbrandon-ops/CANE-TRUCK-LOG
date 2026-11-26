@@ -288,6 +288,7 @@ td.n,th.n{text-align:right}
       <button class="tab" role="tab" data-act="tab" data-tab="all" id="tab-all" aria-selected="false" type="button" hidden>All farms</button>
       <button class="tab" role="tab" data-act="tab" data-tab="tools" id="tab-tools" aria-selected="false" type="button" hidden>Tools</button>
       <button class="tab" role="tab" data-act="tab" data-tab="setup" id="tab-setup" aria-selected="false" type="button" hidden>Setup</button>
+      <button class="tab" role="tab" data-act="tab" data-tab="settings" id="tab-settings" aria-selected="false" type="button" hidden>Settings</button>
     </nav>
   </header>
   <div class="banner" id="banner" hidden></div>
@@ -436,6 +437,7 @@ td.n,th.n{text-align:right}
       <div id="toolSmoke" class="tm" hidden></div>
     </section>
 
+    <section id="view-settings" hidden aria-label="Settings" style="display:flex;flex-direction:column;gap:16px"><div id="setBody"></div></section>
     <section id="view-setup" hidden aria-label="Setup" style="display:flex;flex-direction:column;gap:16px">
       <div class="card" id="farmsCard" data-sk="farmsCard">
         <h2>Farms</h2>
@@ -810,6 +812,26 @@ async function toolsRefresh(){
 }
 setInterval(toolsRefresh, 8000);
 setInterval(function(){ if(!document.hidden && S.authed && !S.pending){ poke(); if(isLead()) loadPeople(); if(S.tab==='board') loadPending(); } }, 5000);
+/* 2026-11-26: Settings (the site owner's account only, for now): how each farm's trucks are logged, and the main farm */
+var SET_SIG='';
+function setRender(){
+  var box=$('#setBody'); if(!box) return;
+  var sig=JSON.stringify([S.farms.map(function(f){ return [f.id,f.name,f.wagons]; }), ftMain(), LANG]); if(sig===SET_SIG && box.innerHTML) return; SET_SIG=sig;
+  var desc={ tap1:'Pick the harvester (or Both) on the Board, then tap the truck.', triangle:'A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.', auto:'Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.' };
+  var h='<div class="card col"><h2>'+tr('Settings')+'</h2><p class="small">'+tr('Only for your operation for now.')+'</p>'+
+    (S.farms.length>1?'<label class="f">'+tr('Main farm')+'<select id="setMain"><option value="">'+tr('None')+'</option>'+S.farms.map(function(f){ return '<option value="'+esc(f.id)+'"'+(ftMain()===f.id?' selected':'')+'>'+esc(f.name)+'</option>'; }).join('')+'</select></label><p class="small">'+tr('The app opens on it on every phone.')+'</p>':'')+'</div>';
+  h+='<div class="card col"><h2>'+tr('Trucks and wagons')+'</h2>'+S.farms.map(function(f){ var c=wagCfg(f.id);
+    return '<div class="col" style="gap:6px;padding:8px 0;border-top:1px solid var(--line)"><b>'+esc(f.name)+'</b><div class="row" style="grid-template-columns:2fr 1fr;gap:8px 10px"><label class="f">'+tr('How trucks are logged')+'<select data-wagcfg="mode" data-farm="'+esc(f.id)+'">'+[['tap1','One tap a truck'],['triangle','Tap each wagon (wagon triangle)'],['auto','Edge 101 fills the wagons']].map(function(m){ return '<option value="'+m[0]+'"'+(c.mode===m[0]?' selected':'')+'>'+esc(tr(m[1]))+'</option>'; }).join('')+'</select></label><label class="f">'+tr('Wagons per truck')+'<select data-wagcfg="n" data-farm="'+esc(f.id)+'">'+[2,3,4].map(function(k){ return '<option value="'+k+'"'+(c.n===k?' selected':'')+'>'+k+'</option>'; }).join('')+'</select></label></div><p class="small">'+esc(tr(desc[c.mode]))+'</p></div>'; }).join('')+'</div>';
+  box.innerHTML=h;
+}
+document.addEventListener('change', function(e){ if(e.target && e.target.id==='setMain'){ var v=e.target.value||''; lsSet(FT_MAIN_KEY,v); prefSave('mainFarm',v,true); if(v){ S.profile=Object.assign({ name:'', role:'office', farm:'' }, S.profile||{}); S.profile.farm=v; saveProfile(); } SET_SIG=''; FT.sig=''; last.board=''; schedule(); toast(v?tr('Main farm')+': '+farmName(v):tr('Main farm')+': '+tr('None')); } });
+document.addEventListener('change', function(e){
+  var el=e.target; if(!el || !el.getAttribute || !el.getAttribute('data-wagcfg') || !isLead() || !S.home) return;   /* the site owner's operation only, for now */
+  var fid=el.getAttribute('data-farm'), f=farmById(fid); if(!f) return;
+  var w=Object.assign({ mode:'tap1', n:3 }, f.wagons||{}); w[el.getAttribute('data-wagcfg')]=el.getAttribute('data-wagcfg')==='n'?Number(el.value):el.value;
+  var before=f.wagons; f.wagons=w; SET_SIG=''; last.farms=''; last.board=''; schedule();
+  dref('farms/'+fid).update({ wagons:w }).then(function(){ toast(farmName(fid)+': '+tr({ tap1:'One tap a truck', triangle:'Tap each wagon (wagon triangle)', auto:'Edge 101 fills the wagons' }[w.mode])+' · '+w.n+' '+tr('wagons')); }).catch(function(err){ f.wagons=before; last.farms=''; schedule(); fail(err); });
+});
 document.addEventListener('visibilitychange', function(){ if(document.hidden){ S.hiddenAt=Date.now(); return; } if(S.authed && !S.pending){ if(S.hiddenAt && Date.now()-S.hiddenAt>20*60000){ S.farmTouched=false; if(ftApplyMain()) toast('Back on your main farm, '+farmName(ftMain())+'.'); } poke(); schedule(); setTimeout(toolsRefresh,300); } });
 function col(p){ return collection(p); }
 function dref(p){ return docRef(p); }
@@ -843,9 +865,10 @@ function subLoads(){
   S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
     var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
     S.active = a ? { track:a.track||'', field:a.field||'', variety:a.variety||'' } : { track:'', field:'', variety:'' };
+    var ldd=docs(snap).filter(function(d){ return d.id==='loading'; })[0]; S.loadingTruck=(ldd && ldd.truck && Date.now()-(ldd.at||0)<12*3600000)?ldd.truck:'';
     var hv={}, wg={}; docs(snap).forEach(function(d){ if(d.id.indexOf('h_')===0) hv[d.id]=d; else if(d.id.indexOf('w_')===0 && !(S.wagBusy&&S.wagBusy[d.id.slice(2)])) wg[d.id.slice(2)]=d; }); S.harv=hv;
     Object.keys(S.wag||{}).forEach(function(k){ if(S.wagBusy&&S.wagBusy[k]) wg[k]=S.wag[k]; }); S.wag=wg;
-    edgeAutoActive();
+    edgeAutoActive(); wagAutoLog();
     last.board=''; schedule();
   }, function(e){ S.err = e && e.code; schedule(); });
   S.unsubQuota = col('farms/'+S.farmId+'/quota').onSnapshot(function(snap){
@@ -926,10 +949,22 @@ async function logLoad(t){
   var wd=today(), ref=col(loadsPath(t.farm,wd)).doc();
   var rec={ truck:t.id, no:t.no, farm:t.farm, hauler:t.hauler||'', track:S.active.track||'', field:S.active.field||'', variety:S.active.variety||'', mill:mill, loadedAt:now, loadedBy:byName(), day:wd };
   var dm=hvDefaultDumps(), nOpen=hvOpen().length, wgd=hvWagons(t.id), tapped=!!(wgd && wgd.some(Boolean));
+  if(dm && !HV_WAGONS && hvPick()==='*' && nOpen>1){   /* both (or all) harvesters loading this truck */
+    try{ var sa=await hvSplitAll(t.farm, hvOpen()); if(sa){ rec.split=sa.parts; rec.harvesters=sa.harvesters; rec.harvester=sa.harvesters.join(' + '); rec.mixed=sa.parts.length>1; if(sa.even) rec.splitBlend=true; if(sa.edge) rec.splitWagons=sa.edge;
+      var top=sa.parts[0]; rec.track=top.track; rec.field=top.field; rec.variety=top.variety; rec.stubble=top.stubble; dm=null; } }catch(e){}
+  }
   if(dm && tapped) dm=dm.map(function(x,i){ return wgd[i] ? Object.assign({}, wgd[i]) : x; });
+  if(tapped && HV_WAGONS){ dm=wgd.map(function(x){ return x ? Object.assign({}, x) : null; }); while(dm.length && !dm[dm.length-1]) dm.pop(); }
+  var edgeDumps=!!(dm && dm.some(function(x){ return x && x.sp; }));
   if(dm && HV_WAGONS){ rec.dumps=dm; hvFill(rec); }
   else if(dm){ rec.track=dm[0].track; rec.field=dm[0].field; rec.variety=dm[0].variety; rec.stubble=dm[0].stubble; rec.harvester=dm[0].h; }
-  if(dm){ try{ var sp=await hvEdgeSplit(t.farm, rec.dumps||dm);   /* 2026-11-22: split by field from the Edge wagons */
+  if(dm && edgeDumps){   /* Edge 101 wagons in the boxes: split by each wagon's own tons per field (a tapped wagon counts as the average Edge wagon) */
+    var ep={}, eo=[], et=0, en=0; dm.filter(Boolean).forEach(function(x){ if(x.sp){ et+=Number(x.t)||0; en++; } });
+    dm.filter(Boolean).forEach(function(x){ (x.sp||[{ track:x.track, field:x.field, variety:x.variety, stubble:x.stubble, t:en?et/en:1 }]).forEach(function(p){ var k=[p.track||'',p.field||'',p.variety||'',p.stubble==null?'':p.stubble].join('|'); if(!ep[k]){ ep[k]={ track:p.track||'', field:p.field||'', variety:p.variety||'', stubble:(p.stubble==null?'':p.stubble), t:0 }; eo.push(k); } ep[k].t+=Number(p.t)||0; }); });
+    var tot=0; eo.forEach(function(k){ tot+=ep[k].t; });
+    if(tot>0){ rec.split=eo.map(function(k){ var p=ep[k]; p.share=Math.round(p.t/tot*1000)/1000; p.t=Math.round(p.t*1000)/1000; return p; }).sort(function(a,b){ return b.share-a.share; }); rec.splitWagons=en; var tp=rec.split[0]; rec.track=tp.track; rec.field=tp.field; rec.variety=tp.variety; rec.stubble=tp.stubble; rec.mixed=rec.split.length>1; }
+  }
+  if(dm && !edgeDumps){ try{ var sp=await hvEdgeSplit(t.farm, rec.dumps||dm);   /* 2026-11-22: split by field from the Edge wagons */
     if(sp){ rec.split=sp.parts; rec.splitWagons=sp.wagons; if(sp.guessed) rec.splitGuessed=sp.guessed; var top=sp.parts[0]; rec.track=top.track; rec.field=top.field; rec.variety=top.variety; rec.stubble=top.stubble; rec.mixed=sp.parts.length>1; } }catch(e){} }
   if(dm && !rec.split){   /* 2026-11-24: a harvester cutting more than one field shares its wagons between them */
     var bl={}, bo=[], nd=0; (rec.dumps||dm).filter(Boolean).forEach(function(x){ nd++; var ha=hvState(x.h)||{}, fl=[{ track:x.track, field:x.field, variety:x.variety, stubble:x.stubble }].concat((ha.session===x.s?ha.more:null)||[]);
@@ -940,6 +975,7 @@ async function logLoad(t){
     await ref.set(rec);
     markUsed(t,wd);
     if(tapped){ delete S.wag[t.id]; dref('farms/'+t.farm+'/active/w_'+t.id)['delete']().catch(function(){}); }
+    if(S.loadingTruck===t.id){ S.loadingTruck=''; rpc('wag_loading',{ p_farm:t.farm, p_truck:'' }).catch(function(){}); }
     toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':'')+(dm&&!HV_WAGONS?' · '+(dm[0].field||dm[0].track)+' ('+hvCode(dm[0].h)+')':'')+(dm&&HV_WAGONS&&nOpen>1&&!tapped?'. 3 wagons from '+dm[0].h+'.':''), loadsPath(t.farm,wd)+'/'+ref.id);
   }catch(e){ S.lastTap[t.id]=0; fail(e); }
 }
@@ -1013,7 +1049,7 @@ function applyWho(w, nm){
   S.authed=true;
   S.pending = w.status!=='ok'; S.pendFarm = (w.status!=='ok' && w.farm) ? (w.farm_name||'the farm') : '';
   var pnote=$('#pendNote'); if(pnote){ pnote.hidden=!S.pendFarm; pnote.textContent=S.pendFarm?('Your request to join '+S.pendFarm+' was sent. An administrator has to approve it. This page checks on its own, so you can leave it open.'):''; }
-  S.portal = w.portal||''; S.isOwner = !!w.owner; S.platform = !!w.platform; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
+  S.portal = w.portal||''; S.isOwner = !!w.owner; S.platform = !!w.platform; S.home = !!w.home; S.isAdmin = w.role==='admin'; S.isMgr = w.role==='manager'; S.isMill = w.role==='mill'; S.mill = w.mill||''; S.crewFarm = w.farm||'';
   var prev=S.profile||{};
   S.profile={ name:w.name||nm||prev.name||'', role:S.isAdmin?'office':(prev.role==='combine'?'combine':'driver'), farm:S.isAdmin?(prev.farm||''):S.crewFarm };
   saveProfile();
@@ -1066,13 +1102,14 @@ function setOptions(sel, opts, value){
 }
 
 function renderAll(){
+  HV_WAGONS=!!S.farmId && wagCfg(S.farmId).mode!=='tap1';
   var gate=!S.authed, wait=S.authed && S.pending;
   $('#view-login').hidden=!gate;
   $('#view-pending').hidden=!wait;
   document.querySelector('.tabs').hidden=gate||wait;
   $('#meBtn').hidden=gate||wait;
   if(gate||wait){
-    ['board','report','all','tools','setup','me'].forEach(function(v){ $('#view-'+v).hidden=true; });
+    ['board','report','all','tools','setup','settings','me'].forEach(function(v){ $('#view-'+v).hidden=true; });
     $('#adminBar').hidden=true; renderBanner(); return;
   }
   ftStartup();
@@ -1094,13 +1131,14 @@ function renderAll(){
   if(S.tab==='tools' && !(isOffice() || S.isMgr)) S.tab='board';
   $('#tab-board').hidden = $('#tab-report').hidden = $('#tab-setup').hidden = !!S.isMill;
   $('#tab-farm').hidden = !!S.isMill; $('#tab-mill').hidden = !isLead();
+  $('#tab-settings').hidden = !(S.home && isLead()); if(S.tab==='settings' && !(S.home && isLead())) S.tab='board';   /* the site owner's operation only, for now */
   if(S.tab==='mill' && !isLead()) S.tab='board';
   if(S.tab==='farm' && S.isMill) S.tab='all';
   $('#tab-all').textContent = S.isMill ? 'Report' : 'All farms';
   if(S.isMill && S.tab!=='all' && S.tab!=='me'){ S.tab='all'; last.comb=''; loadComb(); }
   if(S.tab==='all' && !(isOffice() || S.isMill)) S.tab='board';
-  ['farm','board','report','mill','all','tools','setup','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
-  ['farm','board','report','mill','all','setup'].forEach(function(v){ $('#tab-'+v).setAttribute('aria-selected', S.tab===v ? 'true':'false'); });
+  ['farm','board','report','mill','all','tools','setup','settings','me'].forEach(function(v){ $('#view-'+v).hidden = (S.tab!==v); });
+  ['farm','board','report','mill','all','setup','settings'].forEach(function(v){ $('#tab-'+v).setAttribute('aria-selected', S.tab===v ? 'true':'false'); });
   wnRender();
   renderBanner();
   if(S.tab==='board') renderBoard();
@@ -1109,6 +1147,7 @@ function renderAll(){
   if(S.tab==='all') renderAll_();
   if(S.tab==='setup'){ renderSetup(); if(isLead()){ renderAccess(); renderScale(); } bkRender(); }
   if(S.tab==='mill') mrRender();
+  if(S.tab==='settings') setRender();
   if(S.tab==='farm') ftRender();
   if(S.farmId && typeof FT!=='undefined' && !(S.farmId in FT.map)) ftLoadMap(S.farmId);
   if(S.tab==='me') renderMe();
@@ -4472,7 +4511,7 @@ document.addEventListener('click', function(e){
     case 'csvAll': exportCombCsv(); break;
     case 'pickAllDay': C.sel=el.getAttribute('data-day'); last.comb=''; schedule(); break;
     case 'goMe': S.tab='me'; $('#meForm').removeAttribute('data-init'); schedule(); break;
-    case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else logLoad(lt); } break;
+    case 'log': var lt=truckById(el.getAttribute('data-id')); if(lt){ if(S.boardEdit) openQuick(lt.id); else if(wagCfg(lt.farm).mode==='auto') wagTruckTap(lt); else logLoad(lt); } break;
     case 'lang': setLang(LANG==='es'?'en':'es'); break;
     case 'setLang': if(el.getAttribute('data-lang')!==LANG){ try{ sessionStorage.setItem('cane-truck-log:reg','1'); }catch(_){} setLang(el.getAttribute('data-lang')); } break;
     case 'dropWeight': rpc('scale_pending_drop',{ p_id:el.getAttribute('data-id') }).then(function(){ S.pendingW=S.pendingW.filter(function(x){ return x.id!==el.getAttribute('data-id'); }); last.board=''; schedule(); }).catch(fail); break;
@@ -4585,6 +4624,7 @@ document.addEventListener('click', function(e){
       if(S.trucks.some(function(t){ return t.farm===fid; })){ toast('Remove or move this farm’s trucks first.'); break; }
       if(confirmTap('delFarm:'+fid)) dref('farms/'+fid).delete().then(function(){ toast('Farm removed'); }).catch(fail);
       break;
+    case '__never__': break;
     case 'clearTyped':
       if(!isLead()) break;
       if(!confirmTap('clearTyped:'+el.getAttribute('data-farm'))){ last.farms=''; schedule(); break; }
@@ -4750,7 +4790,12 @@ document.addEventListener('submit', function(e){
    farms/<farm>/active/h_<name>, and each field it cuts is a session at farms/<farm>/harvest/<id>
    (monitor tons, field acres, burned or green, weigh-wagon checks). A truck takes 3 wagons, and each
    load keeps which harvester and field each wagon came from (load.dumps). */
-var HV_WAGONS=false;   /* wagon boxes, waiting wagons and weigh wagon: off for now; each harvester's field and track only */
+var HV_WAGONS=false;   /* wagon boxes, waiting wagons and weigh wagon: set per farm in Setup (Trucks and wagons) */
+/* 2026-11-26: each farm picks how trucks are logged: one tap ('tap1'), tap each wagon ('triangle'), or the Edge 101 fills the wagons ('auto') */
+function wagCfg(fid){ var f=farmById(fid)||{}, w=f.wagons||{}, n=Number(w.n)||3; return { mode:(w.mode==='triangle'||w.mode==='auto')?w.mode:'tap1', n:Math.max(2,Math.min(4,n)) }; }
+function wagN(fid){ return wagCfg(fid||S.farmId).n; }
+function wgName(i,n){ n=n||wagN(); return i===n-1 ? tr('split on top') : tr('bottom')+' '+(i+1); }
+function wgOrder(n){ var o=[n-1]; for(var i=0;i<n-1;i++) o.push(i); return o; }
 var STUB=['Plant cane','1st stubble','2nd stubble','3rd stubble','4th stubble','5th stubble','Older stubble'];
 function stubLabel(s){ if(s===''||s==null) return ''; var n=parseInt(s,10); return isNaN(n)?'':(STUB[n]||STUB[6]); }
 function harvOf(id){ var f=farmById(id); return (f&&f.harvesters)||[]; }
@@ -4778,6 +4823,24 @@ function loadParts(x){ var sp=x&&x.split; if(sp && sp.length) return sp; return 
 function splitText(l){ return (l.split||[]).map(function(p){ return (p.field||p.track||'?')+(p.variety?' '+p.variety:'')+' '+Math.round((p.share||0)*100)+'%'; }).join(', '); }
 function fLoads(v){ return Math.abs(v-Math.round(v))<0.05 ? String(Math.round(v)) : v.toFixed(1); }
 /* the Edge wagons in this truck: for each harvester, its newest Edge wagons, one per wagon it put in */
+/* 2026-11-26: harvesters loading the same truck. Each one's share: the Edge wagons (tons) it sent since the last truck,
+   or one even share when it sent none; within a harvester, its fields as the Edge wagons say, else evenly over its open fields */
+async function hvSplitAll(farm, op){
+  var parts={}, order=[], hs=[], ewN=0, ewT=0, noEw=[];
+  function add(p,t,h){ var k=[p.track||'',p.field||'',p.variety||'',p.stubble==null?'':p.stubble].join('|'); if(!parts[k]){ parts[k]={ track:p.track||'', field:p.field||'', variety:p.variety||'', stubble:(p.stubble==null?'':p.stubble), t:0, h:{} }; order.push(k); } parts[k].t+=t; parts[k].h[h]=1; }
+  for(var i=0;i<op.length;i++){
+    var x=op[i], ha=hvState(x.name)||{}, ew=(hvRaw(x.name).ew)||[], took=[];
+    hs.push(x.name);
+    if(ew.length){ try{ took=await rpc('edge_wagons_take',{ p_farm:farm, p_harvester:x.name, p_n:3 })||[]; }catch(e){ took=[]; } }
+    if(took.length){ took.forEach(function(w){ (w.sp||[]).forEach(function(p){ add(p, Number(p.t)||0, x.name); }); ewN++; ewT+=Number(w.t)||0; }); }
+    else noEw.push({ x:x, fl:[{ track:x.track, field:x.field, variety:x.variety, stubble:x.stubble }].concat((ha.session===x.s?ha.more:null)||ha.more||[]) });
+  }
+  var each=ewN ? ewT/ewN : 1;   /* a harvester with no Edge numbers counts as one wagon (or one even share) */
+  noEw.forEach(function(n){ n.fl.forEach(function(p){ add(p, each/n.fl.length, n.x.name); }); });
+  var tot=0; order.forEach(function(k){ tot+=parts[k].t; }); if(!(tot>0)) return null;
+  var out=order.map(function(k){ var p=parts[k]; p.share=Math.round(p.t/tot*1000)/1000; p.t=Math.round(p.t*1000)/1000; p.harvester=Object.keys(p.h).join(' + '); delete p.h; return p; }).sort(function(a,b){ return b.share-a.share; });
+  return { parts:out, harvesters:hs, edge:ewN, even:noEw.length };
+}
 async function hvEdgeSplit(farm, dm){
   var byH={}, slotOf={}; (dm||[]).filter(Boolean).forEach(function(x){ if(!x.h) return; byH[x.h]=(byH[x.h]||0)+1; if(!slotOf[x.h]) slotOf[x.h]=x; });
   var hs=Object.keys(byH); if(!hs.length) return null;
@@ -4806,7 +4869,7 @@ function hvMixText(l){
 function hvQ(n){ return (hvRaw(n).queue)||[]; }
 /* harvesters a tap can take a wagon from: a field open now, or full wagons waiting (the evening round, or an Edge 101's) */
 function hvSources(){ return harvOf(S.farmId).filter(function(n){ return hvState(n) || (HV_WAGONS && hvQ(n).length); }); }
-function hvPick(){ var src=hvSources(); return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
+function hvPick(){ var src=hvSources(); if(S.hvFrom==='*' && src.length>1 && !HV_WAGONS) return '*'; return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
 function hvBoardHtml(){
   var hs=harvOf(S.farmId), addB=S.canWrite?'<button class="btn ghost sm" type="button" data-act="addHarvOpen">+ Add harvester</button>':'';
   if(!hs.length) return addB?'<div class="card"><div class="lbl">Harvesters</div><p class="small">Add your harvesters to open fields on them, log trucks by harvester and compare the monitor with the mill.</p><div>'+addB+'</div></div>':'';
@@ -4828,8 +4891,9 @@ function hvBoardHtml(){
   if(!HV_WAGONS){
     if(src.length>1){ var cur0=hvPick();
       from='<div class="lbl" style="margin-top:10px">Trucks loading from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n);
-          return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur0?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+' · '+esc(a.field||a.track||'')+'</button>'; }).join('')+'</div>'+
-        '<p class="small">Pick the harvester the truck is loading from, then tap the truck number. The load gets that harvester\'s field, track, variety and stubble.</p>';
+          return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cur0?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+' · '+esc(a.field||a.track||'')+'</button>'; }).join('')+
+        '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cur0==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+'</button></div>'+
+        '<p class="small">'+(cur0==='*'?'Each truck is shared between the harvesters: by the Edge wagons each one sent since the last truck, or evenly when there are none. The mill\'s tons and TRS follow the share.':'Pick the harvester the truck is loading from, then tap the truck number. The load gets that harvester\'s field, track, variety and stubble. Both harvesters loading the same trucks? Pick '+(src.length===2?'Both':'All')+'.')+'</p>';
     } else if(src.length===1){ var a1=hvState(src[0]); from='<p class="small">Every truck tapped is logged to '+esc(a1.field||a1.track||'')+' ('+esc(src[0])+').</p>'; }
   } else if(src.length>1){
     var cur=hvPick();
@@ -4865,18 +4929,18 @@ function hvChoices(e){
 function hvEditSlots(e){
   if(!HV_WAGONS) return '';
   var ch=hvChoices(e); if(!ch.length && !e.dumps) return '';
-  var d=e.dumps||[null,null,null], h='<div class="lbl" style="margin-top:6px">Wagons in this truck</div>';
-  for(var i=0;i<3;i++){
+  var nW=(e.dumps&&e.dumps.length)||wagN(), d=e.dumps||Array(nW).fill(null), h='<div class="lbl" style="margin-top:6px">Wagons in this truck</div>';
+  for(var i=0;i<nW;i++){
     var cur=$('#eDump'+i) ? $('#eDump'+i).value : (d[i]?d[i].s:'');
-    h+='<label class="f">Wagon '+(i+1)+' · '+WGN[i]+'<select id="eDump'+i+'"><option value="">Empty</option>'+ch.map(function(x){ return '<option value="'+esc(x.s)+'"'+(x.s===cur?' selected':'')+'>'+esc(x.h)+' · '+esc(hvText(x))+'</option>'; }).join('')+'</select></label>';
+    h+='<label class="f">Wagon '+(i+1)+' · '+wgName(i,nW)+'<select id="eDump'+i+'"><option value="">Empty</option>'+ch.map(function(x){ return '<option value="'+esc(x.s)+'"'+(x.s===cur?' selected':'')+'>'+esc(x.h)+' · '+esc(hvText(x))+'</option>'; }).join('')+'</select></label>';
   }
-  return h+'<p class="small">A wagon left Empty splits the truck in halves instead of thirds. When wagons are set, the load\'s track, field and variety follow the field most of its wagons came from.</p>';
+  return h+'<p class="small">A wagon left Empty leaves it out of the split. When wagons are set, the load\'s track, field and variety follow the field most of its wagons came from.</p>';
 }
 function hvEditSave(e,patch){
   if(!HV_WAGONS) return;
   if(!$('#eDump0')) return;
   var m={}; hvChoices(e).forEach(function(x){ m[x.s]=x; });
-  var d=[0,1,2].map(function(i){ var v=$('#eDump'+i).value; return v&&m[v] ? Object.assign({}, m[v]) : null; });
+  var nW=0; while($('#eDump'+nW)) nW++; var d=Array.from({length:nW},function(_,i){ return i; }).map(function(i){ var v=$('#eDump'+i).value; return v&&m[v] ? Object.assign({}, m[v]) : null; });
   if(!d.some(Boolean)){ patch.dumps=null; patch.mixed=false; return; }
   patch.dumps=d; hvFill(patch);
 }
@@ -5101,7 +5165,7 @@ async function hvRename(fid,key,old,nv){
   }catch(e){}
 }
 function hvCur(){ var op=hvOpen(); if(!op.length) return null; var pk=hvPick(); return op.filter(function(x){ return x.name===pk; })[0]||op[0]; }
-function hvWagons(tid){ var w=S.wag[tid]; if(!w || !w.d || (w.at && Date.now()-w.at>16*3600000)) return null; var d=w.d.slice(0,3); while(d.length<3) d.push(null); return d; }
+function hvWagons(tid){ var w=S.wag[tid], n=wagN(); if(!w || !w.d || (w.at && Date.now()-w.at>16*3600000)) return null; var d=w.d.slice(0,n); while(d.length<n) d.push(null); return d; }
 function hvQueue(){ var out=[]; harvOf(S.farmId).forEach(function(n){ var a=S.harv[hvKey(n)]; ((a&&a.queue)||[]).forEach(function(q){ out.push(q); }); }); return out.sort(function(a,b){ return (a.at||0)-(b.at||0); }); }
 function hvTile(t,recent,btn){
   if(!HV_WAGONS) return btn;
@@ -5109,19 +5173,38 @@ function hvTile(t,recent,btn){
   if(recent){
     var l=null; S.loads.forEach(function(x){ if(x.truck===t.id && x.loadedAt && (!l || x.loadedAt>l.loadedAt)) l=x; });
     if(!l || !l.dumps) return btn;
-    var bar='<em class="wgb" aria-hidden="true">'+[2,0,1].map(function(k){ var d=l.dumps[k]; return '<i'+(k===2?' class="top"':'')+' style="background:'+(d?hvColor(d.h):'transparent')+'"></i>'; }).join('')+'</em>';
+    var nb=l.dumps.length; var bar='<em class="wgb" aria-hidden="true">'+wgOrder(nb).map(function(k){ var d=l.dumps[k]; return '<i'+(k===nb-1?' class="top"':'')+' style="background:'+(d?hvColor(d.h):'transparent')+'"></i>'; }).join('')+'</em>';
     return btn.replace(/<\/button>$/, bar+'</button>');
   }
-  var w=hvWagons(t.id)||[null,null,null];
-  if((!hvOpen().length && !hvQueue().length && !w.some(Boolean)) || !S.canWrite) return btn;
-  var nt=w.every(Boolean) && S.wag[t.id] && S.wag[t.id].needTap;
-  return '<div class="tw">'+btn+(nt?'<span class="small" style="text-align:center;font-weight:700">Pick the mill, tap '+esc(t.no)+'</span>':'')+'<div class="wg">'+[2,0,1].map(function(i){ var d=w[i], cls=(i===2?'top':'')+(d?' on':'');
-    return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+WGN[i]+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?esc(hvCode(d.h)):'<span style="color:var(--ink2)">'+(i===2?'Top':(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
+  var n=wagN(), w=hvWagons(t.id)||Array(n).fill(null), auto=wagCfg(t.farm).mode==='auto', ld=auto&&S.loadingTruck===t.id;
+  if((!hvOpen().length && !hvQueue().length && !w.some(Boolean) && !ld) || !S.canWrite) return btn;
+  var full=w.every(Boolean), nt=full && S.wag[t.id] && (S.wag[t.id].needTap || S.wag[t.id].full);
+  return '<div class="tw"'+(ld?' style="outline:3px solid #2e86de;outline-offset:2px;border-radius:12px"':'')+'>'+btn+(ld&&!full?'<span class="small" style="text-align:center;font-weight:700;color:#2e86de">'+tr('Loading now')+'</span>':'')+(nt?'<span class="small" style="text-align:center;font-weight:700">'+tr('All wagons in: tap')+' '+esc(t.no)+'</span>':'')+'<div class="wg">'+wgOrder(n).map(function(i){ var d=w[i], cls=(i===n-1?'top':'')+(d?' on':'');
+    return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+wgName(i,n)+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?esc(hvCode(d.h)):'<span style="color:var(--ink2)">'+(i===n-1?tr('Top'):(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
+}
+/* 2026-11-26: auto mode. A tap on a truck makes it the truck loading now; the Edge 101 wagons drop into its boxes as they are
+   released (the ones released before the tap too). With every wagon in, the truck logs itself on the phone that set it, or on a tap. */
+async function wagTruckTap(t){
+  if(!S.canWrite || needName()) return;
+  var w=hvWagons(t.id), n=wagN(t.farm), inN=w?w.filter(Boolean).length:0;
+  if(w && inN===n){ await logLoad(t); return; }
+  if(S.loadingTruck===t.id){ toast(tr('Truck')+' '+t.no+': '+inN+' / '+n+' '+tr('wagons in. Tap a box to add one by hand.')); return; }
+  try{ S.loadingTruck=t.id; S.loadingMine=t.id; last.board=''; schedule();
+    var r=await rpc('wag_loading',{ p_farm:t.farm, p_truck:t.id });
+    if(r && Array.isArray(r.d)) S.wag[t.id]=r;
+    toast(tr('Truck')+' '+t.no+' '+tr('loading now. Wagons from the Edge 101 drop in as they are released.')); last.board=''; schedule(); wagAutoLog();
+  }catch(e){ S.loadingMine=''; fail(e); }
+}
+function wagAutoLog(){
+  var tid=S.loadingTruck; if(!tid || tid!==S.loadingMine || !S.farmId || wagCfg(S.farmId).mode!=='auto') return;
+  var w=hvWagons(tid), t=truckById(tid); if(!t || !w || !w.every(Boolean)) return;
+  var k=tid+'|'+((S.wag[tid]&&S.wag[tid].at)||''); S.wagLogged=S.wagLogged||{}; if(S.wagLogged[k]) return; S.wagLogged[k]=1;
+  S.loadingMine=''; logLoad(t);
 }
 async function hvWagonTap(tid,i){
   var t=truckById(tid); if(!t || !S.canWrite || needName()) return;
   var op=hvOpen(), qd=hvQueue(), pick=hvPick(), pa=pick?hvState(pick):null;
-  var cur=hvWagons(tid)||[null,null,null], was=cur[i], slot=null, fromQ=false, preview=null;
+  var cur=hvWagons(tid)||Array(wagN()).fill(null), was=cur[i], slot=null, fromQ=false, preview=null;
   if(!was){
     if(pick && hvQ(pick).length){ fromQ=true; preview=hvQ(pick)[0]; }        /* that harvester's full wagons waiting go in first */
     else if(pa) slot=hvSlot(Object.assign({ name:pick }, pa));
@@ -5303,7 +5386,7 @@ document.addEventListener('change',function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- 'Harvesters':'Cosechadoras','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
+ 'Harvesters':'Cosechadoras','Loading now':'Cargando ahora','All wagons in: tap':'Todas las carretas adentro: toque','split on top':'la partida arriba','bottom':'abajo','Top':'Arriba','Trucks and wagons':'Camiones y carretas','One tap a truck':'Un toque por camión','Tap each wagon (wagon triangle)':'Tocar cada carreta (triángulo)','Edge 101 fills the wagons':'El Edge 101 llena las carretas','Wagons per truck':'Carretas por camión','Settings':'Ajustes','Only for your operation for now.':'Solo para su operación por ahora.','Main farm':'Finca principal','None':'Ninguna','The app opens on it on every phone.':'La aplicación abre en ella en todos los teléfonos.','How trucks are logged':'Cómo se registran los camiones','wagons':'carretas','Truck':'Camión','wagons in. Tap a box to add one by hand.':'carretas adentro. Toque una casilla para agregar una a mano.','loading now. Wagons from the Edge 101 drop in as they are released.':'cargando ahora. Las carretas del Edge 101 entran solas cuando se sueltan.','Pick the harvester (or Both) on the Board, then tap the truck.':'Escoja la cosechadora (o Ambas) en el Tablero y toque el camión.','A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.':'Una casilla por carreta debajo de cada camión. Toque la cosechadora y luego la casilla cuando cada carreta vacía. La última carreta registra el camión.','Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.':'Toque el camión que se está cargando. Cada carreta que una cosechadora suelta en su Edge 101 entra en la siguiente casilla; la última registra el camión. Una cosechadora sin Edge 101: toque su casilla a mano.','Both':'Ambas','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
  'Wagons filling trucks from':'Carretas llenando camiones de','Edge 101 connection':'Conexión Edge 101','Make key':'Crear clave','New key':'Clave nueva','Turn off':'Apagar','Wagons coming from':'Carretas vienen de','Wagons in this truck':'Carretas en este camión','Empty':'Vacía','Stubble':'Soca','Plant cane':'Caña planta','1st stubble':'1ra soca','2nd stubble':'2da soca','3rd stubble':'3ra soca','4th stubble':'4ta soca','5th stubble':'5ta soca','Older stubble':'Soca más vieja',
  'Open this field':'Abrir este campo','Close that field and open this one':'Cerrar ese campo y abrir este','Close this field':'Cerrar este campo','Harvester monitor tons for this field':'Toneladas del monitor de la cosechadora para este campo','Field acres':'Acres del campo','Cane':'Caña','Burned':'Quemada','Green':'Verde',
  'Weigh wagon scale (lb)':'Báscula de la carreta (lb)','Harvester monitor for the same wagon (lb)':'Monitor de la cosechadora para la misma carreta (lb)','Save weight':'Guardar peso','Harvest by field':'Cosecha por campo','Season':'Temporada','Download CSV':'Descargar CSV','By variety':'Por variedad','By stubble':'Por soca','By variety and stubble':'Por variedad y soca',
@@ -5773,6 +5856,8 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Settings tab (your operation only, for now: administrators and crew managers): main farm, and Trucks and wagons for each farm. One tap a truck (pick the harvester, or Both); Tap each wagon (the wagon triangle); or Edge 101 fills the wagons: tap the truck loading now and each wagon a harvester releases drops into its next box, and the last wagon logs the truck. Wagons per truck: 2, 3 or 4.',
+  'Board: both harvesters loading the same trucks? Pick Both under Trucks loading from. Each truck is shared between them, by the Edge wagons each sent, or evenly, and the mill\'s tons and TRS follow the share.',
   'Farm map: Mill vs machine. Each field is colored by how the mill\'s certified tons compare with the harvester\'s monitor tons, with the post-cal factor for each harvester under the map.',
   'Cane Track: each mill\'s tons and TRS now come from the grower\'s year-to-date total on the latest mill report, the mill\'s own season number. Days after that report add on.',
   'Mill tab: Paste the report or a link. Paste the mill report text, or a link to the PDF (Google Drive, Dropbox or the mill\'s site), or upload the PDF as before.',
