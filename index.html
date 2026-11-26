@@ -882,7 +882,7 @@ function subLoads(){
   S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
     var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
     S.active = a ? { track:a.track||'', field:a.field||'', variety:a.variety||'' } : { track:'', field:'', variety:'' };
-    var ldd=docs(snap).filter(function(d){ return d.id==='loading'; })[0], fresh=function(x){ return x && x.truck && Date.now()-(x.at||0)<12*3600000; };
+    var ldd=docs(snap).filter(function(d){ return d.id==='loading'; })[0], fresh=function(x){ return x && x.truck && Date.now()-(x.at||0)<90*60000; };   /* 2026-11-26: a truck tapped and never loaded stops loading after 90 min */
     S.loadingTruck=fresh(ldd)?ldd.truck:''; S.loadingBy={};   /* truck -> the harvesters loading it ('*' = the shared truck) */
     if(S.loadingTruck) S.loadingBy[S.loadingTruck]=['*'];
     Object.keys((ldd&&ldd.byH)||{}).forEach(function(h){ var x=ldd.byH[h]; if(fresh(x)) (S.loadingBy[x.truck]=S.loadingBy[x.truck]||[]).push(h); });
