@@ -865,7 +865,10 @@ function subLoads(){
   S.unsubActive = col('farms/'+S.farmId+'/active').onSnapshot(function(snap){
     var a=docs(snap).filter(function(d){ return d.id==='now'; })[0];
     S.active = a ? { track:a.track||'', field:a.field||'', variety:a.variety||'' } : { track:'', field:'', variety:'' };
-    var ldd=docs(snap).filter(function(d){ return d.id==='loading'; })[0]; S.loadingTruck=(ldd && ldd.truck && Date.now()-(ldd.at||0)<12*3600000)?ldd.truck:'';
+    var ldd=docs(snap).filter(function(d){ return d.id==='loading'; })[0], fresh=function(x){ return x && x.truck && Date.now()-(x.at||0)<12*3600000; };
+    S.loadingTruck=fresh(ldd)?ldd.truck:''; S.loadingBy={};   /* truck -> the harvesters loading it ('*' = the shared truck) */
+    if(S.loadingTruck) S.loadingBy[S.loadingTruck]=['*'];
+    Object.keys((ldd&&ldd.byH)||{}).forEach(function(h){ var x=ldd.byH[h]; if(fresh(x)) (S.loadingBy[x.truck]=S.loadingBy[x.truck]||[]).push(h); });
     var hv={}, wg={}; docs(snap).forEach(function(d){ if(d.id.indexOf('h_')===0) hv[d.id]=d; else if(d.id.indexOf('w_')===0 && !(S.wagBusy&&S.wagBusy[d.id.slice(2)])) wg[d.id.slice(2)]=d; }); S.harv=hv;
     Object.keys(S.wag||{}).forEach(function(k){ if(S.wagBusy&&S.wagBusy[k]) wg[k]=S.wag[k]; }); S.wag=wg;
     edgeAutoActive(); wagAutoLog();
@@ -973,7 +976,7 @@ async function logLoad(t){
     await ref.set(rec);
     markUsed(t,wd);
     if(tapped){ delete S.wag[t.id]; dref('farms/'+t.farm+'/active/w_'+t.id)['delete']().catch(function(){}); }
-    if(S.loadingTruck===t.id){ S.loadingTruck=''; rpc('wag_loading',{ p_farm:t.farm, p_truck:'' }).catch(function(){}); }
+    if(S.loadingBy && S.loadingBy[t.id]){ delete S.loadingBy[t.id]; if(S.loadingTruck===t.id) S.loadingTruck=''; rpc('wag_loading_done',{ p_farm:t.farm, p_truck:t.id }).catch(function(){}); }
     toast('Truck '+t.no+' loaded at '+timeOf(now)+(mill?' for '+mill:'')+(millTruckNo(t.no,mill,t.farm)?' (mill ID '+millTruckNo(t.no,mill,t.farm)+')':'')+(dm&&!HV_WAGONS?' · '+(dm[0].field||dm[0].track)+' ('+hvCode(dm[0].h)+')':'')+(dm&&HV_WAGONS&&nOpen>1&&!tapped?'. 3 wagons from '+dm[0].h+'.':''), loadsPath(t.farm,wd)+'/'+ref.id);
   }catch(e){ S.lastTap[t.id]=0; fail(e); }
 }
@@ -4867,7 +4870,7 @@ function hvMixText(l){
 function hvQ(n){ return (hvRaw(n).queue)||[]; }
 /* harvesters a tap can take a wagon from: a field open now, or full wagons waiting (the evening round, or an Edge 101's) */
 function hvSources(){ return harvOf(S.farmId).filter(function(n){ return hvState(n) || (HV_WAGONS && hvQ(n).length); }); }
-function hvPick(){ var src=hvSources(); if(S.hvFrom==='*' && src.length>1 && !HV_WAGONS) return '*'; return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
+function hvPick(){ var src=hvSources(); if(S.hvFrom==='*' && src.length>1 && (!HV_WAGONS || wagCfg(S.farmId).mode==='auto')) return '*'; return src.indexOf(S.hvFrom)>=0 ? S.hvFrom : (src[0]||''); }
 function hvBoardHtml(){
   var hs=harvOf(S.farmId), addB=S.canWrite?'<button class="btn ghost sm" type="button" data-act="addHarvOpen">+ Add harvester</button>':'';
   if(!hs.length) return addB?'<div class="card"><div class="lbl">Harvesters</div><p class="small">Add your harvesters to open fields on them, log trucks by harvester and compare the monitor with the mill.</p><div>'+addB+'</div></div>':'';
@@ -4893,6 +4896,12 @@ function hvBoardHtml(){
         '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cur0==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+'</button></div>'+
         '<p class="small">'+(cur0==='*'?'Each truck is shared between the harvesters: by the Edge wagons each one sent since the last truck, or evenly when there are none. The mill\'s tons and TRS follow the share.':'Pick the harvester the truck is loading from, then tap the truck number. The load gets that harvester\'s field, track, variety and stubble. Both harvesters loading the same trucks? Pick '+(src.length===2?'Both':'All')+'.')+'</p>';
     } else if(src.length===1){ var a1=hvState(src[0]); from='<p class="small">Every truck tapped is logged to '+esc(a1.field||a1.track||'')+' ('+esc(src[0])+').</p>'; }
+  } else if(src.length>1 && wagCfg(S.farmId).mode==='auto'){
+    var cA=hvPick();
+    from='<div class="lbl" style="margin-top:10px">'+tr('Next truck tapped is for')+'</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n);
+        return '<button type="button" class="hvchip" data-hvfrom="'+esc(n)+'" aria-pressed="'+(n===cA?'true':'false')+'" style="background:'+hvColor(n)+'">'+esc(hvCode(n))+(a?' · '+esc(a.field||a.track||''):'')+'</button>'; }).join('')+
+      '<button type="button" class="hvchip" data-hvfrom="*" aria-pressed="'+(cA==='*'?'true':'false')+'" style="background:#555">'+(src.length===2?tr('Both'):tr('All')+' '+src.length)+'</button></div>'+
+      '<p class="small">'+tr(cA==='*'?'Both harvesters load the same truck: tap it once.':'Two crews in two field groups: pick a harvester, then tap the truck it is loading. Each harvester\'s wagons drop into its own truck.')+'</p>';
   } else if(src.length>1){
     var cur=hvPick();
     from='<div class="lbl" style="margin-top:10px">Wagons coming from</div><div class="hvchips">'+src.map(function(n){ var a=hvState(n), q=hvQ(n);
@@ -5185,10 +5194,10 @@ function hvTile(t,recent,btn){
     var nb=l.dumps.length; var bar='<em class="wgb" aria-hidden="true">'+wgOrder(nb).map(function(k){ var d=l.dumps[k]; return '<i'+(k===nb-1?' class="top"':'')+' style="background:'+(d?hvColor(d.h):'transparent')+'"></i>'; }).join('')+'</em>';
     return btn.replace(/<\/button>$/, bar+'</button>');
   }
-  var n=wagN(), w=hvWagons(t.id)||Array(n).fill(null), auto=wagCfg(t.farm).mode==='auto', ld=auto&&S.loadingTruck===t.id;
+  var n=wagN(), w=hvWagons(t.id)||Array(n).fill(null), auto=wagCfg(t.farm).mode==='auto', lb=auto&&S.loadingBy&&S.loadingBy[t.id], ld=!!(lb&&lb.length);
   if((!hvOpen().length && !hvQueue().length && !w.some(Boolean) && !ld) || !S.canWrite) return btn;
   var full=w.every(Boolean), nt=full && S.wag[t.id] && (S.wag[t.id].needTap || S.wag[t.id].full);
-  return '<div class="tw"'+(ld?' style="outline:3px solid #2e86de;outline-offset:2px;border-radius:12px"':'')+'>'+btn+(ld&&!full?'<span class="small" style="text-align:center;font-weight:700;color:#2e86de">'+tr('Loading now')+'</span>':'')+(nt?'<span class="small" style="text-align:center;font-weight:700">'+tr('All wagons in: tap')+' '+esc(t.no)+'</span>':'')+'<div class="wg">'+wgOrder(n).map(function(i){ var d=w[i], cls=(i===n-1?'top':'')+(d?' on':'');
+  return '<div class="tw"'+(ld?' style="outline:3px solid #2e86de;outline-offset:2px;border-radius:12px"':'')+'>'+btn+(ld&&!full?'<span class="small" style="text-align:center;font-weight:700;color:#2e86de">'+tr('Loading now')+(lb.indexOf('*')<0?' · '+esc(lb.map(hvCode).join(' + ')):'')+'</span>':'')+(nt?'<span class="small" style="text-align:center;font-weight:700">'+tr('All wagons in: tap')+' '+esc(t.no)+'</span>':'')+'<div class="wg">'+wgOrder(n).map(function(i){ var d=w[i], cls=(i===n-1?'top':'')+(d?' on':'');
     return '<button type="button" data-wg="'+esc(t.id)+'" data-i="'+i+'"'+(cls.trim()?' class="'+cls.trim()+'"':'')+(d?' style="background:'+hvColor(d.h)+'"':'')+' aria-label="Truck '+esc(t.no)+', '+wgName(i,n)+(d?', '+esc(d.h)+' '+esc(d.field||''):', empty')+'">'+(d?esc(hvCode(d.h)):'<span style="color:var(--ink2)">'+(i===n-1?tr('Top'):(i+1))+'</span>')+'</button>'; }).join('')+'</div></div>';
 }
 /* 2026-11-26: auto mode. A tap on a truck makes it the truck loading now; the Edge 101 wagons drop into its boxes as they are
@@ -5197,18 +5206,23 @@ async function wagTruckTap(t){
   if(!S.canWrite || needName()) return;
   var w=hvWagons(t.id), n=wagN(t.farm), inN=w?w.filter(Boolean).length:0;
   if(w && inN===n){ await logLoad(t); return; }
-  if(S.loadingTruck===t.id){ toast(tr('Truck')+' '+t.no+': '+inN+' / '+n+' '+tr('wagons in. Tap a box to add one by hand.')); return; }
-  try{ S.loadingTruck=t.id; S.loadingMine=t.id; last.board=''; schedule();
-    var r=await rpc('wag_loading',{ p_farm:t.farm, p_truck:t.id });
+  /* which harvester this truck is for: the one picked under Wagons coming from; Both (or one harvester) = the shared truck */
+  var pk=hvPick(), src=hvSources(), forH=(pk && pk!=='*' && src.length>1) ? pk : '';
+  var lb=(S.loadingBy&&S.loadingBy[t.id])||[];
+  if(lb.indexOf(forH||'*')>=0){ toast(tr('Truck')+' '+t.no+': '+inN+' / '+n+' '+tr('wagons in. Tap a box to add one by hand.')); return; }
+  try{ S.loadingBy=S.loadingBy||{}; (S.loadingBy[t.id]=S.loadingBy[t.id]||[]).push(forH||'*'); if(!forH) S.loadingTruck=t.id; S.loadingMine=S.loadingMine||{}; S.loadingMine[t.id]=1; last.board=''; schedule();
+    var r=await rpc('wag_loading',{ p_farm:t.farm, p_truck:t.id, p_harvester:forH||null });
     if(r && Array.isArray(r.d)) S.wag[t.id]=r;
     toast(tr('Truck')+' '+t.no+' '+tr('loading now. Wagons from the Edge 101 drop in as they are released.')); last.board=''; schedule(); wagAutoLog();
-  }catch(e){ S.loadingMine=''; fail(e); }
+  }catch(e){ if(S.loadingMine) delete S.loadingMine[t.id]; fail(e); }
 }
 function wagAutoLog(){
-  var tid=S.loadingTruck; if(!tid || tid!==S.loadingMine || !S.farmId || wagCfg(S.farmId).mode!=='auto') return;
-  var w=hvWagons(tid), t=truckById(tid); if(!t || !w || !w.every(Boolean)) return;
-  var k=tid+'|'+((S.wag[tid]&&S.wag[tid].at)||''); S.wagLogged=S.wagLogged||{}; if(S.wagLogged[k]) return; S.wagLogged[k]=1;
-  S.loadingMine=''; logLoad(t);
+  if(!S.farmId || wagCfg(S.farmId).mode!=='auto' || !S.loadingMine) return;
+  Object.keys(S.loadingMine).forEach(function(tid){
+    var w=hvWagons(tid), t=truckById(tid); if(!t || !w || !w.every(Boolean)) return;
+    var k=tid+'|'+((S.wag[tid]&&S.wag[tid].at)||''); S.wagLogged=S.wagLogged||{}; if(S.wagLogged[k]) return; S.wagLogged[k]=1;
+    delete S.loadingMine[tid]; logLoad(t);
+  });
 }
 /* 2026-11-26: check or fix a wagon: anyone on the crew (the harvester operator, a wagon driver). Change its harvester,
    move it to another box (the dump order) or to another truck, or take it out. An Edge wagon keeps its own tons when moved. */
@@ -5429,7 +5443,7 @@ document.addEventListener('change',function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- 'Harvesters':'Cosechadoras','Loading now':'Cargando ahora','All wagons in: tap':'Todas las carretas adentro: toque','split on top':'la partida arriba','bottom':'abajo','Top':'Arriba','Trucks and wagons':'Camiones y carretas','One tap a truck':'Un toque por camión','Tap each wagon (wagon triangle)':'Tocar cada carreta (triángulo)','Edge 101 fills the wagons':'El Edge 101 llena las carretas','Wagons per truck':'Carretas por camión','put in by hand':'puesta a mano','Which harvester':'Qué cosechadora','Dump order: move to':'Orden de vaciado: mover a','Went in another truck':'Fue a otro camión','Move it':'Moverla','Take it out':'Quitarla','Done':'Listo','Changed to':'Cambiada a','Dump order changed.':'Orden de vaciado cambiado.','is full.':'está lleno.','Moved to truck':'Movida al camión','Wagon taken out.':'Carreta quitada.','Settings':'Ajustes','Only for your operation for now.':'Solo para su operación por ahora.','Main farm':'Finca principal','None':'Ninguna','The app opens on it on every phone.':'La aplicación abre en ella en todos los teléfonos.','How trucks are logged':'Cómo se registran los camiones','wagons':'carretas','Truck':'Camión','wagons in. Tap a box to add one by hand.':'carretas adentro. Toque una casilla para agregar una a mano.','loading now. Wagons from the Edge 101 drop in as they are released.':'cargando ahora. Las carretas del Edge 101 entran solas cuando se sueltan.','Pick the harvester (or Both) on the Board, then tap the truck.':'Escoja la cosechadora (o Ambas) en el Tablero y toque el camión.','A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.':'Una casilla por carreta debajo de cada camión. Toque la cosechadora y luego la casilla cuando cada carreta vacía. La última carreta registra el camión.','Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.':'Toque el camión que se está cargando. Cada carreta que una cosechadora suelta en su Edge 101 entra en la siguiente casilla; la última registra el camión. Una cosechadora sin Edge 101: toque su casilla a mano.','Both':'Ambas','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
+ 'Harvesters':'Cosechadoras','Loading now':'Cargando ahora','All wagons in: tap':'Todas las carretas adentro: toque','split on top':'la partida arriba','bottom':'abajo','Top':'Arriba','Trucks and wagons':'Camiones y carretas','One tap a truck':'Un toque por camión','Tap each wagon (wagon triangle)':'Tocar cada carreta (triángulo)','Edge 101 fills the wagons':'El Edge 101 llena las carretas','Wagons per truck':'Carretas por camión','Next truck tapped is for':'El próximo camión que toque es para','Both harvesters load the same truck: tap it once.':'Las dos cosechadoras cargan el mismo camión: tóquelo una vez.','Two crews in two field groups: pick a harvester, then tap the truck it is loading. Each harvester\'s wagons drop into its own truck.':'Dos cuadrillas en dos grupos de campos: escoja una cosechadora y toque el camión que está cargando. Las carretas de cada cosechadora entran en su propio camión.','All':'Todas','put in by hand':'puesta a mano','Which harvester':'Qué cosechadora','Dump order: move to':'Orden de vaciado: mover a','Went in another truck':'Fue a otro camión','Move it':'Moverla','Take it out':'Quitarla','Done':'Listo','Changed to':'Cambiada a','Dump order changed.':'Orden de vaciado cambiado.','is full.':'está lleno.','Moved to truck':'Movida al camión','Wagon taken out.':'Carreta quitada.','Settings':'Ajustes','Only for your operation for now.':'Solo para su operación por ahora.','Main farm':'Finca principal','None':'Ninguna','The app opens on it on every phone.':'La aplicación abre en ella en todos los teléfonos.','How trucks are logged':'Cómo se registran los camiones','wagons':'carretas','Truck':'Camión','wagons in. Tap a box to add one by hand.':'carretas adentro. Toque una casilla para agregar una a mano.','loading now. Wagons from the Edge 101 drop in as they are released.':'cargando ahora. Las carretas del Edge 101 entran solas cuando se sueltan.','Pick the harvester (or Both) on the Board, then tap the truck.':'Escoja la cosechadora (o Ambas) en el Tablero y toque el camión.','A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.':'Una casilla por carreta debajo de cada camión. Toque la cosechadora y luego la casilla cuando cada carreta vacía. La última carreta registra el camión.','Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.':'Toque el camión que se está cargando. Cada carreta que una cosechadora suelta en su Edge 101 entra en la siguiente casilla; la última registra el camión. Una cosechadora sin Edge 101: toque su casilla a mano.','Both':'Ambas','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
  'Wagons filling trucks from':'Carretas llenando camiones de','Edge 101 connection':'Conexión Edge 101','Make key':'Crear clave','New key':'Clave nueva','Turn off':'Apagar','Wagons coming from':'Carretas vienen de','Wagons in this truck':'Carretas en este camión','Empty':'Vacía','Stubble':'Soca','Plant cane':'Caña planta','1st stubble':'1ra soca','2nd stubble':'2da soca','3rd stubble':'3ra soca','4th stubble':'4ta soca','5th stubble':'5ta soca','Older stubble':'Soca más vieja',
  'Open this field':'Abrir este campo','Close that field and open this one':'Cerrar ese campo y abrir este','Close this field':'Cerrar este campo','Harvester monitor tons for this field':'Toneladas del monitor de la cosechadora para este campo','Field acres':'Acres del campo','Cane':'Caña','Burned':'Quemada','Green':'Verde',
  'Weigh wagon scale (lb)':'Báscula de la carreta (lb)','Harvester monitor for the same wagon (lb)':'Monitor de la cosechadora para la misma carreta (lb)','Save weight':'Guardar peso','Harvest by field':'Cosecha por campo','Season':'Temporada','Download CSV':'Descargar CSV','By variety':'Por variedad','By stubble':'Por soca','By variety and stubble':'Por variedad y soca',
@@ -5899,6 +5913,7 @@ var WHATS_NEW=[
   'Board: tap Field to pick the field (or several) on the Farm tab, and the track and variety fill in from the map. On the Farm tab, Harvest has Cutting this field now, which sets it on the Board.',
   'Main farm is saved with your account, so it stays on every phone.',
   'Cane Track: cane another farm cuts for you (Sweet Home cutting for Belmont) stays on its own line in the farm total, the All farms numbers and the saved checkpoints. It is never mixed into the farm\'s harvest group.',
+  'Edge 101 fills the wagons, two crews in two field groups: pick a harvester under Next truck tapped is for, then tap its truck. Each harvester\'s wagons drop into its own truck. Both: one truck for both.',
   'Wagon triangle: tap a filled box to check or fix it: change the harvester, move it in the dump order, move it to another truck, or take it out. Anyone on the crew can, like the harvester operator or a wagon driver.',
   'Settings tab (your operation only, for now: administrators and crew managers): main farm, and Trucks and wagons for each farm. One tap a truck (pick the harvester, or Both); Tap each wagon (the wagon triangle); or Edge 101 fills the wagons: tap the truck loading now and each wagon a harvester releases drops into its next box, and the last wagon logs the truck. Wagons per truck: 2, 3 or 4.',
   'Board: both harvesters loading the same trucks? Pick Both under Trucks loading from. Each truck is shared between them, by the Edge wagons each sent, or evenly, and the mill\'s tons and TRS follow the share.',
