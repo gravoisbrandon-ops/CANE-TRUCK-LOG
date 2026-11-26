@@ -93,6 +93,12 @@ input::placeholder{color:var(--ink2);opacity:.7}
 .wg .wgbox{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:34px;border-radius:8px;border:2px dashed var(--line);background:var(--raise);color:#fff;font:700 13px/1 inherit;text-shadow:0 0 2px rgba(0,0,0,.6);padding:3px 0;min-width:0}
 .wg .wgbox.top{grid-column:1/-1;width:100%;margin:0;position:static}
 .wg .wgbox.on{border-style:solid;border-color:rgba(0,0,0,.25)}
+.wqline{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.wqgrp{display:flex;align-items:center;gap:8px}
+.wqlbl{flex:0 0 64px;font-size:11px;font-weight:700;color:var(--ink2);text-transform:uppercase;letter-spacing:.04em;line-height:1.1}
+.wqrow{display:flex;gap:6px;flex-wrap:wrap}
+.wq{display:flex;flex-direction:column;align-items:center;justify-content:center;width:78px;min-height:54px;padding:3px 2px;border-radius:8px;border:2px solid rgba(0,0,0,.25);color:#fff;text-shadow:0 0 2px rgba(0,0,0,.6);font:600 12px/1.15 inherit;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab}
+.wq b{font-size:14px}.wq small{font-size:10px;opacity:.95;max-width:74px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .wgdrop{outline:3px solid #2e86de !important;outline-offset:2px}
 .wg button.on{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;border-style:solid;border-color:rgba(0,0,0,.25)}
 .wgb{display:grid;grid-template-columns:26px 26px;gap:3px;margin-top:5px}
@@ -987,28 +993,48 @@ function carryHtml(all){
   if(S.canWrite) h+='<div class="row" style="gap:8px"><button class="btn'+(held?'':' ghost')+' sm" type="button" data-act="carryHold">'+tr('Hold for tomorrow')+'</button><button class="btn'+(today1?'':' ghost')+' sm" type="button" data-act="carryToday">'+tr('Truck coming today')+'</button></div>';
   return h+'</div>';
 }
-/* 2026-11-26: the wagons waiting, drawn like trucks with no number: the next truck's load, bottom first, then the one after */
-function waitTrucks(items){
-  var n=wagN(), out='';
-  for(var k=0;k<items.length;k+=n){
-    var d=items.slice(k,k+n); while(d.length<n) d.push(null);
-    out+='<div class="tw"><div class="num" style="border-style:dashed;min-height:70px;cursor:default"><b style="font-size:22px;color:var(--ink2)">'+(k===0?tr('Next'):tr('Then'))+'</b><span>'+tr('no truck yet')+'</span></div><div class="wg">'+wgOrder(n).map(function(i){ var x=d[i];
-      return '<span class="wgbox'+(i===n-1?' top':'')+(x?' on':'')+'"'+(x?' style="background:'+hvColor(x.h)+'"':'')+'>'+(x?'<span class="wgt">'+esc(hvCode(x.h))+(wgNo(x)?' #'+esc(wgNo(x)):'')+'</span>'+(x.t?'<span class="wgf">'+Number(x.t).toFixed(1)+' t</span>':''):'<span style="color:var(--ink2)">'+(i===n-1?tr('Top'):(i+1))+'</span>')+'</span>'; }).join('')+'</div></div>';
-  }
-  return out;
+/* 2026-11-26: the wagons waiting: one line of small blocks in the order they go (the order cut, unless moved).
+   The first three go in the next truck, the next three in the one after. Same keys and order as _wait_list in the database. */
+function waitList(){
+  var out=[];
+  harvOf(S.farmId).forEach(function(h){ var r=hvRaw(h);
+    (r.queue||[]).forEach(function(x,o){ out.push({ key:x.wid||('q:'+h+':'+(x.at==null?'0':x.at)+':'+(o+1)), h:h, kind:'q', at:Number(x.at)||0, ord:o, item:x }); });
+    (r.ew||[]).forEach(function(x,o){ if((Number(x.at)||0)<=Date.now()-48*3600000) return; out.push({ key:x.wid||('e:'+h+':'+(o+1)), h:h, kind:'e', at:Number(x.at)||0, ord:o, item:x }); }); });
+  return out.sort(function(a,b){ return a.at-b.at || (a.kind<b.kind?-1:a.kind>b.kind?1:0) || a.ord-b.ord; });
 }
+function waitBlock(x){ var it=x.item, no=wgNo(it), f=wgFields(x.kind==='e'?{ h:x.h, sp:it.sp }:it);
+  return '<button type="button" class="wq" data-wq="'+esc(x.key)+'" style="background:'+hvColor(x.h)+'"><b>'+esc(hvCode(x.h))+(no?' #'+esc(no):'')+'</b><span>'+(it.t?Number(it.t).toFixed(1)+' t':'&nbsp;')+'</span><small>'+esc(f||'')+'</small></button>'; }
 function waitHtml(){
-  if(!HV_WAGONS) return ''; var items=[];
-  hvQueue().forEach(function(x){ items.push({ h:x.h, f:wgFields(x), at:x.at, t:x.t, wid:x.wid }); });
-  harvOf(S.farmId).forEach(function(h){ ((hvRaw(h).ew)||[]).forEach(function(e){ items.push({ h:h, f:wgFields({ h:h, sp:e.sp }), at:e.at, t:e.t, wid:e.wid, edge:1 }); }); });
-  var op=hvOpen(); if(!items.length && !op.length) return '';
-  items.sort(function(a,b){ return (a.at||0)-(b.at||0); });
-  var add=S.canWrite ? '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+op.map(function(o){ return '<button class="btn sm" type="button" data-hvq="add" data-h="'+esc(o.name)+'" style="background:'+hvColor(o.name)+';border-color:'+hvColor(o.name)+';color:#fff">+ '+esc(hvCode(o.name))+' '+tr('full wagon')+'</button>'; }).join('')+'</div>' : '';
-  return '<div class="card" id="waitCard"><b>'+(items.length ? items.length+' '+tr(items.length>1?'full wagons waiting for a truck':'full wagon waiting for a truck') : tr('No full wagons waiting'))+'</b>'+
-    (items.length?'<div class="grid" style="margin-top:10px">'+waitTrucks(items)+'</div>':'')+
-    add+(items.length?'<p class="small" style="margin-top:6px">'+tr('Tap the truck when it shows up: these go in it, oldest first, bottom first.')+'</p>':'')+'<p class="small" style="margin-top:4px">'+tr('Hold a wagon and drag it to another box or truck, or onto this card to wait.')+'</p>'+
-    edgeLate().map(function(n){ return '<p class="small" style="color:#b00;font-weight:700;margin-top:6px">'+esc(hvCode(n))+': '+tr('Edge 101 not heard for')+' '+Math.round((Date.now()-hvRaw(n).edgeAt)/60000)+' min. '+tr('Check the cab iPad: recorder page open, screen on, Send to the Truck Log on. Use + full wagon until it is back.')+'</p>'; }).join('')+'</div>';
+  if(!HV_WAGONS) return ''; var items=waitList(), op=hvOpen(), n=wagN();
+  if(!items.length && !op.length) return '';
+  var h='<div class="card" id="waitLine" style="padding-block:12px"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap"><b>'+(items.length ? items.length+' '+tr(items.length>1?'full wagons waiting':'full wagon waiting') : tr('No full wagons waiting'))+'</b>'+
+    (items.length?'<span class="small">'+tr('in the order they go')+'</span>':'')+'</div>';
+  if(items.length){ h+='<div class="wqline">';
+    for(var k=0;k<items.length;k+=n){ h+='<div class="wqgrp"><span class="wqlbl">'+(k===0?tr('Next truck'):tr('Truck')+' '+(k/n+1))+'</span><div class="wqrow">'+items.slice(k,k+n).map(waitBlock).join('')+'</div></div>'; }
+    h+='</div>'; }
+  if(S.canWrite) h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+op.map(function(o){ return '<button class="btn sm" type="button" data-hvq="add" data-h="'+esc(o.name)+'" style="background:'+hvColor(o.name)+';border-color:'+hvColor(o.name)+';color:#fff">+ '+esc(hvCode(o.name))+'</button>'; }).join('')+'</div>';
+  h+='<p class="small" style="margin-top:6px">'+tr('Hold a wagon and drag it: to another place in line, into a truck box, or from a truck back into line. Tap one to see it or delete it.')+'</p>';
+  h+=edgeLate().map(function(m){ return '<p class="small" style="color:#b00;font-weight:700;margin-top:6px">'+esc(hvCode(m))+': '+tr('Edge 101 not heard for')+' '+Math.round((Date.now()-hvRaw(m).edgeAt)/60000)+' min. '+tr('Check the cab iPad: recorder page open, screen on, Send to the Truck Log on. Use + full wagon until it is back.')+'</p>'; }).join('');
+  return h+'</div>';
 }
+/* tap a waiting wagon: what it is, move it first, or delete it */
+function wqSheet(key){ var x=waitList().filter(function(z){ return z.key===key; })[0]; if(!x) return;
+  S.edit=null; S.hv=null; S.wgEdit=null; S.wq=key; $('#sheetWrap').hidden=false; var it=x.item, no=wgNo(it), f=wgFields(x.kind==='e'?{ h:x.h, sp:it.sp }:it);
+  $('#sheet').innerHTML='<div class="sheet-head"><h2 id="sheetTitle">'+tr('Waiting wagon')+'</h2><button class="close" type="button" data-act="closeSheet" aria-label="Close">&times;</button></div>'+
+    '<div class="card" style="border-left:8px solid '+hvColor(x.h)+'"><b>'+esc(x.h)+'</b>'+(no?' · '+tr('Edge 101 wagon')+' #'+esc(no):' · '+tr('put in by hand'))+(it.t?' · '+Number(it.t).toFixed(1)+' t':'')+(f?'<br>'+esc(f):'')+(it.at>1e12?'<br><span class="small">'+tr('Full at')+' '+esc(timeOf(it.at))+'</span>':'')+'</div>'+
+    (it.pt?cutMapSvg([{ h:x.h, n:no, t:it.t, pt:it.pt }], S.farmId):'')+
+    '<div class="row" style="gap:8px;margin-top:12px"><button class="btn ghost sm" type="button" data-wqa="first">'+tr('Move to the front')+'</button><button class="btn ghost sm" type="button" data-wqa="last">'+tr('Move to the back')+'</button></div>'+
+    '<div class="row" style="gap:8px;margin-top:12px"><button class="btn warn sm" type="button" data-wqa="del">'+(confirmKey==='wqdel:'+key?tr('Tap again to delete it'):tr('Delete this wagon'))+'</button><button class="btn ghost sm" type="button" data-act="closeSheet">'+tr('Done')+'</button></div>';
+}
+async function wqOrder(keys){ try{ await rpc('wag_wait_order',{ p_farm:S.farmId, p_keys:keys }); poke(); last.board=''; schedule(); }catch(e){ fail(e); } }
+document.addEventListener('click',async function(e){
+  var a=e.target.closest && e.target.closest('[data-wqa]'); if(a && S.wq){ if(!S.canWrite || needName()) return; var key=S.wq, keys=waitList().map(function(z){ return z.key; }).filter(function(k){ return k!==key; }), w=a.getAttribute('data-wqa');
+    if(w==='del'){ if(!confirmTap('wqdel:'+key)){ wqSheet(key); return; } try{ await rpc('wag_wait_del',{ p_farm:S.farmId, p_key:key }); toast(tr('Wagon deleted.')); }catch(x){ fail(x); } closeEdit(); poke(); last.board=''; schedule(); return; }
+    await wqOrder(w==='first'?[key].concat(keys):keys.concat([key])); closeEdit(); return; }
+  var b=e.target.closest && e.target.closest('[data-wq]'); if(!b) return;
+  if(WD.swallow && Date.now()-WD.swallow<600){ WD.swallow=0; return; }
+  wqSheet(b.getAttribute('data-wq'));
+});
 async function carrySet(day){
   if(!S.canWrite || needName()) return; var cn=carryNow(), td=today();
   if(day!==td){   /* held for tomorrow: wagons in trucks that are leaving go back to waiting, so they start whichever truck comes first */
@@ -1131,7 +1157,7 @@ function openEdit(id){
   renderEdit(true);
   var s=document.querySelector('#sheet .close'); if(s) s.focus();
 }
-function closeEdit(){ S.edit=null; S.hv=null; S.wgEdit=null; $('#sheetWrap').hidden=true; $('#sheet').innerHTML=''; }
+function closeEdit(){ S.edit=null; S.hv=null; S.wgEdit=null; S.wq=null; $('#sheetWrap').hidden=true; $('#sheet').innerHTML=''; }
 function renderEdit(force){
   if(!S.edit) return;
   var exists=S.loads.some(function(l){ return l.id===S.edit.id; });
@@ -1416,7 +1442,7 @@ function renderBoard(){
     var tile0=tile; tile=function(t,recent){ return hvTile(t,recent,tile0(t,recent)); };
     var all=S.loads.filter(function(l){ return l.loadedAt; });
     html+=orphanBanner();
-    html+=quotaHtml(all)+waitHtml()+carryHtml(all);   /* 2026-11-26: quota on top, then the wagons waiting, then the trucks */
+    html+=quotaHtml(all)+carryHtml(all);   /* 2026-11-26: quota on top; the wagons waiting sit under the waiting trucks */
     html+=pendingHtml();
     if(S.boardEdit) html+='<div class="card empty"><p><b>Edit mode.</b> Tap a truck to change its number or mill. Tap Done editing when finished. Taps do not log loads right now.</p></div>';
     html+='<div class="lbl">'+(needPick&&!S.boardEdit?'Pick the mill above, then tap the truck':'Waiting trucks · tap the one just loaded')+'</div>';
@@ -1431,6 +1457,7 @@ function renderBoard(){
       });
     }
     else html+='<div class="grid">'+waiting.map(function(t){ return tile(t,false); }).join('')+'</div>';
+    html+=waitHtml();
     var opt=function(list,cur){ return list.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+' min</option>'; }).join(''); };
     html+='<div class="sec-head"><h2>In route <b>'+enRoute.length+'</b></h2><div class="holdbar"><span class="small">Back to Waiting after</span><select id="selRoute" aria-label="Minutes a truck stays In route">'+opt([30,45,60,90,120,180],S.route)+'</select></div></div>';
     if(!enRoute.length) html+='<p class="small">The truck you tap lands here, then returns to Waiting.</p>';
@@ -5400,10 +5427,11 @@ document.addEventListener('click',async function(e){ var b=e.target.closest && e
 /* 2026-11-26: hold a wagon box, drag it to another box (this truck or another one) or onto the waiting card */
 var WD={ on:false, t:null, swallow:0 };
 document.addEventListener('pointerdown',function(e){
-  var b=e.target.closest && e.target.closest('[data-wg]'); if(!b || !S.canWrite) return;
-  var tid=b.getAttribute('data-wg'), i=Number(b.getAttribute('data-i')), w=hvWagons(tid); if(!w || !w[i]) return;
+  var b=e.target.closest && (e.target.closest('[data-wg]')||e.target.closest('[data-wq]')); if(!b || !S.canWrite) return;
   var x0=e.clientX, y0=e.clientY;
-  WD.src={ tid:tid, i:i, el:b, x0:x0, y0:y0, id:e.pointerId };
+  if(b.hasAttribute('data-wq')) WD.src={ wq:b.getAttribute('data-wq'), el:b, x0:x0, y0:y0, id:e.pointerId };
+  else { var tid=b.getAttribute('data-wg'), i=Number(b.getAttribute('data-i')), w=hvWagons(tid); if(!w || !w[i]) return;
+    WD.src={ tid:tid, i:i, el:b, x0:x0, y0:y0, id:e.pointerId }; }
   clearTimeout(WD.t); WD.t=setTimeout(function(){ if(!WD.src) return; WD.on=true; try{ navigator.vibrate && navigator.vibrate(30); }catch(x){}
     var g=b.cloneNode(true); g.id='wgGhost'; g.style.cssText='position:fixed;z-index:999;pointer-events:none;opacity:.9;width:'+b.offsetWidth+'px;height:'+b.offsetHeight+'px;left:'+(x0-b.offsetWidth/2)+'px;top:'+(y0-b.offsetHeight/2)+'px;background:'+getComputedStyle(b).backgroundColor+';color:#fff;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.35)';
     document.body.appendChild(g); b.style.opacity='.35'; }, 380);
@@ -5413,21 +5441,34 @@ document.addEventListener('pointermove',function(e){
   if(!WD.on){ if(Math.abs(e.clientX-WD.src.x0)>10 || Math.abs(e.clientY-WD.src.y0)>10){ clearTimeout(WD.t); WD.src=null; } return; }
   e.preventDefault(); var g=$('#wgGhost'); if(g){ g.style.left=(e.clientX-g.offsetWidth/2)+'px'; g.style.top=(e.clientY-g.offsetHeight/2)+'px'; }
   [].forEach.call(document.querySelectorAll('.wgdrop'),function(x){ x.classList.remove('wgdrop'); });
-  var o=document.elementFromPoint(e.clientX,e.clientY), tgt=o && o.closest && (o.closest('[data-wg]')||o.closest('#waitCard')); if(tgt && tgt!==WD.src.el) tgt.classList.add('wgdrop');
+  var o=document.elementFromPoint(e.clientX,e.clientY), tgt=o && o.closest && (o.closest('[data-wg]')||o.closest('[data-wq]')||o.closest('#waitLine')); if(tgt && tgt!==WD.src.el) tgt.classList.add('wgdrop');
 },{ passive:false });
 async function wdEnd(e){
   clearTimeout(WD.t); var src=WD.src; WD.src=null; if(!src) return;
   if(!WD.on) return; WD.on=false; WD.swallow=Date.now();
   var g=$('#wgGhost'); if(g) g.remove(); src.el.style.opacity='';
   [].forEach.call(document.querySelectorAll('.wgdrop'),function(x){ x.classList.remove('wgdrop'); });
-  var o=document.elementFromPoint(e.clientX,e.clientY), tb=o && o.closest && o.closest('[data-wg]'), wc=o && o.closest && o.closest('#waitCard');
-  var t1=truckById(src.tid), w1=hvWagons(src.tid)||[], x=w1[src.i]; if(!t1 || !x || needName()) return;
+  var o=document.elementFromPoint(e.clientX,e.clientY), tb=o && o.closest && o.closest('[data-wg]'), wc=o && o.closest && o.closest('#waitLine'), tq=o && o.closest && o.closest('[data-wq]');
+  if(needName()) return;
+  var keys=waitList().map(function(z){ return z.key; });
+  if(src.wq){   /* a waiting wagon */
+    try{
+      if(tb){ var t2=truckById(tb.getAttribute('data-wg')); if(!t2) return; var w2=hvWagons(t2.id)||Array(wagN(t2.farm)).fill(null), jj=Number(tb.getAttribute('data-i')), lo2=w2.indexOf(null);
+        if(lo2<0){ toast(tr('Truck')+' '+t2.no+' '+tr('is full.')); return; } if(w2[jj] || lo2<jj) jj=lo2;
+        var r=await rpc('wag_set',{ p_farm:t2.farm, p_truck:t2.id, p_i:jj, p_slot:null, p_from_queue:false, p_harvester:null, p_key:src.wq });
+        if(r && r.d){ S.wag[t2.id]={ d:r.d, at:Date.now() }; await wagHere(t2); toast(tr('In truck')+' '+t2.no+'.'); if(r.d.every(Boolean)){ S.loadingMine=S.loadingMine||{}; S.loadingMine[t2.id]=1; wagAutoLog(); } } }
+      else if(tq && tq.getAttribute('data-wq')!==src.wq){ var rest=keys.filter(function(k){ return k!==src.wq; }), at=rest.indexOf(tq.getAttribute('data-wq')); rest.splice(at<0?rest.length:at,0,src.wq); await wqOrder(rest); }
+      else if(wc && !tq){ await wqOrder(keys.filter(function(k){ return k!==src.wq; }).concat([src.wq])); }
+    }catch(err){ fail(err); }
+    poke(); last.board=''; schedule(); return;
+  }
+  var t1=truckById(src.tid), w1=hvWagons(src.tid)||[], x=w1[src.i]; if(!t1 || !x) return;
   try{
     if(tb){ var tid2=tb.getAttribute('data-wg'), j=Number(tb.getAttribute('data-i')); if(tid2===src.tid && j===src.i) return;
       var t2=truckById(tid2); if(!t2) return; var w2=tid2===src.tid?w1:(hvWagons(tid2)||Array(wagN(t2.farm)).fill(null)), y=w2[j]||null;
       if(tid2===src.tid){ await wgSet(t1,j,x); await wgSet(t1,src.i,y); toast(tr('Dump order changed.')); }
       else { if(!y){ var lo=w2.indexOf(null); if(lo>=0 && lo<j) j=lo; } await wgSet(t2,j,x); await wgSet(t1,src.i,y); await wagHere(t2); toast(tr('Moved to truck')+' '+t2.no+'.'); }
-    } else if(wc && x.h){ await rpc('wag_queue_add',{ p_farm:t1.farm, p_harvester:x.h, p_slot:x }); await wgSet(t1,src.i,null); toast(tr('Wagon back to waiting.')); }
+    } else if((wc || tq) && x.h){ var pos=tq ? keys.indexOf(tq.getAttribute('data-wq')) : keys.length; await rpc('wag_wait_put',{ p_farm:t1.farm, p_slot:x, p_pos:pos<0?keys.length:pos }); await wgSet(t1,src.i,null); toast(tr('Wagon back to waiting.')); }
   }catch(err){ fail(err); }
   poke(); last.board=''; schedule();
 }
@@ -5452,7 +5493,7 @@ async function wagFromWaiting(t, forH){
   var n=wagN(t.farm);
   for(var k=0;k<n;k++){
     var w=hvWagons(t.id)||Array(n).fill(null), i=w.indexOf(null); if(i<0) break;
-    var r=await rpc('wag_set',{ p_farm:t.farm, p_truck:t.id, p_i:i, p_slot:null, p_from_queue:true, p_harvester:forH||null });
+    var r=await rpc('wag_set',{ p_farm:t.farm, p_truck:t.id, p_i:i, p_slot:null, p_from_queue:true, p_harvester:forH||null, p_key:null });
     if(!r || !r.fromQueue) break;
     S.wag[t.id]={ d:r.d, at:Date.now() };
   }
@@ -5691,7 +5732,7 @@ document.addEventListener('change',function(e){
 
 /* ---------- language (English / Spanish) ---------- */
 var ES = {
- 'Harvesters':'Cosechadoras','Next':'Próximo','Then':'Después','no truck yet':'sin camión todavía','was not loading:':'no estaba cargando:','Wagon back to waiting.':'Carreta vuelve a esperar.','Hold a wagon and drag it to another box or truck, or onto this card to wait.':'Mantenga una carreta y arrástrela a otra casilla o camión, o a esta tarjeta para esperar.','not heard for':'sin señal hace','heard':'escuchado','just now':'ahora mismo','ago':'','last wagon':'última carreta','Edge 101 not heard for':'Edge 101 sin señal hace','Check the cab iPad: recorder page open, screen on, Send to the Truck Log on. Use + full wagon until it is back.':'Revise el iPad de la cabina: página del registrador abierta, pantalla prendida, Enviar al Truck Log prendido. Use + carreta llena hasta que vuelva.','Not here: back to waiting':'No está: a esperar','Change':'Cambiar','full wagon':'carreta llena','No full wagons waiting':'Ninguna carreta llena esperando','is loading. No wagons in it yet.':'está cargando. Todavía sin carretas.','wagons. Tap again to send it like that.':'carretas. Toque otra vez para mandarlo así.','loading now.':'cargando ahora.','wagons in.':'carretas adentro.','The next full wagons go in it.':'Las próximas carretas llenas van en él.','wagon in truck':'carreta en el camión','Full wagon':'Carreta llena','full wagons waiting for a truck':'carretas llenas esperando camión','full wagon waiting for a truck':'carreta llena esperando camión','Tap the truck when it shows up: these go in it, oldest first, bottom first.':'Toque el camión cuando llegue: estas entran, la más vieja primero, abajo primero.','Truck not here: its wagons back to waiting':'El camión no está: sus carretas vuelven a esperar','wagons back to waiting.':'carretas vuelven a esperar.','The mills add up to':'Los molinos suman','loads':'cargas','tons':'toneladas','Total, all mills':'Total, todos los molinos','Total quota':'Cuota total','Where it was cut':'Dónde se cortó','dot = where the wagon filled':'punto = donde se llenó la carreta','Today\'s quota':'Cuota de hoy','not set':'sin poner','Set today\'s quota':'Poner la cuota de hoy','Change today\'s quota':'Cambiar la cuota de hoy','Loads':'Cargas','Tons':'Toneladas','Whole farm':'Toda la finca','Leave blank for no quota. A quota sent by the mill\'s scale app replaces it.':'Deje en blanco si no hay cuota. Una cuota enviada por la báscula del molino la reemplaza.','Quota saved.':'Cuota guardada.','full wagons from':'carretas llenas del','full wagon from':'carreta llena del','They go in the first trucks today. Those loads are marked as cut the day before.':'Van en los primeros camiones de hoy. Esas cargas quedan marcadas como cortadas el día anterior.','full wagons not on a truck yet':'carretas llenas todavía sin camión','full wagon not on a truck yet':'carreta llena todavía sin camión','Held for tomorrow: they start tomorrow\'s first trucks.':'Guardadas para mañana: empiezan los primeros camiones de mañana.','A truck is coming today for them.':'Viene un camión hoy para ellas.','Is a truck coming today, or do they wait for tomorrow?':'¿Viene un camión hoy, o esperan a mañana?','Hold for tomorrow':'Guardar para mañana','Truck coming today':'Viene camión hoy','Waiting on a truck today.':'Esperando un camión hoy.','Held for tomorrow.':'Guardadas para mañana.','Cutting now':'Cortando ahora','Change fields on the harvester below (Next field).':'Cambie los campos en la cosechadora abajo (Siguiente campo).','Pick the fields being cut first (Fields cutting now, or Open field on a harvester).':'Primero escoja los campos que se cortan (Campos cortando ahora, o Abrir campo en una cosechadora).','Loading now':'Cargando ahora','All wagons in: tap':'Todas las carretas adentro: toque','split on top':'la partida arriba','bottom':'abajo','Top':'Arriba','Trucks and wagons':'Camiones y carretas','One tap a truck':'Un toque por camión','Tap each wagon (wagon triangle)':'Tocar cada carreta (triángulo)','Edge 101 fills the wagons':'El Edge 101 llena las carretas','Wagons per truck':'Carretas por camión','Next truck tapped is for':'El próximo camión que toque es para','Both harvesters load the same truck: tap it once.':'Las dos cosechadoras cargan el mismo camión: tóquelo una vez.','Two crews in two field groups: pick a harvester, then tap the truck it is loading. Each harvester\'s wagons drop into its own truck.':'Dos cuadrillas en dos grupos de campos: escoja una cosechadora y toque el camión que está cargando. Las carretas de cada cosechadora entran en su propio camión.','All':'Todas','put in by hand':'puesta a mano','Which harvester':'Qué cosechadora','Dump order: move to':'Orden de vaciado: mover a','Went in another truck':'Fue a otro camión','Move it':'Moverla','Take it out':'Quitarla','Done':'Listo','Changed to':'Cambiada a','Dump order changed.':'Orden de vaciado cambiado.','is full.':'está lleno.','Moved to truck':'Movida al camión','Wagon taken out.':'Carreta quitada.','Settings':'Ajustes','Only for your operation for now.':'Solo para su operación por ahora.','Main farm':'Finca principal','None':'Ninguna','The app opens on it on every phone.':'La aplicación abre en ella en todos los teléfonos.','How trucks are logged':'Cómo se registran los camiones','wagons':'carretas','Truck':'Camión','wagons in. Tap a box to add one by hand.':'carretas adentro. Toque una casilla para agregar una a mano.','loading now. Wagons from the Edge 101 drop in as they are released.':'cargando ahora. Las carretas del Edge 101 entran solas cuando se sueltan.','Pick the harvester (or Both) on the Board, then tap the truck.':'Escoja la cosechadora (o Ambas) en el Tablero y toque el camión.','A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.':'Una casilla por carreta debajo de cada camión. Toque la cosechadora y luego la casilla cuando cada carreta vacía. La última carreta registra el camión.','Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.':'Toque el camión que se está cargando. Cada carreta que una cosechadora suelta en su Edge 101 entra en la siguiente casilla; la última registra el camión. Una cosechadora sin Edge 101: toque su casilla a mano.','Both':'Ambas','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
+ 'Harvesters':'Cosechadoras','full wagons waiting':'carretas llenas esperando','full wagon waiting':'carreta llena esperando','in the order they go':'en el orden que van','Next truck':'Próximo camión','Hold a wagon and drag it: to another place in line, into a truck box, or from a truck back into line. Tap one to see it or delete it.':'Mantenga una carreta y arrástrela: a otro lugar en la fila, a una casilla de camión, o de un camión de vuelta a la fila. Tóquela para verla o borrarla.','Waiting wagon':'Carreta esperando','Edge 101 wagon':'carreta Edge 101','Full at':'Llena a las','Move to the front':'Pasar al frente','Move to the back':'Pasar atrás','Tap again to delete it':'Toque otra vez para borrarla','Delete this wagon':'Borrar esta carreta','Wagon deleted.':'Carreta borrada.','In truck':'En el camión','Next':'Próximo','Then':'Después','no truck yet':'sin camión todavía','was not loading:':'no estaba cargando:','Wagon back to waiting.':'Carreta vuelve a esperar.','Hold a wagon and drag it to another box or truck, or onto this card to wait.':'Mantenga una carreta y arrástrela a otra casilla o camión, o a esta tarjeta para esperar.','not heard for':'sin señal hace','heard':'escuchado','just now':'ahora mismo','ago':'','last wagon':'última carreta','Edge 101 not heard for':'Edge 101 sin señal hace','Check the cab iPad: recorder page open, screen on, Send to the Truck Log on. Use + full wagon until it is back.':'Revise el iPad de la cabina: página del registrador abierta, pantalla prendida, Enviar al Truck Log prendido. Use + carreta llena hasta que vuelva.','Not here: back to waiting':'No está: a esperar','Change':'Cambiar','full wagon':'carreta llena','No full wagons waiting':'Ninguna carreta llena esperando','is loading. No wagons in it yet.':'está cargando. Todavía sin carretas.','wagons. Tap again to send it like that.':'carretas. Toque otra vez para mandarlo así.','loading now.':'cargando ahora.','wagons in.':'carretas adentro.','The next full wagons go in it.':'Las próximas carretas llenas van en él.','wagon in truck':'carreta en el camión','Full wagon':'Carreta llena','full wagons waiting for a truck':'carretas llenas esperando camión','full wagon waiting for a truck':'carreta llena esperando camión','Tap the truck when it shows up: these go in it, oldest first, bottom first.':'Toque el camión cuando llegue: estas entran, la más vieja primero, abajo primero.','Truck not here: its wagons back to waiting':'El camión no está: sus carretas vuelven a esperar','wagons back to waiting.':'carretas vuelven a esperar.','The mills add up to':'Los molinos suman','loads':'cargas','tons':'toneladas','Total, all mills':'Total, todos los molinos','Total quota':'Cuota total','Where it was cut':'Dónde se cortó','dot = where the wagon filled':'punto = donde se llenó la carreta','Today\'s quota':'Cuota de hoy','not set':'sin poner','Set today\'s quota':'Poner la cuota de hoy','Change today\'s quota':'Cambiar la cuota de hoy','Loads':'Cargas','Tons':'Toneladas','Whole farm':'Toda la finca','Leave blank for no quota. A quota sent by the mill\'s scale app replaces it.':'Deje en blanco si no hay cuota. Una cuota enviada por la báscula del molino la reemplaza.','Quota saved.':'Cuota guardada.','full wagons from':'carretas llenas del','full wagon from':'carreta llena del','They go in the first trucks today. Those loads are marked as cut the day before.':'Van en los primeros camiones de hoy. Esas cargas quedan marcadas como cortadas el día anterior.','full wagons not on a truck yet':'carretas llenas todavía sin camión','full wagon not on a truck yet':'carreta llena todavía sin camión','Held for tomorrow: they start tomorrow\'s first trucks.':'Guardadas para mañana: empiezan los primeros camiones de mañana.','A truck is coming today for them.':'Viene un camión hoy para ellas.','Is a truck coming today, or do they wait for tomorrow?':'¿Viene un camión hoy, o esperan a mañana?','Hold for tomorrow':'Guardar para mañana','Truck coming today':'Viene camión hoy','Waiting on a truck today.':'Esperando un camión hoy.','Held for tomorrow.':'Guardadas para mañana.','Cutting now':'Cortando ahora','Change fields on the harvester below (Next field).':'Cambie los campos en la cosechadora abajo (Siguiente campo).','Pick the fields being cut first (Fields cutting now, or Open field on a harvester).':'Primero escoja los campos que se cortan (Campos cortando ahora, o Abrir campo en una cosechadora).','Loading now':'Cargando ahora','All wagons in: tap':'Todas las carretas adentro: toque','split on top':'la partida arriba','bottom':'abajo','Top':'Arriba','Trucks and wagons':'Camiones y carretas','One tap a truck':'Un toque por camión','Tap each wagon (wagon triangle)':'Tocar cada carreta (triángulo)','Edge 101 fills the wagons':'El Edge 101 llena las carretas','Wagons per truck':'Carretas por camión','Next truck tapped is for':'El próximo camión que toque es para','Both harvesters load the same truck: tap it once.':'Las dos cosechadoras cargan el mismo camión: tóquelo una vez.','Two crews in two field groups: pick a harvester, then tap the truck it is loading. Each harvester\'s wagons drop into its own truck.':'Dos cuadrillas en dos grupos de campos: escoja una cosechadora y toque el camión que está cargando. Las carretas de cada cosechadora entran en su propio camión.','All':'Todas','put in by hand':'puesta a mano','Which harvester':'Qué cosechadora','Dump order: move to':'Orden de vaciado: mover a','Went in another truck':'Fue a otro camión','Move it':'Moverla','Take it out':'Quitarla','Done':'Listo','Changed to':'Cambiada a','Dump order changed.':'Orden de vaciado cambiado.','is full.':'está lleno.','Moved to truck':'Movida al camión','Wagon taken out.':'Carreta quitada.','Settings':'Ajustes','Only for your operation for now.':'Solo para su operación por ahora.','Main farm':'Finca principal','None':'Ninguna','The app opens on it on every phone.':'La aplicación abre en ella en todos los teléfonos.','How trucks are logged':'Cómo se registran los camiones','wagons':'carretas','Truck':'Camión','wagons in. Tap a box to add one by hand.':'carretas adentro. Toque una casilla para agregar una a mano.','loading now. Wagons from the Edge 101 drop in as they are released.':'cargando ahora. Las carretas del Edge 101 entran solas cuando se sueltan.','Pick the harvester (or Both) on the Board, then tap the truck.':'Escoja la cosechadora (o Ambas) en el Tablero y toque el camión.','A box for each wagon under every truck. Tap the harvester, then the box as each wagon dumps. The last wagon logs the truck.':'Una casilla por carreta debajo de cada camión. Toque la cosechadora y luego la casilla cuando cada carreta vacía. La última carreta registra el camión.','Tap the truck loading now. Each wagon a harvester releases on its Edge 101 drops into the next box; the last one logs the truck. A harvester without an Edge 101: tap its box by hand.':'Toque el camión que se está cargando. Cada carreta que una cosechadora suelta en su Edge 101 entra en la siguiente casilla; la última registra el camión. Una cosechadora sin Edge 101: toque su casilla a mano.','Both':'Ambas','Harvester':'Cosechadora','Open field':'Abrir campo','Next field':'Siguiente campo','Close field':'Cerrar campo','Weigh wagon':'Carreta de pesar','No field open':'Ningún campo abierto',
  'Wagons filling trucks from':'Carretas llenando camiones de','Edge 101 connection':'Conexión Edge 101','Make key':'Crear clave','New key':'Clave nueva','Turn off':'Apagar','Wagons coming from':'Carretas vienen de','Wagons in this truck':'Carretas en este camión','Empty':'Vacía','Stubble':'Soca','Plant cane':'Caña planta','1st stubble':'1ra soca','2nd stubble':'2da soca','3rd stubble':'3ra soca','4th stubble':'4ta soca','5th stubble':'5ta soca','Older stubble':'Soca más vieja',
  'Open this field':'Abrir este campo','Close that field and open this one':'Cerrar ese campo y abrir este','Close this field':'Cerrar este campo','Harvester monitor tons for this field':'Toneladas del monitor de la cosechadora para este campo','Field acres':'Acres del campo','Cane':'Caña','Burned':'Quemada','Green':'Verde',
  'Weigh wagon scale (lb)':'Báscula de la carreta (lb)','Harvester monitor for the same wagon (lb)':'Monitor de la cosechadora para la misma carreta (lb)','Save weight':'Guardar peso','Harvest by field':'Cosecha por campo','Season':'Temporada','Download CSV':'Descargar CSV','By variety':'Por variedad','By stubble':'Por soca','By variety and stubble':'Por variedad y soca',
