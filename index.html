@@ -1128,7 +1128,7 @@ function quotaSheet(){
     keys.map(function(k){ var it=q[k]||(k!=='_farm'||ms.length>1?{}:(q[ms[0]]||{})); return '<div class="lbl" style="margin-top:10px">'+esc(k==='_farm'?(ms.length>1?tr('Total, all mills'):(ms[0]||tr('Whole farm'))):k)+'</div><div class="row" style="grid-template-columns:1fr 1fr;gap:8px">'+
       '<label class="f">'+tr('Loads')+'<input type="number" min="0" step="1" inputmode="numeric" data-qk="'+esc(k)+'" data-qf="loads" value="'+esc(it.loads||'')+'"></label>'+
       '<label class="f">'+tr('Tons')+'<input type="number" min="0" step="1" inputmode="decimal" data-qk="'+esc(k)+'" data-qf="tons" value="'+esc(it.tons||'')+'"></label></div>'; }).join('')+
-    (ms.length>1?'<p class="small" id="qSum"></p>':'')+'<p class="small">'+tr('Leave blank for no quota. A quota sent by the mill\'s scale app replaces it.')+'</p><button class="btn primary" type="button" data-act="quotaSave">'+tr('Save')+'</button>';
+    (ms.length>1?'<p class="small" id="qSum"></p>':'')+'<p class="small">'+tr('Leave blank for no quota. A quota sent by the mill\'s scale app replaces it.')+'</p><button class="btn" type="button" data-act="quotaSave" style="width:100%;margin-top:6px">'+tr('Save')+'</button>';
   quotaSumShow();
 }
 /* the mills added up, under the Total row, as the quota is typed */
@@ -5352,7 +5352,7 @@ function hvEditSlots(e){
   var nW=(e.dumps&&e.dumps.length)||wagN(), d=e.dumps||Array(nW).fill(null), h='<div class="lbl" style="margin-top:6px">Wagons in this truck</div>';
   for(var i=0;i<nW;i++){
     var cur=$('#eDump'+i) ? $('#eDump'+i).value : wgKey(d[i]);
-    h+='<label class="f">Wagon '+(i+1)+' · '+wgName(i,nW)+'<select id="eDump'+i+'"><option value="">Empty</option>'+ch.map(function(x){ return '<option value="'+esc(wgKey(x))+'"'+(wgKey(x)===cur?' selected':'')+'>'+esc(x.h)+' · '+esc(hvText(x))+(x.t?' · '+Number(x.t).toFixed(1)+' t (Edge)':'')+'</option>'; }).join('')+'</select></label>';
+    h+='<label class="f">Wagon '+(i+1)+' · '+wgName(i,nW)+'<select id="eDump'+i+'"><option value="">Empty</option>'+ch.map(function(x){ return '<option value="'+esc(wgKey(x))+'"'+(wgKey(x)===cur?' selected':'')+'>'+esc(x.h)+(wgNo(x)?' #'+esc(wgNo(x)):'')+(x.t?' · '+Number(x.t).toFixed(1)+' t':(x.wid?'':' · '+tr('hand')))+' · '+esc(hvText(x))+'</option>';   /* 2026-11-27: the wagon number first */ }).join('')+'</select></label>';
   }
   return h+'<p class="small">A wagon left Empty leaves it out of the split. When wagons are set, the load\'s track, field and variety follow the field most of its wagons came from.</p>';
 }
