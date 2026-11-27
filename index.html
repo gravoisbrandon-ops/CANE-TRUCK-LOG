@@ -5611,6 +5611,10 @@ async function wagTruckTap(t){
   if(w && inN===n){ await logLoad(t); return; }
   /* which harvester this truck is for: the one picked under Wagons coming from; Both (or one harvester) = the shared truck */
   var pk=hvPick(), src=hvSources(), forH=(wagCfg(t.farm).mode==='auto' && pk && pk!=='*' && src.length>1) ? pk : '';   /* two crews: Edge 101 mode only */
+  /* 2026-11-27: with only one harvester running (the other down for repair, or its Edge 101 quiet 10 min), every truck is
+     the shared truck: a truck tapped "for A" while A is in the shop left B's wagons with no truck to go in */
+  var runN=src.filter(function(n){ var r=hvRaw(n); return !hvDown(n) && !(r.edgeAt && Date.now()-r.edgeAt>=600000); }).length;
+  if(forH && runN<2) forH='';
   var lb=(S.loadingBy&&S.loadingBy[t.id])||[];
   if(lb.length){ if(!inN){ toast(tr('Truck')+' '+t.no+' '+tr('is loading. No wagons in it yet.')); return; }
     if(!confirmTap('send:'+t.id)){ toast(tr('Truck')+' '+t.no+': '+inN+' / '+n+' '+tr('wagons. Tap again to send it like that.')); return; }
