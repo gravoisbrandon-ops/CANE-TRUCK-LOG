@@ -6596,7 +6596,7 @@ function ftStartup(){
 /* ----- What's new: once per version ----- */
 function wnRender(){
   var el=$('#whatsNew'); if(!el) return;
-  var show=S.authed && !S.pending && lsGet('cane-truck-log:seenVersion')!==APP_VERSION;
+  var show=false;   /* 2026-11-28: no notes card on opening (asked to remove it) */
   if(!show){ if(el.innerHTML) el.innerHTML=''; return; }
   if(el.getAttribute('data-v')===APP_VERSION && el.innerHTML) return;
   el.setAttribute('data-v',APP_VERSION);
