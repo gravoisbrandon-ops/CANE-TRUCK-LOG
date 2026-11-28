@@ -1370,6 +1370,7 @@ function renderAll(){
   if(S.tab==='tools' && !(isOffice() || S.isMgr)) S.tab='board';
   $('#tab-board').hidden = $('#tab-report').hidden = $('#tab-setup').hidden = !!S.isMill;
   $('#tab-farm').hidden = !!S.isMill; $('#tab-mill').hidden = !isLead();
+  var wfc=document.querySelector('[data-tool="wagons"]'); if(wfc) wfc.hidden=!S.home; if(!S.home && S.tool==='wagons') S.tool='sugar';   /* Wagon fix: the Edge 101's, the site owner's group only */
   $('#tab-settings').hidden = !(S.home && isLead()); if(S.tab==='settings' && !(S.home && isLead())) S.tab='board';   /* the site owner's operation only, for now */
   if(S.tab==='mill' && !isLead()) S.tab='board';
   if(S.tab==='farm' && S.isMill) S.tab='all';
@@ -2301,7 +2302,7 @@ function wtParseCsv(txt, rec, day){
   return order.filter(function(n){ return rows[n] && rows[n].at; }).map(function(n){ return rows[n]; });
 }
 /* 2026-11-27: Edge wagons that came in and are on no truck, not in the line and not in Not placed (checked every minute) */
-async function missCheck(){ if(!S.canWrite || !S.farmId || document.hidden || !HV_WAGONS) return;
+async function missCheck(){ if(!S.canWrite || !S.farmId || document.hidden || !HV_WAGONS || !S.home) return;
   try{ var r=await rpc('wag_missing',{ p_farm:S.farmId }); var sig=JSON.stringify(r||[]); if(sig!==S.missSig){ S.missSig=sig; S.missing=r||[]; last.board=''; schedule(); } }catch(x){} }
 setInterval(missCheck, 60000); setTimeout(missCheck, 4000);
 document.addEventListener('click',async function(e){ var b=e.target.closest && e.target.closest('[data-miss]'); if(!b || !S.canWrite || needName()) return;
@@ -5255,15 +5256,15 @@ function wgNo(d){ var w=d&&d.wid; if(!w) return ''; var n=String(w).split(':').p
 function hvStatus(n){ var a=hvState(n), r=hvRaw(n), now=Date.now();
   if(!a) return { t:'' };
   if(hvDown(n)) return { t:tr('Down for repair since')+' '+timeOf(r.downAt) };
-  var m=r.edgeAt?Math.round((now-r.edgeAt)/60000):null, last=r.edgeWagAt?' · '+tr('last wagon')+' '+timeOf(r.edgeWagAt):'';
+  var m=(S.home&&r.edgeAt)?Math.round((now-r.edgeAt)/60000):null, last=r.edgeWagAt?' · '+tr('last wagon')+' '+timeOf(r.edgeWagAt):'';
   if(m!=null && m>=10 && quotaMet()) return { t:tr('Not active (quota made)') };
   if(m!=null && m>=10) return { t:tr('Edge 101 not heard for')+' '+m+' min: '+tr('check the cab iPad'), red:true };
-  if(edgeNoWag().indexOf(n)>=0) return { t:tr('No wagons sent')+(r.edgeWagAt?' '+tr('since')+' '+timeOf(r.edgeWagAt):'')+': '+tr('reload the recorder page on its iPad'), red:true };
+  if(S.home && edgeNoWag().indexOf(n)>=0) return { t:tr('No wagons sent')+(r.edgeWagAt?' '+tr('since')+' '+timeOf(r.edgeWagAt):'')+': '+tr('reload the recorder page on its iPad'), red:true };
   if(m!=null && r.edgeWagN!=null) return { t:tr('Loading wagon')+' #'+(Number(r.edgeWagN)+1)+(Number(r.edgeWagN)>0?' · '+tr('last')+' #'+r.edgeWagN+(r.edgeWagAt?' '+timeOf(r.edgeWagAt):''):''), ok:true };   /* 2026-11-27: the recorder's wagon number */
   if(m!=null) return { t:tr('Cutting')+last, ok:true };
   return { t:tr('Cutting')+' · '+tr('opened')+' '+ago(a.openedAt) }; }
 document.addEventListener('click',function(e){ var b=e.target.closest && e.target.closest('[data-hvmore]'); if(!b) return; var n=b.getAttribute('data-hvmore'); S.hvMore=S.hvMore||{}; S.hvMore[n]=!S.hvMore[n]; last.board=''; schedule(); });
-function edgeText(n){ var r=hvRaw(n), at=r.edgeAt; if(!at && !r.edge) return '';
+function edgeText(n){ var r=hvRaw(n), at=r.edgeAt; if(!S.home || (!at && !r.edge)) return '';
   if(!at) return ' · Edge 101';
   var m=Math.round((Date.now()-at)/60000), late=m>=10 && hvState(n);
   if(m>=10 && (hvDown(n) || quotaMet())) return ' · <span style="color:var(--ink2)">Edge 101 '+(hvDown(n)?tr('down for repair'):tr('not active (quota made)'))+'</span>';
@@ -6020,7 +6021,7 @@ async function hfKeysLoad(f){
   HF.keyBusy=false; hfRender();
 }
 function hfKeysHtml(){
-  if(!isLead()) return '';
+  if(!isLead() || !S.home) return '';   /* 2026-11-28: the Edge 101 is the site owner's group only */
   var f=hfKeyFarm(), hs=harvOf(f), ks=HF.keys[f];
   var h='<div class="card"><h2>Edge 101 connection</h2><p class="small">A harvester with an Edge 101 sends its fields and wagons here over Wi-Fi (the iPad hotspot or farm Wi-Fi). It needs its own key. A harvester without one is run by hand on the Board.'+(S.isAdmin&&S.farms.length>1?' Farm: <b>'+esc(farmName(f))+'</b> (pick another farm above).':'')+'</p>';
   if(!hs.length) return h+'<p class="small">Add the harvesters first, under Fields and tracks on the Board.</p></div>';
@@ -6599,7 +6600,7 @@ function wnRender(){
   if(!show){ if(el.innerHTML) el.innerHTML=''; return; }
   if(el.getAttribute('data-v')===APP_VERSION && el.innerHTML) return;
   el.setAttribute('data-v',APP_VERSION);
-  el.innerHTML='<div class="card col" style="margin:12px 0"><h2>What\'s new</h2><ul class="small" style="margin:0;padding-left:18px">'+WHATS_NEW.map(function(x){ return '<li style="margin:4px 0">'+esc(x)+'</li>'; }).join('')+'</ul><div class="addrow"><button class="btn sm" type="button" data-ft="wnOk">Got it</button></div></div>';
+  el.innerHTML='<div class="card col" style="margin:12px 0"><h2>What\'s new</h2><ul class="small" style="margin:0;padding-left:18px">'+WHATS_NEW.filter(function(x){ return S.home || !/Edge|wagon|Settings tab/i.test(x); }).map(function(x){ return '<li style="margin:4px 0">'+esc(x)+'</li>'; }).join('')+'</ul><div class="addrow"><button class="btn sm" type="button" data-ft="wnOk">Got it</button></div></div>';
 }
 
 /* ----- Backup download (administrators) ----- */
@@ -6701,7 +6702,7 @@ function ftWagons(farm){
 function ftFieldWagons(farm, o){ var W=ftWagons(farm); if(!W) return null; var r=[];
   W.forEach(function(w){ w.parts.forEach(function(p){ if(p.key!==o.key) return; r.push({ w:w, f:p.f, t:p.t!=null?p.t:(w.t!=null?w.t*p.f:null), mt:w.mt!=null?w.mt*p.f:null, sug:w.sug!=null?w.sug*p.f:null }); }); });
   return r.sort(function(a,b){ return (b.w.at||0)-(a.w.at||0); }); }
-function ftWagonsHtml(farm, o){
+function ftWagonsHtml(farm, o){ if(!S.home) return '';   /* 2026-11-28: Edge 101 wagons: the site owner's group only */
   if(!FT.loads[farm]){ ftLoadLoads(farm); return '<p class="small">'+tr('Loading the wagons…')+'</p>'; }
   var R=ftFieldWagons(farm,o)||[]; if(!R.length) return '<div class="lbl" style="margin-top:12px">'+tr('Wagons')+'</div><p class="small">'+tr('No wagons logged from this field yet (wagons show once trucks are loaded with wagon boxes).')+'</p>';
   var et=0, mt=0, sg=0, nm=0, ac=0;
@@ -6737,7 +6738,7 @@ function ftMachine(farm, L){
     Object.keys(r.hv).forEach(function(h){ T.hv[h]=1; }); Object.keys(r.days).forEach(function(d){ T.days[d]=1; }); });
   return { rows:rows, T:T };
 }
-function ftMachineHtml(farm, L){
+function ftMachineHtml(farm, L){ if(!S.home) return '';   /* 2026-11-28: Edge 101 numbers: the site owner's group only */
   var M=ftMachine(farm, L), T=M.T, one=L.length===1, pct=function(m,e){ return (m&&e)?((m/e-1)*100>=0?'+':'')+f1((m/e-1)*100)+'%':'–'; };
   var h='<div class="lbl" style="margin-top:10px">'+tr('Machine and mill')+'</div>';
   if(FT.sess[farm]===null) h+='<p class="small">'+tr('Loading harvester sessions…')+'</p>';
@@ -6754,7 +6755,7 @@ function ftMachineHtml(farm, L){
   return h;
 }
 /* the wagons of several fields together: one map, newest first */
-function ftWagonsMultiHtml(farm, L){
+function ftWagonsMultiHtml(farm, L){ if(!S.home) return '';
   if(!FT.loads[farm]){ ftLoadLoads(farm); return '<p class="small">'+tr('Loading the wagons…')+'</p>'; }
   var seen={}, R=[]; L.forEach(function(o){ (ftFieldWagons(farm,o)||[]).forEach(function(r){ var k=(r.w.truck||'')+'|'+r.w.at+'|'+r.w.i; if(seen[k]) return; seen[k]=1; R.push(r); }); });
   R.sort(function(a,b){ return (b.w.at||0)-(a.w.at||0); });
@@ -6843,7 +6844,7 @@ function ftRender(){
   body.innerHTML=h;
   if(mp) ftList();
   ftWxFill(); if(FR.form) ftRecWx();
-  var mc=$('#ftMapCard'); if(mc){ mc.hidden=!mp; if(mp){ var mm=$('#ftModes'); if(mm && !mm.firstChild) mm.innerHTML=FM_MODES.map(function(m){ return '<button type="button" class="fchip" data-fm="'+m[0]+'" aria-pressed="'+(FM.mode===m[0])+'">'+m[1]+'</button>'; }).join(''); fmDraw(); } }
+  var mc=$('#ftMapCard'); if(mc){ mc.hidden=!mp; if(mp){ var mm=$('#ftModes'); if(!S.home && FM_EDGE.indexOf(FM.mode)>=0) FM.mode='cut'; if(mm && !mm.firstChild){ mm.innerHTML=FM_MODES.filter(function(m){ return S.home || FM_EDGE.indexOf(m[0])<0; }).map(function(m){ return '<button type="button" class="fchip" data-fm="'+m[0]+'" aria-pressed="'+(FM.mode===m[0])+'">'+m[1]+'</button>'; }).join(''); } fmDraw(); } }
 }
 function ftList(){
   var el=$('#ftList'), farm=S.farmId; if(!el) return;
@@ -7212,6 +7213,7 @@ var FM={ map:null, layer:null, me:null, farm:'', mode:'cut', sig:'', loading:fal
 var FM_MODES=[['cut','Cut'],['tpa','Tons/ac'],['trs','TRS'],['sug','Sugar/ac'],['brix','Brix'],['fiber','Fiber'],['mvm','Mill vs machine'],['wag','Wagons'],['wyld','Wagon t/ac'],['ymap','Yield map']];
 /* 2026-11-28: the Edge 101 yield map (every point of its path, sent by the cab iPad each hour) */
 var FMY={ days:1, data:{}, busy:{} };
+var FM_EDGE=['wag','wyld','ymap'];   /* map buttons from the Edge 101: the site owner's group only */
 var FMY_C=['#c62828','#e8590c','#f59f00','#fcc419','#c0ca33','#66bb6a','#1b8a3a'];
 async function fmLoadYield(farm){ var k=farm+'|'+FMY.days; if(FMY.busy[k]) return; FMY.busy[k]=true;
   try{ FMY.data[k]={ at:Date.now(), t:await rpc('edge_track_get',{ p_farm:farm, p_days:FMY.days })||[] }; }catch(e){ FMY.data[k]={ at:Date.now(), t:[], err:true }; }
@@ -7339,7 +7341,7 @@ function fmDraw(){
     if(mode==='mvm'){
       var tm=0, tl=0, byH={}; G.forEach(function(o){ var mt=MM.t[o.key], a=A[o.key]; if(!(mt>0 && a.tw>0) || (a.blend && Object.keys(a.blend).length)) return; tm+=mt; tl+=a.tw; var hs=Object.keys(MM.h[o.key]||{}); if(hs.length===1){ var b=byH[hs[0]]||(byH[hs[0]]={ m:0, l:0, n:0 }); b.m+=mt; b.l+=a.tw; b.n++; } });
       var fx=function(l,m){ var d=(l/m-1)*100; return (d>=0?'+':'')+d.toFixed(1)+'% (post-cal ×'+(l/m).toFixed(3)+')'; };
-      lg.innerHTML=!tm?'No fields with both monitor tons and mill tons yet. Monitor tons come from Close field on the Board (or the Edge 101); mill tons from the mill reports.':
+      lg.innerHTML=!tm?'No fields with both monitor tons and mill tons yet. Monitor tons come from Close field on the Board'+(S.home?' (or the Edge 101)':'')+'; mill tons from the mill reports.':
         '<span class="fmk" style="background:'+FM_DIV[0]+'"></span>mill over 10% under <span class="fmk" style="background:'+FM_DIV[1]+'"></span>3–10% under <span class="fmk" style="background:'+FM_DIV[2]+'"></span>within 3% <span class="fmk" style="background:'+FM_DIV[3]+'"></span>3–10% over <span class="fmk" style="background:'+FM_DIV[4]+'"></span>over 10% over'+
         '<div style="margin-top:6px"><b>All fields:</b> machine '+f1(tm)+' t · mill '+f1(tl)+' t · mill '+fx(tl,tm)+'</div>'+
         Object.keys(byH).sort().map(function(h){ var b=byH[h]; return '<div><b>'+esc(h||'Harvester')+'</b> ('+b.n+' field'+(b.n===1?'':'s')+' it cut alone): mill '+fx(b.l,b.m)+'</div>'; }).join('')+
