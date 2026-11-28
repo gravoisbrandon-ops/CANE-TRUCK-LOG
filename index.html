@@ -1030,7 +1030,10 @@ function waitHtml(){
   if(items.length){   /* 2026-11-28: back to one line in the order they go (both machines mixed, blue orange blue orange); one row per truckload */
     var rows=[]; items.forEach(function(x,j){ x.ord=0; if(j%n===0) rows.push([]); rows[rows.length-1].push(x); });
     h+='<div class="wqline">'+rows.map(function(r,k){ return '<div class="wqgrp"><span class="wqlbl">'+tr('Truck')+' '+(k+1)+'</span><div class="wqrow">'+r.map(waitBlock).join('')+'</div></div>'; }).join('')+'</div>'; }
-  if(S.canWrite) h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+op.map(function(o){ return '<button class="btn sm" type="button" data-hvq="add" data-h="'+esc(o.name)+'" style="background:'+hvColor(o.name)+';border-color:'+hvColor(o.name)+';color:#fff">+ '+esc(hvCode(o.name))+'</button>'; }).join('')+'</div>';
+  /* 2026-11-28: no +A / +B for a harvester whose Edge 101 is sending (heard in the last 15 min): its wagons come in by
+     themselves, and a wagon tapped in by hand on top of them made blank boxes that took the next real wagon. Back when it goes quiet. */
+  var opH=op.filter(function(o){ var r=hvRaw(o.name); return !(S.home && r.edgeAt && Date.now()-r.edgeAt<15*60000); });
+  if(S.canWrite && opH.length) h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+opH.map(function(o){ return '<button class="btn sm" type="button" data-hvq="add" data-h="'+esc(o.name)+'" style="background:'+hvColor(o.name)+';border-color:'+hvColor(o.name)+';color:#fff">+ '+esc(hvCode(o.name))+'</button>'; }).join('')+'</div>';
   var prt=wagCfg(S.farmId).fill==='pick' ? wagRoomTruck() : null;
   if(prt && items.length) h+='<p class="small" style="margin-top:6px;font-weight:700;color:#1d5fb8">'+tr('Truck')+' '+esc(prt.no)+' '+tr('is loading: tap the wagons in the order they dump.')+'</p>';
   else if(wagCfg(S.farmId).fill==='pick' && items.length) h+='<p class="small" style="margin-top:6px">'+tr('Tap the truck that is here, then tap the wagons in the order they dump.')+'</p>';
